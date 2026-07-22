@@ -4,6 +4,61 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [Unreleased]
+
+### Changed
+
+- Status bar footer redesigned: no background fill, no "NORMAL" mode label (only INSERT/EDIT/
+  VISUAL are shown), no theme name. Shows contextual metadata instead (character count of the note
+  being read, or note count while browsing notebooks), the current git branch with a dirty/needs-
+  pull indicator, and groups `? help` with the version on the right.
+- Notebook sync is smarter and per-notebook: commit messages are now auto-built from the diff
+  (e.g. "shiki: 2 updated, 1 added") instead of a fixed generic message, so nothing needs to be
+  typed by hand. `auto_push`/`auto_sync`/`auto_sync_every` can be overridden per notebook under
+  `[notebooks.<name>]`, falling back to the global `[git]` defaults.
+
+- Footer git status now shows actual counts instead of a bare marker: `+N` uncommitted files,
+  `↑N` commits not yet pushed, `↓N` commits not yet pulled in — all three at once if applicable
+  (e.g. a diverged branch), instead of just one dirty/clean indicator.
+
+### Fixed
+
+- Notebook-level git shortcuts (`s` sync, `u` push, `p`/`P` pull, `R` set remote) previously only
+  worked while the NOTEBOOKS panel had focus — pressing `u` while reading a note in PREVIEW did
+  nothing at all, with no error or explanation. They now work from any panel, since they act on the
+  selected notebook, not the focused panel.
+- `push` failed with "src refspec 'refs/heads/main' does not match any existing object" on any
+  notebook whose real branch isn't the globally configured one (e.g. `master`, via `pull`'s
+  branch-fallback) — it now pushes whatever branch `HEAD` actually points at instead of a fixed
+  configured name.
+- `push` reported success even when a rejection only surfaced through the remote's per-ref status
+  (e.g. a rejecting server-side hook) rather than as an outright transport error — now verified via
+  `push_update_reference` and turned into a real, reported error.
+- `u` used to push only, without committing first — repeatedly pressing it on a notebook with
+  uncommitted notes reported "pushed" every time while the dirty count never moved, since nothing
+  had actually been committed. `u` now commits (same as `s`) and always pushes; every step (commit
+  outcome, then push outcome including confirmation) is reported explicitly instead of a terse
+  "pushed".
+
+- `PageUp`/`PageDown`/`Home`/`End` didn't work anywhere in the app — not while reading a note in
+  PREVIEW, and not in the which-key popup, logs, global search, or tree view. They now work
+  everywhere: a bigger jump (10 at a time) or first/last, using the same list or scroll each modal
+  already navigates with `j`/`k`.
+- Which-key (`?`) had no scrolling at all — content that didn't fit the small centered popup was
+  silently clipped with no way to see the rest, and any keypress just closed it (so it couldn't be
+  typed into either).
+
+### Added
+
+- `auto_sync`: a notebook can sync itself (commit, + push if `auto_push`) automatically every
+  `auto_sync_every` note changes, instead of only on manual `s`. Push failures (no internet, auth,
+  etc.) never block — the commit already happened locally, and the next attempt just retries.
+- `u`: commits and always pushes, regardless of `auto_push`/`auto_sync` — the explicit "sync right
+  now" override.
+- Which-key (`?`) is now a near-full-screen searchable list instead of a small centered popup: type
+  to filter by key/action/scope, `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` to move the selection,
+  `Enter` runs the highlighted action immediately — doubles as a fast command palette.
+
 ## [0.1.0] - 2026-07-22
 
 Initial release.

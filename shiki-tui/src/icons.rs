@@ -19,3 +19,5 @@ pub const COLUMNS: char = '\u{f0db}'; // columns, panel focus
 pub const LIST: char = '\u{f03a}'; // list-ul, logs modal
 pub const CLIPBOARD: char = '\u{f0ea}'; // clipboard, copy-logs shortcut
 pub const TREE: char = '\u{f1bb}'; // tree, notebook tree view
+pub const DOWNLOAD: char = '\u{f019}'; // download, "needs pull" indicator (behind)
+pub const UPLOAD: char = '\u{f093}'; // upload, "needs push" indicator (ahead)

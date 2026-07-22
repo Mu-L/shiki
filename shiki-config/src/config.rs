@@ -131,6 +131,12 @@ pub struct NotebookKeybindings {
     pub pull_all: String,
     /// Prompts for a URL or local path and sets it as the notebook's `origin`.
     pub set_remote: String,
+    /// Commits (same as `sync`) and always pushes, regardless of the
+    /// resolved `auto_push` policy — the explicit "do it now" override.
+    /// Field-level default so an existing `[keybindings.notebooks]` table
+    /// written before this key existed still deserializes.
+    #[serde(default = "default_push_key")]
+    pub push: String,
 }
 
 impl Default for NotebookKeybindings {
@@ -143,8 +149,13 @@ impl Default for NotebookKeybindings {
             pull: "p".into(),
             pull_all: "P".into(),
             set_remote: "R".into(),
+            push: default_push_key(),
         }
     }
+}
+
+fn default_push_key() -> String {
+    "u".into()
 }
 
 /// Active only while the NOTES panel has focus.
@@ -268,6 +279,16 @@ pub struct GitConfig {
     pub remote: String,
     pub branch: String,
     pub sign_commits: bool,
+    /// When on, a notebook syncs itself (commit, + push if `auto_push`)
+    /// automatically after `auto_sync_every` note changes, instead of only
+    /// on manual `s`. Off by default — this is opt-in per the global
+    /// default, and further overridable per notebook via `[notebooks.<name>]`.
+    #[serde(default)]
+    pub auto_sync: bool,
+    /// How many note changes (new/edited/renamed/deleted/moved) trigger an
+    /// automatic sync when `auto_sync` is on.
+    #[serde(default = "default_auto_sync_every")]
+    pub auto_sync_every: u32,
 }
 
 impl Default for GitConfig {
@@ -279,8 +300,35 @@ impl Default for GitConfig {
             remote: "origin".into(),
             branch: "main".into(),
             sign_commits: false,
+            auto_sync: false,
+            auto_sync_every: default_auto_sync_every(),
         }
     }
+}
+
+fn default_auto_sync_every() -> u32 {
+    5
+}
+
+/// Per-notebook override of the `[git]` sync policy — a notebook connected
+/// to a private work repo might want `auto_push`, while a scratch notebook
+/// with no remote at all shouldn't be forced into the same policy. Any
+/// field left unset here falls back to the global `[git]` default (see
+/// `Config::sync_for`), so most notebooks need no `[notebooks.<name>]`
+/// table at all.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotebookGitOverride {
+    pub auto_push: Option<bool>,
+    pub auto_sync: Option<bool>,
+    pub auto_sync_every: Option<u32>,
+}
+
+/// `[git]` settings resolved for one specific notebook — see `Config::sync_for`.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolvedSync {
+    pub auto_push: bool,
+    pub auto_sync: bool,
+    pub auto_sync_every: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -293,6 +341,25 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub git: GitConfig,
+    /// Per-notebook overrides of `[git]`, keyed by notebook name — e.g.
+    /// `[notebooks.work]` with `auto_push = true`. See `NotebookGitOverride`.
+    #[serde(default)]
+    pub notebooks: std::collections::HashMap<String, NotebookGitOverride>,
+}
+
+impl Config {
+    /// Resolves the sync policy for `notebook_name`: its `[notebooks.<name>]`
+    /// entry (if any) layered on top of the global `[git]` defaults.
+    pub fn sync_for(&self, notebook_name: &str) -> ResolvedSync {
+        let over = self.notebooks.get(notebook_name);
+        ResolvedSync {
+            auto_push: over.and_then(|o| o.auto_push).unwrap_or(self.git.auto_push),
+            auto_sync: over.and_then(|o| o.auto_sync).unwrap_or(self.git.auto_sync),
+            auto_sync_every: over
+                .and_then(|o| o.auto_sync_every)
+                .unwrap_or(self.git.auto_sync_every),
+        }
+    }
 }
 
 impl Config {

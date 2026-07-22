@@ -17,11 +17,17 @@ use shiki_core::{Note, Notebook, NotebookStore, SearchEngine, TagIndex};
 use crate::editor::InlineEditor;
 use crate::icons;
 use crate::input::InputBox;
-use crate::keybindings::{Action, KeyMaps};
+use crate::keybindings::{action_label, Action, KeyMaps};
 use crate::render::{hex_to_color, panel_block};
 use crate::{
     confirm, layout, panel_notebooks, panel_notes, panel_preview, panel_tags, status_bar, which,
 };
+
+/// How many rows/lines `PageUp`/`PageDown` move by, across every scrollable
+/// list and the PREVIEW scroll — one consistent "big jump" step everywhere
+/// instead of matching whatever's currently visible on screen (not knowable
+/// from most of this code without threading the render area through).
+const PAGE_STEP: isize = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -145,7 +151,9 @@ pub struct App {
     pub show_which_key: bool,
     pub show_tags: bool,
     pub status_message: Option<String>,
-    pub git_dirty: bool,
+    /// Branch/dirty/ahead-behind for the selected notebook — refreshed
+    /// whenever the notebook, folder, or notes change (`refresh_git_status`).
+    pub git_status: shiki_core::git::GitStatus,
     pub input: InputBox,
     pub confirm: Option<confirm::ConfirmDialog>,
     pub editor: Option<InlineEditor<'static>>,
@@ -189,6 +197,15 @@ pub struct App {
     search_engine: SearchEngine,
     keymaps: KeyMaps,
     logs_selected: usize,
+    /// Note changes (new/edited/renamed/deleted/moved) since each
+    /// notebook's last sync, keyed by notebook name — drives `auto_sync`'s
+    /// `auto_sync_every` threshold (`note_changed`). Not persisted across
+    /// restarts; a relaunch just starts counting from zero again.
+    pending_changes: std::collections::HashMap<String, u32>,
+    /// Filter query typed into the which-key modal (leader-less, `?`) —
+    /// matches against the key, action label, or scope name.
+    pub which_key_input: InputBox,
+    pub which_key_selected: usize,
 }
 
 /// One recorded status-bar message, with the time it was set — shown in the
@@ -210,10 +227,10 @@ impl App {
             .map(|nb| nb.list_dir(std::path::Path::new("")))
             .transpose()?
             .unwrap_or_default();
-        let git_dirty = notebooks
+        let git_status = notebooks
             .first()
-            .map(|nb| shiki_core::git::status(&nb.path).dirty)
-            .unwrap_or(false);
+            .map(|nb| shiki_core::git::status(&nb.path, &config.git.remote))
+            .unwrap_or_default();
         let available_themes = shiki_config::themes::all();
         let theme_index = available_themes
             .iter()
@@ -236,7 +253,7 @@ impl App {
             show_which_key: false,
             show_tags: false,
             status_message: None,
-            git_dirty,
+            git_status,
             input: InputBox::default(),
             confirm: None,
             editor: None,
@@ -264,6 +281,9 @@ impl App {
             search_engine: SearchEngine::new(),
             keymaps,
             logs_selected: 0,
+            pending_changes: std::collections::HashMap::new(),
+            which_key_input: InputBox::default(),
+            which_key_selected: 0,
         })
     }
 
@@ -455,10 +475,10 @@ impl App {
     }
 
     fn refresh_git_status(&mut self) {
-        self.git_dirty = self
+        self.git_status = self
             .selected_notebook()
-            .map(|nb| shiki_core::git::status(&nb.path).dirty)
-            .unwrap_or(false);
+            .map(|nb| shiki_core::git::status(&nb.path, &self.config.git.remote))
+            .unwrap_or_default();
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -480,11 +500,60 @@ impl App {
             }
             // No list to navigate here — reuse the same keys to scroll the note instead.
             Focus::Preview => {
+                let amount = delta.unsigned_abs() as u16;
                 self.preview_scroll = if delta > 0 {
-                    self.preview_scroll.saturating_add(1)
+                    self.preview_scroll.saturating_add(amount)
                 } else {
-                    self.preview_scroll.saturating_sub(1)
+                    self.preview_scroll.saturating_sub(amount)
                 };
+            }
+        }
+    }
+
+    /// `Home`/`Ctrl+Home`-style jump to the very first item — first
+    /// notebook, first note, or the top of the note in PREVIEW.
+    fn jump_to_start(&mut self) {
+        match self.focus {
+            Focus::Notebooks => self.move_selection(-(self.selected_notebook as isize)),
+            Focus::Notes => self.move_selection(-(self.selected_note as isize)),
+            Focus::Preview => self.preview_scroll = 0,
+        }
+    }
+
+    /// `End`-style jump to the very last item — last notebook, last note, or
+    /// (approximately) the bottom of the note in PREVIEW. The PREVIEW case
+    /// clamps against the panel's actual visible height (via `layout::split`
+    /// on `last_frame_area`, the same layout `draw()` uses) so it lands at
+    /// the last screenful instead of overshooting into blank space the way
+    /// scrolling straight to the raw source line count would; it can still
+    /// slightly undershoot the true last *rendered* line for paragraphs
+    /// that wrap across the panel width, since source line count doesn't
+    /// account for wrapping (a `PageDown` or two closes the gap).
+    fn jump_to_end(&mut self) {
+        match self.focus {
+            Focus::Notebooks => {
+                if !self.notebooks.is_empty() {
+                    let last =
+                        (self.notebooks.len() - 1) as isize - self.selected_notebook as isize;
+                    self.move_selection(last);
+                }
+            }
+            Focus::Notes => {
+                let len = self.combined_len();
+                if len > 0 {
+                    self.move_selection((len - 1) as isize - self.selected_note as isize);
+                }
+            }
+            Focus::Preview => {
+                let total_lines = self
+                    .selected_note()
+                    .map(|n| n.body.lines().count() as u16)
+                    .unwrap_or(0);
+                let content_height = layout::split(self.last_frame_area, self.focus)
+                    .preview
+                    .height
+                    .saturating_sub(2);
+                self.preview_scroll = total_lines.saturating_sub(content_height);
             }
         }
     }
@@ -578,6 +647,15 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.logs_selected = self.logs_selected.saturating_sub(1);
             }
+            KeyCode::PageDown => {
+                self.logs_selected = (self.logs_selected + PAGE_STEP as usize)
+                    .min(self.log_history.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.logs_selected = self.logs_selected.saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.logs_selected = 0,
+            KeyCode::End => self.logs_selected = self.log_history.len().saturating_sub(1),
             // Copies the whole scrollback in one go — meant for pasting the
             // full context of an error somewhere else, not just one line.
             KeyCode::Char('y') | KeyCode::Char('c') => {
@@ -590,6 +668,70 @@ impl App {
                 let count = self.log_history.len();
                 crate::clipboard::copy(&text);
                 self.set_status(format!("copied {count} log lines to clipboard"));
+            }
+            _ => {}
+        }
+    }
+
+    fn open_which_key(&mut self) {
+        self.which_key_input.clear();
+        self.which_key_selected = 0;
+        self.show_which_key = true;
+    }
+
+    /// Every keybinding entry whose key, action label, or scope name
+    /// contains the current query (case-insensitive) — all of them if the
+    /// query is empty. Backs both rendering and `Enter`'s execute-in-place.
+    pub fn which_key_filtered_entries(&self) -> Vec<(&'static str, String, Action)> {
+        let query = self.which_key_input.value.to_lowercase();
+        self.keymaps
+            .entries()
+            .into_iter()
+            .filter(|(scope, key, action)| {
+                query.is_empty()
+                    || key.to_lowercase().contains(&query)
+                    || action_label(*action).to_lowercase().contains(&query)
+                    || scope.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    fn handle_which_key_key(&mut self, key: KeyEvent) {
+        let len = self.which_key_filtered_entries().len();
+        match key.code {
+            KeyCode::Esc => self.show_which_key = false,
+            // Executes the highlighted entry directly — the which-key modal
+            // doubles as a fast command palette: type to filter, Enter to run,
+            // instead of memorizing the key and closing the modal first.
+            KeyCode::Enter => {
+                let action = self
+                    .which_key_filtered_entries()
+                    .get(self.which_key_selected)
+                    .map(|(_, _, action)| *action);
+                if let Some(action) = action {
+                    self.show_which_key = false;
+                    self.handle_action(action);
+                }
+            }
+            KeyCode::Down => {
+                if self.which_key_selected + 1 < len {
+                    self.which_key_selected += 1;
+                }
+            }
+            KeyCode::Up => self.which_key_selected = self.which_key_selected.saturating_sub(1),
+            KeyCode::PageDown => {
+                self.which_key_selected = (self.which_key_selected + 10).min(len.saturating_sub(1))
+            }
+            KeyCode::PageUp => self.which_key_selected = self.which_key_selected.saturating_sub(10),
+            KeyCode::Home => self.which_key_selected = 0,
+            KeyCode::End => self.which_key_selected = len.saturating_sub(1),
+            KeyCode::Backspace => {
+                self.which_key_input.backspace();
+                self.which_key_selected = 0;
+            }
+            KeyCode::Char(c) => {
+                self.which_key_input.push(c);
+                self.which_key_selected = 0;
             }
             _ => {}
         }
@@ -639,6 +781,15 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.tree_selected = self.tree_selected.saturating_sub(1);
             }
+            KeyCode::PageDown => {
+                self.tree_selected = (self.tree_selected + PAGE_STEP as usize)
+                    .min(self.tree_note_count().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.tree_selected = self.tree_selected.saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.tree_selected = 0,
+            KeyCode::End => self.tree_selected = self.tree_note_count().saturating_sub(1),
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.jump_to_tree_selection(),
             _ => {}
         }
@@ -714,6 +865,19 @@ impl App {
             }
             KeyCode::Up => {
                 self.global_search_selected = self.global_search_selected.saturating_sub(1)
+            }
+            KeyCode::PageDown => {
+                self.global_search_selected = (self.global_search_selected + PAGE_STEP as usize)
+                    .min(self.global_search_results.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.global_search_selected = self
+                    .global_search_selected
+                    .saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.global_search_selected = 0,
+            KeyCode::End => {
+                self.global_search_selected = self.global_search_results.len().saturating_sub(1)
             }
             KeyCode::Backspace => {
                 self.global_search_input.backspace();
@@ -832,6 +996,8 @@ impl App {
                     Ok(()) => {
                         let _ = source_nb.delete_note_at(&note.path);
                         self.reload_notes();
+                        self.note_changed(&source_nb.name);
+                        self.note_changed(target_name);
                         self.set_status(format!(
                             "moved '{}' to '{target_name}'",
                             note.frontmatter.title
@@ -861,29 +1027,99 @@ impl App {
             self.set_status("no notebook selected".into());
             return;
         };
-        let message = format!("{}auto sync", self.config.git.commit_prefix);
+        let message = self.run_sync(&nb, false);
+        self.pending_changes.insert(nb.name.clone(), 0);
+        self.set_status(message);
+        self.refresh_git_status();
+    }
+
+    /// Commits (message auto-built from the diff, naming the actual files
+    /// when there are only a few, e.g. "shiki: added (First note.md)") and
+    /// pushes if `force_push` is set or this notebook's resolved policy
+    /// (`Config::sync_for` — global `[git]`, or its `[notebooks.<name>]`
+    /// override) has `auto_push` on. Shared by manual `s` (`force_push:
+    /// false` — respects the configured policy), manual `u` (`force_push:
+    /// true` — always pushes right now regardless of policy), and the
+    /// automatic every-N-changes trigger (`note_changed`, `force_push:
+    /// false`). Every step is reported explicitly (commit outcome, then push
+    /// outcome including remote-side verification) rather than a terse
+    /// "done" — push failures (no internet, auth, rejected by the remote,
+    /// etc.) are surfaced, never panic: the commit already succeeded either
+    /// way, so nothing pending is lost, and the next attempt just retries
+    /// the push.
+    fn run_sync(&self, nb: &Notebook, force_push: bool) -> String {
+        let sync = self.config.sync_for(&nb.name);
+        let summary =
+            shiki_core::git::diff_summary(&nb.path).unwrap_or_else(|_| "changes".to_string());
+        let message = format!("{}{summary}", self.config.git.commit_prefix);
         let mut parts = Vec::new();
         match shiki_core::git::commit_all(&nb.path, &message) {
-            Ok(true) => parts.push("committed".to_string()),
-            Ok(false) => parts.push("no changes".to_string()),
+            Ok(true) => parts.push(format!("committed: {summary}")),
+            Ok(false) => parts.push("no changes to commit".to_string()),
             Err(e) => parts.push(format!("commit error: {e}")),
         }
-        if self.config.git.auto_push {
+        if force_push || sync.auto_push {
             if shiki_core::git::remote_url(&nb.path).is_none() {
                 parts.push("no remote configured (press R, then s)".to_string());
             } else {
-                match shiki_core::git::push(
-                    &nb.path,
-                    &self.config.git.remote,
-                    &self.config.git.branch,
-                ) {
-                    Ok(()) => parts.push("pushed".to_string()),
+                match shiki_core::git::push(&nb.path, &self.config.git.remote) {
+                    Ok(()) => parts.push("pushed and confirmed by remote".to_string()),
                     Err(e) => parts.push(format!("push error: {e}")),
                 }
             }
         }
-        self.set_status(parts.join(", "));
+        parts.join("; ")
+    }
+
+    /// Commits (same as `s`) and always pushes, regardless of the resolved
+    /// `auto_push` policy — the explicit "sync right now" override, for
+    /// pushing without waiting on `auto_sync`'s threshold or turning
+    /// `auto_push` on globally.
+    fn push_notebook(&mut self) {
+        let Some(nb) = self.selected_notebook().cloned() else {
+            self.set_status("no notebook selected".into());
+            return;
+        };
+        let message = self.run_sync(&nb, true);
+        self.pending_changes.insert(nb.name.clone(), 0);
+        self.set_status(format!("'{}': {message}", nb.name));
         self.refresh_git_status();
+    }
+
+    /// Call after any note create/edit/rename/delete/move: bumps
+    /// `notebook_name`'s pending-change count and, if `auto_sync` is on for
+    /// it (`Config::sync_for`) and the count reaches `auto_sync_every`,
+    /// syncs immediately and resets the counter. A no-op notebook whose
+    /// policy has `auto_sync` off, so this is cheap to call unconditionally.
+    fn note_changed(&mut self, notebook_name: &str) {
+        let sync = self.config.sync_for(notebook_name);
+        if !sync.auto_sync {
+            return;
+        }
+        let count = self
+            .pending_changes
+            .entry(notebook_name.to_string())
+            .or_insert(0);
+        *count += 1;
+        let reached = *count >= sync.auto_sync_every.max(1);
+        if !reached {
+            return;
+        }
+        self.pending_changes.insert(notebook_name.to_string(), 0);
+
+        let Some(nb) = self
+            .notebooks
+            .iter()
+            .find(|nb| nb.name == notebook_name)
+            .cloned()
+        else {
+            return;
+        };
+        let message = self.run_sync(&nb, false);
+        self.set_status(format!("auto-sync '{notebook_name}': {message}"));
+        if self.selected_notebook().map(|n| n.name.as_str()) == Some(notebook_name) {
+            self.refresh_git_status();
+        }
     }
 
     fn pull_notebook(&mut self) {
@@ -957,6 +1193,7 @@ impl App {
                     self.selected_note = self.folders.len() + idx;
                 }
                 self.focus = Focus::Notes;
+                self.note_changed(&nb.name);
                 self.set_status(format!("daily note: {}", note.frontmatter.title));
             }
             Err(e) => self.set_status(format!("daily note error: {e}")),
@@ -991,6 +1228,7 @@ impl App {
         if let (Some(editor), Some(mut note)) = (editor, note) {
             note.body = editor.contents();
             let _ = note.save();
+            self.note_changed(&note.frontmatter.notebook);
         }
         self.mode = Mode::Normal;
         self.refresh_notes_preserve_selection();
@@ -1007,6 +1245,7 @@ impl App {
             Action::RenameNotebook => self.start_rename_notebook(),
             Action::DeleteNotebook => self.start_delete_notebook(),
             Action::SyncNotebook => self.sync_notebook(),
+            Action::PushNotebook => self.push_notebook(),
             Action::PullNotebook => self.pull_notebook(),
             Action::PullAllNotebooks => self.pull_all_notebooks(),
             Action::SetRemote => self.start_set_remote(),
@@ -1111,6 +1350,7 @@ impl App {
                     match nb.rename_note_at(&path, &value) {
                         Ok(_) => {
                             self.refresh_notes_preserve_selection();
+                            self.note_changed(&nb.name);
                             self.set_status(format!("renamed to '{value}'"));
                         }
                         Err(e) => self.set_status(format!("could not rename: {e}")),
@@ -1191,6 +1431,7 @@ impl App {
                                 .unwrap_or_default();
                             if let Some(nb) = self.selected_notebook().cloned() {
                                 let _ = nb.delete_note_at(&path);
+                                self.note_changed(&nb.name);
                             }
                             self.reload_notes();
                             self.set_status(format!("deleted '{name}'"));
@@ -1253,17 +1494,36 @@ impl App {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.move_selection(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_selection(-1),
+            KeyCode::PageDown => self.move_selection(PAGE_STEP),
+            KeyCode::PageUp => self.move_selection(-PAGE_STEP),
+            KeyCode::Home => self.jump_to_start(),
+            KeyCode::End => self.jump_to_end(),
             // Yazi-style: right/l/enter opens (a folder, or one level deeper
             // panel-wise), left/h backs out (up a folder, then a panel).
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => self.navigate_forward(),
             KeyCode::Char('h') | KeyCode::Left => self.navigate_backward(),
             KeyCode::Tab => self.focus = self.focus.next(),
-            KeyCode::Char('?') => self.show_which_key = true,
+            KeyCode::Char('?') => self.open_which_key(),
             code if self.keymaps.is_quit(code) => self.should_quit = true,
             code if self.keymaps.is_leader(code) => self.leader_pending = true,
             _ => {
                 if let Some(action) = self.keymaps.resolve_scoped(self.focus, key.code) {
                     self.handle_action(action);
+                } else if let Some(action) = self.keymaps.resolve_scoped(Focus::Notebooks, key.code)
+                {
+                    // Git actions operate on whichever notebook is
+                    // *selected*, not on whichever panel is *focused* — `u`
+                    // (push) while reading a note in PREVIEW should still
+                    // push that note's notebook instead of silently doing
+                    // nothing just because NOTEBOOKS isn't the active panel.
+                    // Deliberately NOT NewNotebook/RenameNotebook/
+                    // DeleteNotebook here: those share letters with
+                    // Notes-scope actions (`a`/`r`/`d`), and falling back to
+                    // them from the wrong panel would be a dangerous
+                    // accidental-notebook-deletion footgun.
+                    if is_notebook_git_action(action) {
+                        self.handle_action(action);
+                    }
                 }
             }
         }
@@ -1271,7 +1531,7 @@ impl App {
 
     pub fn on_key(&mut self, key: KeyEvent) {
         if self.show_which_key {
-            self.show_which_key = false;
+            self.handle_which_key_key(key);
             return;
         }
         if self.show_tags {
@@ -1314,6 +1574,21 @@ impl App {
 /// a plain name — covers the schemes/forms an `origin` remote can actually
 /// take (`set_remote` accepts the same set): `https://`, `git@host:...`
 /// (SSH scp-like syntax), `ssh://`, `git://`.
+/// Notebook actions that operate on "the selected notebook" as a concept
+/// rather than "the NOTEBOOKS panel" — safe to reach from any focus (see the
+/// fallback in `handle_normal_key`). Intentionally excludes New/Rename/
+/// Delete-notebook, which share letters with Notes-scope actions.
+fn is_notebook_git_action(action: Action) -> bool {
+    matches!(
+        action,
+        Action::SyncNotebook
+            | Action::PullNotebook
+            | Action::PullAllNotebooks
+            | Action::SetRemote
+            | Action::PushNotebook
+    )
+}
+
 fn looks_like_git_url(s: &str) -> bool {
     s.starts_with("http://")
         || s.starts_with("https://")
@@ -1393,8 +1668,12 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         terminal.draw(|frame| draw(frame, app))?;
 
         if let Some((path, editor)) = app.want_external_edit.take() {
+            let notebook_name = app.selected_notebook().map(|nb| nb.name.clone());
             suspend_and_edit(terminal, &editor, &path)?;
             app.refresh_notes_preserve_selection();
+            if let Some(notebook_name) = notebook_name {
+                app.note_changed(&notebook_name);
+            }
         }
 
         if event::poll(Duration::from_millis(100))? {

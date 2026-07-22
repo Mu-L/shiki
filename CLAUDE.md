@@ -38,10 +38,47 @@ XDG_CONFIG_HOME=/tmp/shiki-test-config XDG_DATA_HOME=/tmp/shiki-test-data \
 
 `[workspace.package] version` in the root `Cargo.toml` is the single version number for the whole
 app — every crate inherits it via `version.workspace = true`, so there's exactly one place to bump.
-The TUI status bar shows it (right-aligned in the footer) via `env!("CARGO_PKG_VERSION")` in
-`shiki-tui/src/status_bar.rs`, which reads shiki-tui's own (inherited) manifest version at compile
-time. Cutting a release is two steps: bump the workspace version, add a `CHANGELOG.md` entry
-(follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)).
+The TUI status bar shows it (right-aligned in the footer, paired with the `? help` hint) via
+`env!("CARGO_PKG_VERSION")` in `shiki-tui/src/status_bar.rs`, which reads shiki-tui's own
+(inherited) manifest version at compile time. Cutting a release is two steps: bump the workspace
+version, add a `CHANGELOG.md` entry (follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)).
+
+**The status bar paints no background** (`status_bar.rs` — no `.bg(...)` anywhere, spans just use
+themed fg colors on the terminal's own background) and only shows what's contextually useful: the
+mode label is omitted entirely in `Mode::Normal` (only INSERT/EDIT/VISUAL are worth flagging),
+there's no theme-name display, and the metadata block is focus-dependent — character count of the
+selected note while reading/editing one (`Focus::Notes`/`Focus::Preview` with a note selected), or
+the note count in view otherwise (e.g. still browsing NOTEBOOKS). Git info comes from
+`App::git_status: shiki_core::git::GitStatus` — `git::status(path, remote)` resolves `HEAD`'s
+branch name and runs `repo.graph_ahead_behind` against `refs/remotes/{remote}/{branch}` (from the
+last fetch — it doesn't talk to the network itself). All three counts render together when
+nonzero rather than only ever showing one: `+{dirty_count}` (uncommitted files), `{UPLOAD
+icon}{ahead}` (local commits not yet pushed), `{DOWNLOAD icon}{behind}` (remote commits not yet
+pulled in) — a diverged branch after a `pull` can genuinely show both ahead *and* behind at once,
+verified by pushing a divergent commit from a second clone and pulling: `main +0 ↑1 ↓1`. Don't
+collapse this back to a single dirty/clean marker; the counts were added specifically because a
+bare marker didn't say how much was pending.
+
+**Notebook-scoped git actions (`Action::SyncNotebook`/`PullNotebook`/`PullAllNotebooks`/
+`SetRemote`/`PushNotebook`) resolve regardless of which panel has focus, not only when NOTEBOOKS
+does** (`handle_normal_key`'s fallback: if `resolve_scoped(self.focus, code)` misses, it also tries
+`resolve_scoped(Focus::Notebooks, code)` and accepts the result only if `is_notebook_git_action`
+allows it). These act on "the selected notebook" as a concept, not on "the NOTEBOOKS panel" — `u`
+(push) while reading a note in PREVIEW previously did nothing at all, silently, since `u` isn't
+bound in the `notes`/`preview` scope maps and the old code never fell back to `notebooks`.
+Deliberately NOT extended to `NewNotebook`/`RenameNotebook`/`DeleteNotebook`: those share letters
+with Notes-scope actions (`a`/`r`/`d`), so falling back to them from PREVIEW (which has no `d`
+binding of its own) would silently delete the whole notebook instead of doing nothing — keep that
+whitelist narrow if adding new notebook actions.
+
+**`git::push` takes no branch argument — it pushes whatever `HEAD` actually points at.** It used to
+take `branch: &str` and always push `refs/heads/{branch}:refs/heads/{branch}` using
+`config.git.branch` (default `"main"`). But `pull`'s branch-fallback (above) means the local repo's
+real branch can legitimately be something else, e.g. `master` — pushing the fixed configured name
+then failed with "src refspec 'refs/heads/main' does not match any existing object" the moment it
+didn't exist locally. `push` now resolves the branch itself via `repo.head()?.shorthand()`, so it's
+never out of sync with what `pull` actually created. Don't reintroduce a `branch` parameter here;
+if a caller needs to know which branch got pushed, read it off `GitStatus.branch` instead.
 
 ## Architecture
 
@@ -149,6 +186,44 @@ you move the cursor and only persists to `config.toml` on `Enter`; `Esc` reverts
 dead code — the notes-scope search (`/`) and global search (leader+`g`) were both built directly
 in `App` instead.
 
+**`PageUp`/`PageDown`/`Home`/`End` are handled explicitly everywhere they're needed — they are not
+free from ratatui/tui-textarea.** The one place they *do* come for free is the inline editor
+(`handle_edit_key` forwards the raw `KeyEvent` straight to `tui-textarea`'s `TextArea::input`,
+which maps `Key::PageUp/PageDown` to its own `Scrolling::PageUp/PageDown` and `Key::Home/End` to
+"start/end of the current line" — verified against the vendored crate source, not assumed). Every
+other list/scroll in shiki-tui needed its own handling: `App::move_selection`'s `Focus::Preview`
+arm used to always scroll by exactly 1 regardless of the `delta` passed in (a latent bug — nothing
+called it with anything but ±1 until `PageUp`/`PageDown` needed ±`PAGE_STEP`); it now scrolls by
+`delta.unsigned_abs()`. `jump_to_start`/`jump_to_end` (bound to `Home`/`End` in `handle_normal_key`)
+reuse `move_selection`'s existing shift+reload logic for NOTEBOOKS/NOTES by computing the exact
+delta to land on index 0 or `len - 1`, rather than duplicating that logic. The PREVIEW `End` case is
+the one approximation: it can't know the note's true *rendered* (wrapped) line count from outside
+`draw()`, so it clamps the raw source line count against the preview panel's actual height (via
+`layout::split(self.last_frame_area, self.focus).preview.height` — reusing the exact layout
+`draw()` itself uses) so it lands at the last screenful instead of overshooting into blank space
+(an actual bug hit and fixed while building this — the first version scrolled straight to the raw
+line count with no ceiling at all). The same four keys were also added to every scrollable modal
+(logs, global search, tree view) using each one's own existing selected-index field — no new
+pattern, just filling in a gap that existed since those modals were first built.
+
+**The which-key modal (`?`, `shiki-tui/src/which.rs` + `App::open_which_key`/
+`handle_which_key_key`/`which_key_filtered_entries`) is a near-full-screen searchable list, not the
+old small centered `Paragraph` popup.** It used to size itself to content height clamped against
+the terminal (`entries.len() + scopes + 3` capped at `area.height - 2`) with *no* scroll state at
+all — anything that didn't fit was silently clipped, and `on_key` treated which-key as modal-that-
+closes-on-any-key (`if self.show_which_key { self.show_which_key = false; return; }`), so it
+couldn't be typed into or scrolled either. It's now a `List`/`ListState` (same widget-based pattern
+as logs/tree/global-search) filling most of the frame (`which.rs::render`'s `margin_x`/`margin_y` is
+`area.{width,height} / 10`), with `App.which_key_input: InputBox` filtering `KeyMaps::entries()` by
+key/action-label/scope substring (case-insensitive, `App::which_key_filtered_entries`) and
+`App.which_key_selected` indexing into the *filtered* list. It doubles as a command palette:
+`Enter` looks up the highlighted filtered entry's `Action` and calls `handle_action` on it directly,
+closing the modal first — same "search-then-execute" pattern as global search's jump-to-hit.
+Typed characters go to the filter (not `j`/`k` navigation, since `j`/`k` are themselves things a
+user might type to search for "jump"/"key") — navigation is arrows + PageUp/PageDown/Home/End only,
+matching the convention global search already established for the same reason. Don't revert this to
+`on_key`'s blanket "any key closes it," and don't add `j`/`k` as navigation shortcuts here.
+
 **Tree view (notes-scope `T`, `shiki-tui/src/tree.rs` + `App::open_tree`/`handle_tree_key`) is a
 read-only modal, not a persistent alternate mode for the Notes panel.** `tree::build(nb)` walks the
 whole notebook recursively (depth-first, folders — and everything under them — before the notes at
@@ -218,6 +293,58 @@ configured. `pull_notebook` also checks `git::remote_url(&nb.path).is_none()` *b
 `pull`, since `p` always acts on whichever notebook is currently selected — after switching
 notebooks or relaunching that might not be the one a remote was set on, and letting it fail inside
 git2 produced an opaque "remote 'origin' does not exist" with no indication of which notebook.
+
+**Sync policy (`auto_push`/`auto_sync`/`auto_sync_every`) is resolved per notebook, not read
+straight off the global `[git]` config.** `Config::sync_for(notebook_name) -> ResolvedSync`
+(`shiki-config/src/config.rs`) layers an optional `[notebooks.<name>]` override
+(`NotebookGitOverride`, every field `Option<_>`) on top of the global `[git]` defaults — a
+notebook connected to a private work repo can have `auto_push = true` while a scratch notebook
+with no remote stays untouched, without a global setting forcing one policy on every notebook.
+`App::run_sync` (shared by manual `s` and the automatic trigger below) is the only thing that
+should read `sync.auto_push`; don't reintroduce a direct `self.config.git.auto_push` read in
+notebook-specific code.
+
+**`App::run_sync`'s commit message names the actual files, not a bare count.**
+`shiki_core::git::diff_summary(path)` buckets `repo.statuses(None)` into added/updated/renamed/
+deleted, and for each bucket names the files directly when there are ≤3 (`"added (First note.md)"`),
+falling back to a count only once a bucket gets big (`"12 updated"`) so the message doesn't become
+unreadable; `run_sync` prefixes the joined result with `config.git.commit_prefix`. `run_sync` also
+takes a `force_push: bool` and reports every step explicitly (`"committed: …"` or `"no changes to
+commit"`, then `"pushed and confirmed by remote"` or the specific error) joined with `"; "` — a
+terse "pushed" previously gave no way to tell whether anything had actually changed or whether the
+push was real.
+
+**`u` (`Action::PushNotebook` → `App::push_notebook`) commits (same as `s`) and always pushes,
+regardless of the resolved `auto_push` policy** — it's `run_sync(nb, force_push: true)`, the
+explicit "sync right now" override, not a push-only action. It used to skip the commit step
+entirely, which meant repeatedly pressing `u` on a notebook with uncommitted notes kept reporting
+"pushed" while the dirty count in the footer never moved, since nothing had actually been committed
+— confusing, since "pushed" sounds like something happened. Manual `s` and the automatic
+every-N-changes trigger (`App::note_changed`) both call `run_sync(nb, force_push: false)` instead,
+so they still respect the resolved policy.
+
+**`App::note_changed(notebook_name)` drives `auto_sync`'s every-N-changes trigger** — called after
+every note create/edit (both `save_and_exit_edit` and the external-edit finalize in `run()`)/
+rename/delete/move (bumps both the source and destination notebook for a move). It's a no-op
+unless `Config::sync_for` says `auto_sync` is on for that notebook; when the per-notebook
+`pending_changes: HashMap<String, u32>` counter (not persisted — resets to empty on relaunch)
+reaches `auto_sync_every`, it calls `run_sync` and zeroes the counter. A failed push inside
+`run_sync` (no internet, auth, rejected by the remote, etc.) is reported in the status/log like any
+other error and never panics or blocks — the commit already succeeded locally regardless, so the
+next sync attempt (manual `s`/`u`, or the next automatic trigger) just retries the push with
+nothing lost.
+
+**`git::push` actually verifies the push landed instead of trusting `Remote::push`'s `Ok(())` at
+face value.** libgit2 reports the network round-trip succeeding even when the *server* rejected the
+specific ref update (e.g. a rejecting pre-receive hook) — that only surfaces through the
+`push_update_reference` callback, registered in `push` and turned into a real `Err` if the server
+sent back a rejection status. (The far more common non-fast-forward rejection — diverged
+history — is already caught earlier, directly as an `Err` from `Remote::push` itself; verified by
+pushing a divergent commit from a second clone and confirming `push` reports the conflict instead
+of silently claiming success.) Note: this callback path can't be exercised against a `file://`/local
+path remote in tests — libgit2's local transport writes directly to the target repo's refs and
+bypasses server-side hooks entirely, unlike `git push` CLI to a local path; it only matters for the
+real HTTP/SSH transports pushes normally use.
 
 **Status messages funnel through `App::set_status`, not direct `self.status_message = Some(...)`
 assignment** — every call site was migrated to `set_status` specifically so each message also gets

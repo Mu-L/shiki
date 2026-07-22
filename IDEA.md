@@ -172,12 +172,17 @@ table: `[keybindings.global]` (needs the leader key first),
 | Key | Action |
 |---|---|
 | `j` / `k` / `↓` / `↑` | Navigate lists (down / up); scrolls the note while PREVIEW is focused |
+| `PageDown` / `PageUp` | Jump 10 at a time — same lists/scroll as `j`/`k`, just a bigger step |
+| `Home` / `End` | Jump to the first/last notebook or note, or the top/bottom of the note in PREVIEW |
 | `l` / `→` / `enter` | Go one level deeper (Yazi-style): NOTEBOOKS → NOTES → PREVIEW |
 | `h` / `←` | Go back one level (Yazi-style) |
 | `tab` | Cycle focus between panels |
-| `?` | Which-key popup, grouped by scope |
+| `?` | Which-key — near-full-screen list of every binding, doubling as a command palette: type to filter (by key, action, or scope), `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` move the selection, `enter` runs the highlighted action immediately, `Esc` just closes |
 | `q` | Quit |
 | `Esc` | Back to NORMAL / close popup / cancel leader |
+
+`PageUp`/`PageDown`/`Home`/`End` also work inside every scrollable modal (which-key, logs, global
+search, tree view) using the same list/selection they already navigate with `j`/`k`.
 
 #### `[keybindings.global]` — press `leader` (default `space`), then:
 
@@ -195,10 +200,20 @@ table: `[keybindings.global]` (needs the leader key first),
 | `a` | New notebook. If the name entered is a git URL (`https://`, `git@host:...`, `ssh://`, `git://`) instead of a plain name, the notebook name is derived from the repo instead, and the notebook is created, its remote set, and pulled immediately — importing an existing repo is just `a` + paste URL + Enter |
 | `r` | Rename notebook |
 | `d` | Delete notebook (with confirmation) |
-| `s` | Git sync (commit, + push if `git.auto_push`) |
+| `s` | Git sync — commit (message auto-built from the diff, naming files directly for a small change, e.g. "shiki: added (First note.md)"), + push if the resolved policy's `auto_push` is on |
+| `u` | Sync and always push, regardless of `auto_push`/`auto_sync` — the explicit "do it now" override |
 | `p` | Git pull (fetch + fast-forward merge from the configured remote) |
 | `P` | Git pull for every notebook that has a remote configured |
 | `R` | Set the notebook's git remote (URL or local path) |
+
+Beyond manual `s`, a notebook can sync **itself** in the background: `[git] auto_sync = true` (off by
+default) syncs automatically every `auto_sync_every` note changes (new/edited/renamed/deleted/moved),
+not just on manual `s`. Since not every notebook should behave the same way — a private work repo
+you always want pushed vs. a scratch notebook with no remote at all — `auto_push`, `auto_sync`, and
+`auto_sync_every` can all be overridden per notebook under `[notebooks.<name>]` in `config.toml`,
+falling back to the global `[git]` values for anything left unset. A failed push (no internet, auth,
+etc.) never blocks or loses anything — the commit already happened locally either way, and the next
+sync attempt (manual or automatic) just tries the push again.
 
 #### `[keybindings.notes]` — active while NOTES is focused
 
@@ -392,6 +407,15 @@ commit_prefix = "shiki: "
 remote = "origin"
 branch = "main"
 sign_commits = false
+auto_sync = false
+auto_sync_every = 5
+
+# Optional per-notebook overrides of [git] — anything left unset here falls
+# back to the global values above.
+[notebooks.work]
+auto_sync = true
+auto_sync_every = 3
+auto_push = true
 ```
 
 ---

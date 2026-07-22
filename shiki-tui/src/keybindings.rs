@@ -20,6 +20,7 @@ pub enum Action {
     PullNotebook,
     PullAllNotebooks,
     SetRemote,
+    PushNotebook,
     // Notes-focus
     NewNote,
     RenameNote,
@@ -104,6 +105,7 @@ impl KeyMaps {
             Action::PullAllNotebooks,
         );
         bind(&mut notebooks, &cfg.notebooks.set_remote, Action::SetRemote);
+        bind(&mut notebooks, &cfg.notebooks.push, Action::PushNotebook);
 
         let mut notes = HashMap::new();
         bind(&mut notes, &cfg.notes.new, Action::NewNote);
@@ -207,6 +209,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::PullNotebook => "git pull",
         Action::PullAllNotebooks => "git pull (all notebooks)",
         Action::SetRemote => "set git remote",
+        Action::PushNotebook => "sync + push now (ignores auto_push)",
         Action::NewNote => "new note",
         Action::RenameNote => "rename note",
         Action::DeleteNote => "delete note",
@@ -232,7 +235,8 @@ pub fn action_icon(action: Action) -> char {
         Action::SyncNotebook
         | Action::PullNotebook
         | Action::PullAllNotebooks
-        | Action::SetRemote => crate::icons::GIT,
+        | Action::SetRemote
+        | Action::PushNotebook => crate::icons::GIT,
         Action::EditInline | Action::EditExternal => crate::icons::PENCIL,
         Action::DailyNote => crate::icons::CALENDAR,
         Action::MoveNote => crate::icons::ARROW,

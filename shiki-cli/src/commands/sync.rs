@@ -14,8 +14,8 @@ pub fn run(store: &NotebookStore, notebook: &str, git_config: &GitConfig) -> Res
         println!("'{notebook}' has no changes");
     }
     if git_config.auto_push {
-        git::push(&nb.path, &git_config.remote, &git_config.branch)?;
-        println!("pushed to {}/{}", git_config.remote, git_config.branch);
+        git::push(&nb.path, &git_config.remote)?;
+        println!("pushed to {}", git_config.remote);
     }
     Ok(())
 }

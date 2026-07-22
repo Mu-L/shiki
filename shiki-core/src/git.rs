@@ -18,7 +18,7 @@ use crate::{Error, Result};
 /// works in their shell without prompting, this does too — then finally
 /// anonymous access (works for public repos over HTTPS). A capped attempt
 /// counter avoids looping forever if the server keeps rejecting every kind.
-fn build_callbacks() -> RemoteCallbacks<'static> {
+fn build_callbacks<'a>() -> RemoteCallbacks<'a> {
     let attempts = Cell::new(0u32);
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |url, username_from_url, allowed| {
@@ -55,11 +55,19 @@ fn build_callbacks() -> RemoteCallbacks<'static> {
 }
 
 /// Sync status of a notebook.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GitStatus {
     pub is_repo: bool,
     pub dirty: bool,
+    /// How many files have uncommitted changes (working tree + index).
+    pub dirty_count: usize,
+    /// Current branch (`HEAD`'s shorthand name), if `HEAD` points at one.
+    pub branch: Option<String>,
+    /// Local commits not yet pushed, relative to `refs/remotes/{remote}/{branch}`.
     pub ahead: usize,
+    /// Remote commits not yet pulled in, relative to the same ref. Only
+    /// reflects what was fetched at the last `pull`/`pull_all` — computing
+    /// this doesn't itself talk to the network.
     pub behind: usize,
 }
 
@@ -112,15 +120,109 @@ pub fn commit_all(path: &Path, message: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Pushes to `remote`/`branch`, authenticating via SSH agent (for `git@…`
-/// remotes) or the system git credential store (for `https://…` remotes).
-pub fn push(path: &Path, remote: &str, branch: &str) -> Result<()> {
+/// A short, human-readable summary of the working tree's pending changes,
+/// for building an automatic commit message and for reporting exactly what
+/// happened instead of a bare count. Names the actual files when there are
+/// only a few of them (`"added (First note.md)"`), falls back to a plain
+/// count for a big batch so the message doesn't become unreadable
+/// (`"12 updated"`). `"no changes"` if nothing is pending (the caller won't
+/// normally get this far, since `commit_all` already no-ops in that case,
+/// but it's a sane fallback).
+pub fn diff_summary(path: &Path) -> Result<String> {
     let repo = Repository::open(path)?;
-    let mut remote = repo.find_remote(remote)?;
+    let statuses = repo.statuses(None)?;
+    let mut added = Vec::new();
+    let mut updated = Vec::new();
+    let mut deleted = Vec::new();
+    let mut renamed = Vec::new();
+    for entry in statuses.iter() {
+        let s = entry.status();
+        let file = entry.path().unwrap_or("?").to_string();
+        if s.intersects(git2::Status::WT_NEW | git2::Status::INDEX_NEW) {
+            added.push(file);
+        } else if s.intersects(git2::Status::WT_DELETED | git2::Status::INDEX_DELETED) {
+            deleted.push(file);
+        } else if s.intersects(git2::Status::WT_RENAMED | git2::Status::INDEX_RENAMED) {
+            renamed.push(file);
+        } else if s.intersects(git2::Status::WT_MODIFIED | git2::Status::INDEX_MODIFIED) {
+            updated.push(file);
+        }
+    }
+
+    fn describe(label: &str, files: &[String]) -> Option<String> {
+        match files.len() {
+            0 => None,
+            1..=3 => Some(format!("{label} ({})", files.join(", "))),
+            n => Some(format!("{n} {label}")),
+        }
+    }
+
+    let parts: Vec<String> = [
+        describe("added", &added),
+        describe("updated", &updated),
+        describe("renamed", &renamed),
+        describe("deleted", &deleted),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    Ok(if parts.is_empty() {
+        "no changes".to_string()
+    } else {
+        parts.join(", ")
+    })
+}
+
+/// Pushes the current branch (whatever `HEAD` actually points at) to
+/// `remote`, creating/updating a same-named branch there. Authenticates via
+/// SSH agent (for `git@…` remotes) or the system git credential store (for
+/// `https://…` remotes).
+///
+/// Deliberately does *not* take a configured branch name: `pull` already
+/// falls back to whatever branch the remote actually uses (e.g. `master`
+/// instead of the configured `main`), so the local repo's real branch can
+/// differ from `config.git.branch` — pushing that fixed name unconditionally
+/// used to fail with "src refspec 'refs/heads/main' does not match any
+/// existing object" the moment it didn't match reality.
+///
+/// Actually verifies the push landed, rather than trusting `Remote::push`'s
+/// `Ok(())` at face value: libgit2 reports the network round-trip
+/// succeeding even when the *server* rejected the specific ref update (e.g.
+/// non-fast-forward, a protected branch, a rejecting hook) — that only
+/// surfaces through the `push_update_reference` callback, which is
+/// registered here and turned into a real `Err` if the server sent back a
+/// rejection status.
+pub fn push(path: &Path, remote: &str) -> Result<()> {
+    let repo = Repository::open(path)?;
+    let branch = repo
+        .head()?
+        .shorthand()
+        .ok_or_else(|| Error::Git(git2::Error::from_str("HEAD is not on a branch")))?
+        .to_string();
+    let mut remote_ref = repo.find_remote(remote)?;
+
+    let rejected = std::cell::RefCell::new(None::<String>);
+    let mut callbacks = build_callbacks();
+    callbacks.push_update_reference(|refname, status| {
+        if let Some(message) = status {
+            *rejected.borrow_mut() = Some(format!("{refname}: {message}"));
+        }
+        Ok(())
+    });
+
     let mut opts = git2::PushOptions::new();
-    opts.remote_callbacks(build_callbacks());
+    opts.remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
-    remote.push(&[&refspec], Some(&mut opts))?;
+    let push_result = remote_ref.push(&[&refspec], Some(&mut opts));
+    drop(opts);
+    push_result?;
+
+    if let Some(reason) = rejected.into_inner() {
+        return Err(Error::Git(git2::Error::from_str(&format!(
+            "push rejected by remote: {reason}"
+        ))));
+    }
     Ok(())
 }
 
@@ -231,24 +333,35 @@ pub fn remote_url(path: &Path) -> Option<String> {
     remote.url().map(String::from)
 }
 
-/// Quick status: whether the repo exists and has uncommitted changes.
-pub fn status(path: &Path) -> GitStatus {
+/// Quick status: current branch, uncommitted changes, and how far ahead/
+/// behind `refs/remotes/{remote}/{branch}` local `HEAD` is (from the last
+/// fetch — this doesn't talk to the network itself).
+pub fn status(path: &Path, remote: &str) -> GitStatus {
     let repo = match Repository::open(path) {
         Ok(r) => r,
-        Err(_) => {
-            return GitStatus {
-                is_repo: false,
-                dirty: false,
-                ahead: 0,
-                behind: 0,
-            }
-        }
+        Err(_) => return GitStatus::default(),
     };
-    let dirty = repo.statuses(None).map(|s| !s.is_empty()).unwrap_or(false);
+    let dirty_count = repo.statuses(None).map(|s| s.len()).unwrap_or(0);
+    let branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(str::to_string));
+    let (ahead, behind) = branch
+        .as_deref()
+        .and_then(|b| {
+            let local = repo.refname_to_id(&format!("refs/heads/{b}")).ok()?;
+            let upstream = repo
+                .refname_to_id(&format!("refs/remotes/{remote}/{b}"))
+                .ok()?;
+            repo.graph_ahead_behind(local, upstream).ok()
+        })
+        .unwrap_or((0, 0));
     GitStatus {
         is_repo: true,
-        dirty,
-        ahead: 0,
-        behind: 0,
+        dirty: dirty_count > 0,
+        dirty_count,
+        branch,
+        ahead,
+        behind,
     }
 }
