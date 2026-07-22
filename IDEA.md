@@ -1,0 +1,407 @@
+# shiki (私記 / しき)
+
+> **Personal notes, private log.**
+> TUI note-taking app in Rust — fast, configurable, with Git sync,
+> inline and external editor, themes, and Yazi-style navigation.
+
+---
+
+## Motivation
+
+I couldn't find any terminal note-taking tool that covered **everything** I wanted:
+
+- Modern, responsive TUI
+- Notebooks as folders (`nb`-like)
+- Integrated Git sync (no external scripts)
+- Inline **and** external editor (nvim) — usable interchangeably
+- Markdown with frontmatter, tags, wikilinks
+- Popular themes (Catppuccin, Tokyo Night, Gruvbox, Nord, Solarized…)
+- Customizable keybindings (vi-mode)
+- Fast fuzzy search
+- Daily notes with templates
+- CLI + TUI: quick commands without opening the interface
+- The whole experience configurable via TOML
+- Built in **Rust** — fast, reliable, a single binary
+
+So **shiki** (私記) was born: "personal notes" or "private log" in Japanese.
+A single binary that covers all of this, from the start, no phases.
+
+---
+
+## Tech stack
+
+| Category | Crate |
+|---|---|
+| **TUI framework** | `ratatui` 0.30 + `crossterm` |
+| **Async runtime** | `tokio` |
+| **Git bindings** | `git2` |
+| **Markdown parsing** | `comrak` |
+| **Syntax highlighting** | `syntect` (note preview) |
+| **Inline editor** | `tui-textarea` |
+| **Fuzzy search** | `nucleo` (same as Helix) |
+| **Config / themes** | `serde` + `toml` |
+| **CLI parsing** | `clap` v4 |
+| **Dates** | `chrono` |
+| **File watcher** | `notify` (detect external changes) |
+| **Frontmatter** | `serde_yaml` |
+| **Logging** | `tracing` + `tracing-subscriber` |
+| **Wikilinks** | regex + `pulldown-cmark` |
+
+---
+
+## Architecture
+
+Workspace with 4 crates:
+
+```
+shiki/
+├── Cargo.toml                     # workspace root
+├── IDEA.md                        # this document
+│
+├── shiki-core/                    # pure logic (no TUI)
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       ├── notebook.rs            # Notebook struct, notebook CRUD
+│       ├── note.rs                # Note struct, frontmatter, body
+│       ├── search.rs              # fuzzy search engine (nucleo)
+│       ├── git.rs                 # git2: init, commit, push, pull, status
+│       ├── templates.rs           # template system
+│       ├── daily.rs               # daily notes: create by date
+│       ├── tags.rs                # tag indexing
+│       └── wikilinks.rs           # parse [[links]] and resolve them
+│
+├── shiki-config/                  # TOML config parsing + themes
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       ├── config.rs              # Config struct, load/save
+│       ├── theme.rs               # Theme struct, palettes
+│       └── themes/
+│           ├── mod.rs
+│           ├── catppuccin.rs      # mocha, latte, frappe, macchiato
+│           ├── tokyo_night.rs     # storm, night, moon
+│           ├── gruvbox.rs         # dark, light
+│           ├── nord.rs
+│           └── solarized.rs       # dark, light
+│
+├── shiki-tui/                     # the interface
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       ├── app.rs                 # App state, event loop
+│       ├── layout.rs              # panel layout
+│       ├── panel_notebooks.rs     # left panel
+│       ├── panel_notes.rs         # center panel
+│       ├── panel_preview.rs       # right panel (rendered markdown)
+│       ├── panel_tags.rs          # tag filter
+│       ├── editor.rs              # inline editor (tui-textarea)
+│       ├── status_bar.rs          # bottom status bar
+│       ├── command.rs             # command palette / global fuzzy finder
+│       ├── which.rs               # keybindings popup (like Yazi)
+│       ├── confirm.rs             # confirmation dialog
+│       ├── input.rs               # simple text input
+│       ├── keybindings.rs         # configurable key map
+│       └── render.rs              # render helpers
+│
+└── shiki-cli/                     # binary entrypoint
+    ├── Cargo.toml
+    └── src/
+        ├── main.rs                # entrypoint: clap CLI + TUI launch
+        ├── commands/
+        │   ├── mod.rs
+        │   ├── new.rs             # shiki new <title>
+        │   ├── list.rs            # shiki list [notebook]
+        │   ├── edit.rs            # shiki edit <note>
+        │   ├── show.rs            # shiki show <note>
+        │   ├── search.rs          # shiki search <query>
+        │   ├── daily.rs           # shiki daily
+        │   ├── sync.rs            # shiki sync [notebook]
+        │   ├── config.rs          # shiki config (show/edit path)
+        │   └── notebook.rs        # shiki notebook (create/list/rename)
+        └── tui.rs                 # launch TUI from CLI
+```
+
+---
+
+## TUI behavior
+
+### Layout (3 panels, Yazi-inspired)
+
+```
+┌──────────────┬───────────────────────────────────────┬─────────────────────────────┐
+│  NOTEBOOKS   │  NOTES                                │  PREVIEW                    │
+│              │                                       │                             │
+│  > personal  │  > 2026-07-22-daily                   │  # 2026-07-22 Daily         │
+│    work      │    meeting-q3-planning                │                             │
+│    projects  │    rust-ideas                         │  ## Tasks                   │
+│              │    shiki-todo-list                    │  - [ ] Review PR            │
+│  [1/3]       │    book-notes-atomic-habits           │  - [ ] Write docs           │
+│              │                                       │                             │
+│              │  20 notes  |  [/] to search           │                             │
+├──────────────┴───────────────────────────────────────┴─────────────────────────────┤
+│  NORMAL  │  personal  │  synced ✓  │  ? for help                                  │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Panels behind the current focus collapse to a thin strip (Miller-columns style, like
+Yazi): browsing NOTEBOOKS shows all three panels at their normal width; moving into
+NOTES collapses NOTEBOOKS down; moving into PREVIEW collapses both NOTEBOOKS and NOTES
+so the note has (almost) the full width to read comfortably.
+
+### Modes (vi-like)
+
+| Mode | Description |
+|---|---|
+| `NORMAL` | Navigation, single-key shortcuts |
+| `INSERT` | Typing in search / input |
+| `EDIT` | Inline editor active (tui-textarea) |
+| `VISUAL` | Multi-note selection |
+
+### Keybindings: segmented by focus
+
+Keybindings aren't one flat list — they're scoped to *what's focused*, so the
+same physical key can mean something different (but locally sensible) in
+each panel. Navigation is hardcoded (not configurable, since it behaves the
+same everywhere); everything else lives in its own editable `config.toml`
+table: `[keybindings.global]` (needs the leader key first),
+`[keybindings.notebooks]`, `[keybindings.notes]`, `[keybindings.preview]`.
+
+#### Navigation (hardcoded, works everywhere)
+
+| Key | Action |
+|---|---|
+| `j` / `k` / `↓` / `↑` | Navigate lists (down / up); scrolls the note while PREVIEW is focused |
+| `l` / `→` / `enter` | Go one level deeper (Yazi-style): NOTEBOOKS → NOTES → PREVIEW |
+| `h` / `←` | Go back one level (Yazi-style) |
+| `tab` | Cycle focus between panels |
+| `?` | Which-key popup, grouped by scope |
+| `q` | Quit |
+| `Esc` | Back to NORMAL / close popup / cancel leader |
+
+#### `[keybindings.global]` — press `leader` (default `space`), then:
+
+| Key | Action |
+|---|---|
+| `c` | Pick a theme — modal, live preview while browsing, Enter confirms |
+| `g` | Search all notes (title + body, every notebook) — modal, Enter/click to jump |
+| `T` | Tags panel |
+| `l` | Logs — scrollback of every status-bar message (including errors that already scrolled past); `j`/`k` scroll, `y`/`c` copies the whole log to the clipboard (OSC 52), `Esc`/`q` closes |
+
+#### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
+
+| Key | Action |
+|---|---|
+| `a` | New notebook. If the name entered is a git URL (`https://`, `git@host:...`, `ssh://`, `git://`) instead of a plain name, the notebook name is derived from the repo instead, and the notebook is created, its remote set, and pulled immediately — importing an existing repo is just `a` + paste URL + Enter |
+| `r` | Rename notebook |
+| `d` | Delete notebook (with confirmation) |
+| `s` | Git sync (commit, + push if `git.auto_push`) |
+| `p` | Git pull (fetch + fast-forward merge from the configured remote) |
+| `P` | Git pull for every notebook that has a remote configured |
+| `R` | Set the notebook's git remote (URL or local path) |
+
+#### `[keybindings.notes]` — active while NOTES is focused
+
+| Key | Action |
+|---|---|
+| `a` | New note (empty title stamps today's date and jumps straight to editing) |
+| `r` | Rename note |
+| `d` | Delete note (with confirmation) |
+| `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
+| `E` | Edit externally ($EDITOR) |
+| `/` | Fuzzy-jump to a note by title anywhere in the current notebook (any folder depth) |
+| `t` | New/open today's daily note |
+| `m` | Move the note to another notebook |
+| `o` | Cycle sort order (filename / title A-Z / date newest-first) |
+| `T` | Tree view — every folder and note in the notebook, fully expanded, in one scrollable overview; `j`/`k` move, `enter`/`l` jumps straight to the selected note, `esc`/`q` closes |
+
+#### `[keybindings.preview]` — active while PREVIEW is focused
+
+| Key | Action |
+|---|---|
+| `i` | Edit inline (or the OS favorite editor) |
+| `E` | Edit externally ($EDITOR) |
+
+---
+
+## CLI commands
+
+```
+shiki                     # launch TUI
+shiki new <title>         # create note + open $EDITOR
+shiki daily               # create/open today's daily note
+shiki list                # list notes in the default notebook
+shiki list -n work        # list notes in "work"
+shiki show <note>         # show rendered content (ANSI)
+shiki edit <note>         # edit with $EDITOR
+shiki search <query>      # search and show results
+shiki sync                # git commit+push default notebook
+shiki sync -n work        # git sync in "work"
+shiki config              # show config path
+shiki notebook create <name>
+shiki notebook list
+shiki notebook rename <old> <new>
+shiki theme list          # list built-in themes, marking the active one
+shiki theme set <name>    # switch theme (persisted to config.toml)
+```
+
+---
+
+## Filesystem layout
+
+### Data (`~/.local/share/shiki/`)
+
+```
+~/.local/share/shiki/
+├── personal/              # one notebook = one directory
+│   ├── .git/              # independent git repo per notebook
+│   ├── 2026-07-22-daily.md
+│   ├── meeting-q3-planning.md
+│   ├── rust-ideas.md
+│   └── projects/          # notebooks nest folders arbitrarily deep, like `nb` —
+│       └── website/       # the NOTES panel browses them one level at a time
+│           └── todo.md    # (l/→/enter opens a folder, h/← goes back up)
+├── work/
+│   ├── .git/
+│   ├── sprint-review.md
+│   └── architecture.md
+└── projects/
+    └── ...
+```
+
+Frontmatter is optional on read: a plain `.md` file with no `---` block (from
+`nb`, an existing repo, or anywhere else) still shows up as a note — its
+title comes from the first `# heading` or the filename, its date from the
+file's mtime. It only gains real frontmatter once you touch it through shiki
+(rename/edit); until then it's left exactly as it was on disk.
+
+### Config (`~/.config/shiki/`)
+
+```
+~/.config/shiki/
+├── config.toml            # general configuration
+├── keybindings.toml       # custom shortcuts (optional)
+├── theme.toml             # custom theme (optional)
+└── templates/             # templates
+    ├── default.md
+    ├── daily.md
+    └── meeting.md
+```
+
+### Note format (Markdown + YAML frontmatter)
+
+```markdown
+---
+title: My note
+date: 2026-07-22
+tags: [rust, tui, ideas]
+notebook: personal
+links: [[another-note]], [[third-link]]
+template: default
+---
+
+# My note
+
+Content in **markdown**.
+
+- List of items
+- Code: `let x = 1;`
+
+[[wikilink]] to another note — navigable from the TUI.
+```
+
+---
+
+## Included themes (from the start)
+
+- **Catppuccin** — Mocha, Macchiato, Frappé, Latte
+- **Tokyo Night** — Storm, Night, Moon
+- **Gruvbox** — Dark, Light
+- **Nord**
+- **Solarized** — Dark, Light
+- **Default** — inherits the terminal's own colors (fallback; `bg`/`fg`/`border` are
+  `"reset"`, accents use the terminal's native ANSI colors) instead of imposing a
+  fixed palette
+
+Each theme defines ~20 configurable color slots:
+`bg`, `fg`, `accent`, `selection`, `border`, `statusbar`,
+`highlight`, `error`, `warning`, `success`, `inactive`,
+`scrollbar`, `tab_active`, `tab_inactive`, etc. Slots accept `#rrggbb` hex,
+the terminal's native ANSI names (`red`, `blue`, `cyan`, `darkgray`, …), or
+`"reset"` to inherit the terminal's own default for that slot.
+
+---
+
+## Configuration (`config.toml`)
+
+```toml
+[general]
+default_notebook = "personal"
+editor = "nvim"
+daily_template = "daily"
+# When true, `i` opens the OS's detected favorite editor (env $VISUAL/$EDITOR,
+# then the desktop's default text/plain handler) instead of the inline editor.
+use_favorite_editor = false
+
+[keybindings]
+leader = "space"
+quit = "q"
+
+[keybindings.global]
+theme_picker = "c"
+global_search = "g"
+tags_panel = "T"
+logs = "l"
+
+[keybindings.notebooks]
+new = "a"
+rename = "r"
+delete = "d"
+sync = "s"
+pull = "p"
+pull_all = "P"
+set_remote = "R"
+
+[keybindings.notes]
+new = "a"
+rename = "r"
+delete = "d"
+edit_inline = "i"
+edit_external = "E"
+search = "/"
+daily_note = "t"
+move_to_notebook = "m"
+sort = "o"
+tree_view = "T"
+
+[keybindings.preview]
+edit_inline = "i"
+edit_external = "E"
+
+[theme]
+name = "catppuccin-mocha"
+# For a custom theme (without using name):
+# accent = "blue"
+# bg = "#1e1e2e"
+# fg = "#cdd6f4"
+
+[git]
+auto_commit = true
+auto_push = false
+commit_prefix = "shiki: "
+remote = "origin"
+branch = "main"
+sign_commits = false
+```
+
+---
+
+## Design principles
+
+1. **A single binary** — `shiki` does everything, CLI and TUI.
+2. **Plain text** — notes are `.md` with frontmatter. Nothing proprietary.
+3. **Git native** — each notebook is its own repo. Commit, push, pull from the app.
+4. **No phases** — everything here is implemented in full. There's no "Phase 2".
+5. **Fast** — Rust + async + ratatui. Sub-millisecond renders.
+6. **Configurable** — keybindings, themes, editor, all in TOML.
+7. **Yazi-inspired** — three panels, modal, which-key, async event loop.

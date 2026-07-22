@@ -1,0 +1,21 @@
+[package]
+name = "shiki-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "shiki: pure logic (notebooks, notes, git, search, templates)"
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true
+chrono.workspace = true
+regex.workspace = true
+pulldown-cmark.workspace = true
+git2.workspace = true
+nucleo-matcher.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+notify.workspace = true

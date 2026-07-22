@@ -1,0 +1,38 @@
+pub mod daily;
+pub mod editor;
+pub mod git;
+pub mod note;
+pub mod notebook;
+pub mod search;
+pub mod tags;
+pub mod templates;
+pub mod wikilinks;
+
+pub use daily::daily_note_path;
+pub use note::{Frontmatter, Note};
+pub use notebook::{Notebook, NotebookStore};
+pub use search::SearchEngine;
+pub use tags::TagIndex;
+pub use templates::Template;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("yaml error: {0}")]
+    Yaml(#[from] serde_yaml::Error),
+    #[error("git error: {0}")]
+    Git(#[from] git2::Error),
+    #[error("note not found: {0}")]
+    NoteNotFound(String),
+    #[error("notebook not found: {0}")]
+    NotebookNotFound(String),
+    #[error("notebook '{0}' already exists")]
+    NotebookExists(String),
+    #[error("template not found: {0}")]
+    TemplateNotFound(String),
+    #[error("invalid notebook name '{0}': must not be empty, '.', '..', or contain '/' or '\\\\'")]
+    InvalidName(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

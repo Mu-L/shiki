@@ -1,0 +1,31 @@
+mod catppuccin;
+mod gruvbox;
+mod nord;
+mod solarized;
+mod tokyo_night;
+
+use crate::theme::Theme;
+
+/// All themes included out of the box, in the order they're shown in the config.
+pub fn all() -> Vec<Theme> {
+    vec![
+        catppuccin::mocha(),
+        catppuccin::macchiato(),
+        catppuccin::frappe(),
+        catppuccin::latte(),
+        tokyo_night::storm(),
+        tokyo_night::night(),
+        tokyo_night::moon(),
+        gruvbox::dark(),
+        gruvbox::light(),
+        nord::nord(),
+        solarized::dark(),
+        solarized::light(),
+        Theme::terminal_default(),
+    ]
+}
+
+/// Looks up a built-in theme by name (e.g. `"catppuccin-mocha"`).
+pub fn by_name(name: &str) -> Option<Theme> {
+    all().into_iter().find(|t| t.name == name)
+}

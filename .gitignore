@@ -1,0 +1,9 @@
+/target
+/nul
+
+# Claude Code CLI / Serena MCP local tooling artifacts (skill installs, project
+# index/cache), not project source
+/.claude/
+/.agents/
+/.serena/
+/skills-lock.json

@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "shiki-core",
+    "shiki-config",
+    "shiki-tui",
+    "shiki-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Omar"]
+license = "MIT"
+repository = "https://github.com/omar/shiki"
+description = "shiki (私記) - TUI note-taking app written in Rust"
+
+[workspace.dependencies]
+shiki-core = { path = "shiki-core" }
+shiki-config = { path = "shiki-config" }
+shiki-tui = { path = "shiki-tui" }
+
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["full"] }
+git2 = "0.19"
+comrak = "0.29"
+syntect = "5"
+tui-textarea = "0.7"
+nucleo-matcher = "0.3"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+notify = "6"
+serde_yaml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+regex = "1"
+pulldown-cmark = "0.12"
+anyhow = "1"
+thiserror = "1"
+directories = "5"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
