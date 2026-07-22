@@ -323,7 +323,7 @@ impl App {
 
     /// Where the Notes panel currently is within the selected notebook —
     /// `""` at the notebook root, otherwise the breadcrumb joined as a path.
-    fn notes_relative_path(&self) -> std::path::PathBuf {
+    pub fn notes_relative_path(&self) -> std::path::PathBuf {
         self.notes_path.iter().collect()
     }
 
@@ -1796,6 +1796,7 @@ fn render_theme_picker(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) 
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
             Style::default()
+                .bg(hex_to_color(&app.theme.selection))
                 .fg(hex_to_color(&app.theme.accent))
                 .add_modifier(Modifier::BOLD),
         )
@@ -1838,6 +1839,7 @@ fn render_global_search(frame: &mut ratatui::Frame, frame_area: Rect, app: &App)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
             Style::default()
+                .bg(hex_to_color(&app.theme.selection))
                 .fg(hex_to_color(&app.theme.accent))
                 .add_modifier(Modifier::BOLD),
         )
@@ -1876,6 +1878,7 @@ fn render_logs(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
             Style::default()
+                .bg(hex_to_color(&app.theme.selection))
                 .fg(hex_to_color(&app.theme.accent))
                 .add_modifier(Modifier::BOLD),
         )
@@ -1928,6 +1931,7 @@ fn render_tree(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
             Style::default()
+                .bg(hex_to_color(&app.theme.selection))
                 .fg(hex_to_color(&app.theme.accent))
                 .add_modifier(Modifier::BOLD),
         )

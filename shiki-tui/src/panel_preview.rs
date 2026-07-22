@@ -24,10 +24,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 
     let lines = match (app.selected_note(), app.selected_folder()) {
         (Some(note), _) => markdown_to_lines(&note.body, fg, accent, muted, link),
-        (None, Some(folder)) => vec![Line::from(ratatui::text::Span::styled(
-            format!("{folder}/  —  press l / → / enter to open this folder."),
-            Style::default().fg(muted).add_modifier(Modifier::ITALIC),
-        ))],
+        (None, Some(folder)) => folder_preview_lines(app, folder, fg, accent, muted),
         (None, None) => vec![Line::from(ratatui::text::Span::styled(
             "No notes yet in this notebook — press `a` to create one.",
             Style::default().fg(muted).add_modifier(Modifier::ITALIC),
@@ -39,4 +36,45 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .wrap(Wrap { trim: false })
         .scroll((app.preview_scroll, 0));
     frame.render_widget(paragraph, area);
+}
+
+/// What's inside the selected folder, so landing on it (without descending)
+/// already shows what you'd find there instead of just a "press enter"
+/// hint — a quick peek, same spirit as the note preview itself.
+fn folder_preview_lines<'a>(
+    app: &App,
+    folder: &str,
+    fg: ratatui::style::Color,
+    accent: ratatui::style::Color,
+    muted: ratatui::style::Color,
+) -> Vec<Line<'a>> {
+    let Some(nb) = app.selected_notebook() else {
+        return Vec::new();
+    };
+    let sub_path = app.notes_relative_path().join(folder);
+    let Ok((subfolders, notes)) = nb.list_dir(&sub_path) else {
+        return Vec::new();
+    };
+
+    if subfolders.is_empty() && notes.is_empty() {
+        return vec![Line::from(ratatui::text::Span::styled(
+            "Empty folder.".to_string(),
+            Style::default().fg(muted).add_modifier(Modifier::ITALIC),
+        ))];
+    }
+
+    let mut lines = Vec::with_capacity(subfolders.len() + notes.len());
+    for name in &subfolders {
+        lines.push(Line::from(ratatui::text::Span::styled(
+            format!("{}  {name}/", icons::NOTEBOOK),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        )));
+    }
+    for note in &notes {
+        lines.push(Line::from(ratatui::text::Span::styled(
+            format!("{}  {}", icons::NOTE, note.frontmatter.title),
+            Style::default().fg(fg),
+        )));
+    }
+    lines
 }

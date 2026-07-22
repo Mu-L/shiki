@@ -99,7 +99,23 @@ string→`Color` conversion lives in `shiki-tui/src/render.rs::hex_to_color`, ke
 crate reusable outside a TUI context. The `"default"` built-in theme (`Theme::terminal_default`)
 uses `"reset"`/ANSI names throughout specifically so it doesn't impose a fixed palette.
 Included theme palettes live one-per-file under `shiki-config/src/themes/` (catppuccin, tokyo_night,
-gruvbox, nord, solarized), registered in `themes/mod.rs::all()`/`by_name()`.
+gruvbox, nord, solarized), registered in `themes/mod.rs::all()`/`by_name()`. Every palette's hex
+values are taken directly from each project's own official spec (verified against
+morhetz/gruvbox, tokyonight.nvim, nordtheme.com, solarized, and catppuccin — not approximated).
+
+**`theme.selection` used to be defined by every palette but rendered nowhere.** Every `List` widget
+across the TUI (Notebooks, Notes, tree, logs, global search, theme picker, which-key) set
+`.highlight_style(Style::default().fg(accent).add_modifier(BOLD))` with no `.bg(...)` at all, so the
+selected row only ever got bold accent-colored text — no actual highlighted background band, which
+is why every theme looked "flat"/less faithful than the same palette elsewhere (editors, prompts):
+none of them were using their own `selection` color for the one thing it's for. Fixed by adding
+`.bg(hex_to_color(&theme.selection))` to every one of those `.highlight_style(...)` calls (verified
+by inspecting live ANSI output via `tmux capture-pane -e`, not just visually — e.g. gruvbox-dark's
+selected row now carries `48;2;60;56;54`, exactly `#3c3836`). `panel_tags.rs`'s `.highlight_style`
+is a pre-existing, separate gap: that panel never calls `ListState::select` at all (no navigable
+tags list yet), so its highlight style has never been reachable regardless of this fix — not
+touched here, since adding a background there wouldn't be visible without also adding real
+selection/navigation to that panel first.
 
 **Each crate has its own error type** — there is no shared error enum:
 - `shiki_core::Error`/`Result` (thiserror, in `shiki-core/src/lib.rs`)
@@ -142,6 +158,20 @@ depth — don't reintroduce slug-based root-only variants as the "normal" path. 
 rather than indexing either `Vec` with it directly. `l`/`→`/`enter` on a folder descends
 (`navigate_forward`); `h`/`←` ascends one folder level before falling back to `Focus::backward()`
 (`navigate_backward`).
+
+**Selecting a folder (not a note) in NOTES previews its contents in PREVIEW, not a static hint.**
+`panel_preview.rs::folder_preview_lines` calls `nb.list_dir(notes_relative_path().join(folder))`
+fresh on every render (a single non-recursive `read_dir`, cheap enough to redo every frame — no
+cached state, same as the rest of this render function being a pure function of `App`) and lists
+its subfolders then notes, or "Empty folder." if there's nothing there. This replaced a static
+"press enter to open this folder" message — the point is to show what's actually inside before
+descending, the same way selecting a note already shows its content. `App::notes_relative_path` is
+`pub` specifically so `panel_preview.rs` (a different module) can build that sub-path.
+
+**Collapsed (out-of-focus) panels are 1 column wide (`layout::COLLAPSED`), not 3.** At 3 columns a
+collapsed panel showed a sliver of unreadable truncated content alongside its border; at 1 column
+it's just the border line, which is all a collapsed panel needs to communicate — the user already
+knows it's there and can `tab`/`h` back into it.
 
 **Notebook = directory + independent git repo** (`shiki-core/src/notebook.rs`,
 `shiki-core/src/git.rs`, via `git2`). `NotebookStore::create` calls `git::init_repo` immediately,

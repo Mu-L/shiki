@@ -11,10 +11,12 @@ pub struct Areas {
 }
 
 /// Width a panel shrinks to when it's not part of the current reading path —
-/// just enough to show its border, so it stays visible but out of the way
-/// (Yazi-style Miller columns) instead of competing for space with the panel
-/// you're actually using.
-const COLLAPSED: u16 = 3;
+/// just its border line, so it stays visible but out of the way (Yazi-style
+/// Miller columns) instead of competing for space with the panel you're
+/// actually using. One column is enough: the user already knows there's a
+/// collapsed panel there from the border alone, so there's no need to spend
+/// extra columns showing a sliver of content nobody can read at that width.
+const COLLAPSED: u16 = 1;
 
 pub fn split(area: Rect, focus: Focus) -> Areas {
     // No outer margin and no gap between constraints: panels go edge-to-edge

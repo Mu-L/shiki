@@ -8,6 +8,11 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ### Changed
 
+- Selecting a folder (not a note) in NOTES now previews what's actually inside it in PREVIEW
+  (subfolders, then notes, or "Empty folder.") instead of a static "press enter to open this
+  folder" hint — same spirit as selecting a note already showing its content.
+- Collapsed (out-of-focus) panels are now 1 column wide instead of 3 — just the border line,
+  since that's already enough to show there's a collapsed panel there.
 - Status bar footer redesigned: no background fill, no "NORMAL" mode label (only INSERT/EDIT/
   VISUAL are shown), no theme name. Shows contextual metadata instead (character count of the note
   being read, or note count while browsing notebooks), the current git branch with a dirty/needs-
@@ -23,6 +28,11 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ### Fixed
 
+- Every theme's `selection` color was defined but never actually rendered anywhere — every list
+  (notebooks, notes, tree, logs, global search, theme picker, which-key) only bold-colored the
+  selected row's text, with no highlighted background band, making every theme look flatter/less
+  faithful than it should. Selection now gets a real background highlight in each theme's own
+  `selection` color.
 - Notebook-level git shortcuts (`s` sync, `u` push, `p`/`P` pull, `R` set remote) previously only
   worked while the NOTEBOOKS panel had focus — pressing `u` while reading a note in PREVIEW did
   nothing at all, with no error or explanation. They now work from any panel, since they act on the
