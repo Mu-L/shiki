@@ -100,6 +100,11 @@ pub struct GlobalKeybindings {
     /// existed still deserializes instead of erroring on the missing field.
     #[serde(default = "default_logs_key")]
     pub logs: String,
+    /// Flips `general.use_favorite_editor` on/off and persists it, without
+    /// hand-editing config.toml. Field-level default for the same
+    /// backward-compatibility reason as `logs`.
+    #[serde(default = "default_toggle_favorite_editor_key")]
+    pub toggle_favorite_editor: String,
 }
 
 impl Default for GlobalKeybindings {
@@ -109,12 +114,17 @@ impl Default for GlobalKeybindings {
             global_search: "g".into(),
             tags_panel: "T".into(),
             logs: default_logs_key(),
+            toggle_favorite_editor: default_toggle_favorite_editor_key(),
         }
     }
 }
 
 fn default_logs_key() -> String {
     "l".into()
+}
+
+fn default_toggle_favorite_editor_key() -> String {
+    "e".into()
 }
 
 /// Active only while the NOTEBOOKS panel has focus.
@@ -181,6 +191,11 @@ pub struct NoteKeybindings {
     /// written before this key existed still deserializes.
     #[serde(default = "default_tree_view_key")]
     pub tree_view: String,
+    /// Shows each note's date next to its title in the list (off by
+    /// default — off is the "clean" state, on is opt-in clutter). Same
+    /// field-level-default backward-compatibility reasoning as `tree_view`.
+    #[serde(default = "default_toggle_dates_key")]
+    pub toggle_dates: String,
 }
 
 impl Default for NoteKeybindings {
@@ -196,8 +211,13 @@ impl Default for NoteKeybindings {
             move_to_notebook: "m".into(),
             sort: "o".into(),
             tree_view: default_tree_view_key(),
+            toggle_dates: default_toggle_dates_key(),
         }
     }
+}
+
+fn default_toggle_dates_key() -> String {
+    "D".into()
 }
 
 fn default_tree_view_key() -> String {
@@ -210,6 +230,12 @@ fn default_tree_view_key() -> String {
 pub struct PreviewKeybindings {
     pub edit_inline: String,
     pub edit_external: String,
+    /// Opens the note's version history — every commit that changed it,
+    /// with view + revert. Field-level default so an existing
+    /// `[keybindings.preview]` table written before this key existed still
+    /// deserializes.
+    #[serde(default = "default_history_key")]
+    pub history: String,
 }
 
 impl Default for PreviewKeybindings {
@@ -217,8 +243,13 @@ impl Default for PreviewKeybindings {
         Self {
             edit_inline: "i".into(),
             edit_external: "E".into(),
+            history: default_history_key(),
         }
     }
+}
+
+fn default_history_key() -> String {
+    "H".into()
 }
 
 /// Theme config: `name` references a built-in theme; the optional fields
@@ -385,12 +416,20 @@ impl Config {
     pub fn load_or_init(path: &Path) -> Result<Self> {
         if path.exists() {
             let contents = std::fs::read_to_string(path)?;
-            Ok(toml::from_str(&contents)?)
+            Self::parse(&contents)
         } else {
             let config = Self::default();
             config.save(path)?;
             Ok(config)
         }
+    }
+
+    /// Parses a config from its TOML text — split out from `load_or_init` so
+    /// callers that already have the file's contents (e.g. `shiki doctor`,
+    /// diagnosing a broken config without going through the normal
+    /// load-or-create startup path) don't need a direct `toml` dependency.
+    pub fn parse(contents: &str) -> Result<Self> {
+        Ok(toml::from_str(contents)?)
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {

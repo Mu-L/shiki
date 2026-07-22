@@ -6,6 +6,44 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
+### Added
+
+- Note version history (PREVIEW-scope `H`): every commit that changed the specific note being
+  read, newest first — real git history, not a separate versioning system. `Enter` views a
+  revision's full content, `r` reverts to it (behind a confirmation). A revert doesn't commit by
+  itself; it becomes a normal pending change picked up by `s`/`u`/`auto_sync` like any other edit.
+  The footer shows the count while reading a note (`{n} changes`).
+- `D` (notes-scope) toggles each note's date next to its title in the NOTES list, off by default.
+- The 3-panel layout is now responsive to terminal size instead of one fixed arrangement: wide
+  terminals keep the original side-by-side columns; narrow-but-tall or square terminals stack the
+  same panels vertically instead (still full-width, just not side-by-side); very small terminals
+  show only the focused panel, full screen, with no collapsed siblings. Navigation (`hjkl`/`tab`)
+  works identically at every size. Verified by resizing an actual terminal from 200×50 down to
+  20×8 with no crash or broken rendering at any point.
+- Footer now shows which editor mode is active — the resolved favorite editor's name (e.g. `nvim`)
+  when `general.use_favorite_editor` is on, `native` (the built-in inline editor) when it's off —
+  plus a new leader+`e` shortcut to toggle it on/off and persist the change immediately, instead of
+  hand-editing config.toml.
+- `shiki doctor`: an environment health check (config validity, data/templates dirs, `git`/`gh`
+  on `$PATH`, terminal truecolor support, configured editor, notebook/remote summary). Works even
+  when `config.toml` is malformed — unlike every other command, it diagnoses that instead of
+  failing outright.
+- `README.md` and `LICENSE` (MIT) — install (`cargo install --path shiki-cli`), update, and
+  verify (`shiki --version`, `shiki doctor`) instructions for installing from a clone, since this
+  isn't published to crates.io yet. Every crate's `Cargo.toml` now also carries `repository`
+  (previously only set at the workspace level but never actually inherited by any crate),
+  `keywords`, `categories`, and a `readme` pointing at it.
+- `auto_sync`: a notebook can sync itself (commit, + push if `auto_push`) automatically every
+  `auto_sync_every` note changes, instead of only on manual `s`. Push failures (no internet, auth,
+  etc.) never block — the commit already happened locally, and the next attempt just retries.
+- `u`: commits and always pushes, regardless of `auto_push`/`auto_sync` — the explicit "sync right
+  now" override.
+- Which-key (`?`) is now a near-full-screen searchable list instead of a small centered popup: type
+  to filter by key/action/scope, `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` to move the selection,
+  `Enter` runs the highlighted action immediately — doubles as a fast command palette.
+
 ### Changed
 
 - Selecting a folder (not a note) in NOTES now previews what's actually inside it in PREVIEW
@@ -21,10 +59,12 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   (e.g. "shiki: 2 updated, 1 added") instead of a fixed generic message, so nothing needs to be
   typed by hand. `auto_push`/`auto_sync`/`auto_sync_every` can be overridden per notebook under
   `[notebooks.<name>]`, falling back to the global `[git]` defaults.
-
 - Footer git status now shows actual counts instead of a bare marker: `+N` uncommitted files,
   `↑N` commits not yet pushed, `↓N` commits not yet pulled in — all three at once if applicable
   (e.g. a diverged branch), instead of just one dirty/clean indicator.
+- The note-preview title no longer shows a `[j/k scroll]` hint (redundant once scrolling — and
+  now `PageUp`/`PageDown`/`Home`/`End` — is the obvious way to move around); shows the note's date
+  in a muted tone instead.
 
 ### Fixed
 
@@ -49,7 +89,6 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   had actually been committed. `u` now commits (same as `s`) and always pushes; every step (commit
   outcome, then push outcome including confirmation) is reported explicitly instead of a terse
   "pushed".
-
 - `PageUp`/`PageDown`/`Home`/`End` didn't work anywhere in the app — not while reading a note in
   PREVIEW, and not in the which-key popup, logs, global search, or tree view. They now work
   everywhere: a bigger jump (10 at a time) or first/last, using the same list or scroll each modal
@@ -57,17 +96,6 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 - Which-key (`?`) had no scrolling at all — content that didn't fit the small centered popup was
   silently clipped with no way to see the rest, and any keypress just closed it (so it couldn't be
   typed into either).
-
-### Added
-
-- `auto_sync`: a notebook can sync itself (commit, + push if `auto_push`) automatically every
-  `auto_sync_every` note changes, instead of only on manual `s`. Push failures (no internet, auth,
-  etc.) never block — the commit already happened locally, and the next attempt just retries.
-- `u`: commits and always pushes, regardless of `auto_push`/`auto_sync` — the explicit "sync right
-  now" override.
-- Which-key (`?`) is now a near-full-screen searchable list instead of a small centered popup: type
-  to filter by key/action/scope, `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` to move the selection,
-  `Enter` runs the highlighted action immediately — doubles as a fast command palette.
 
 ## [0.1.0] - 2026-07-22
 

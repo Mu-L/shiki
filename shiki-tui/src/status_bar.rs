@@ -57,6 +57,19 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     };
     spans.push(Span::styled(meta, plain.fg(fg)));
 
+    // Note version history — how many commits have touched this specific
+    // note, only while actually reading one in PREVIEW (not while just
+    // browsing NOTES, where it'd compete with the char/note count above).
+    if app.focus == Focus::Preview {
+        if let Some(count) = app.note_revision_count() {
+            spans.push(sep.clone());
+            spans.push(Span::styled(
+                format!("{} {count} changes", icons::HISTORY),
+                plain.fg(muted),
+            ));
+        }
+    }
+
     if app.git_status.is_repo {
         spans.push(sep.clone());
         let gs = &app.git_status;
@@ -83,6 +96,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             plain.fg(color),
         ));
     }
+
+    spans.push(sep.clone());
+    let editor_color = if app.config.general.use_favorite_editor {
+        accent
+    } else {
+        muted
+    };
+    spans.push(Span::styled(
+        format!("{} {}", icons::PENCIL, app.editor_status_label()),
+        plain.fg(editor_color),
+    ));
 
     if app.leader_pending {
         spans.push(sep.clone());

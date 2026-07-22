@@ -206,6 +206,31 @@ pub struct App {
     /// matches against the key, action label, or scope name.
     pub which_key_input: InputBox,
     pub which_key_selected: usize,
+    /// The OS-detected favorite editor, resolved once at startup (not
+    /// per-render — detection can shell out to `xdg-mime` on Linux, too
+    /// expensive to redo every ~100ms draw tick) and reused both for the
+    /// footer's editor-mode indicator and `Action::EditInline`'s dispatch,
+    /// so they can never disagree with each other.
+    pub favorite_editor: Option<String>,
+    /// Shows each note's date next to its title in the NOTES list — off by
+    /// default, toggled by `Action::ToggleDates`.
+    pub show_dates: bool,
+    pub show_history: bool,
+    history_entries: Vec<shiki_core::git::FileRevision>,
+    history_selected: usize,
+    /// `Some((commit_id, content))` while viewing one historical revision's
+    /// full content inside the history modal; `None` while just browsing
+    /// the revision list.
+    history_viewing: Option<(String, String)>,
+    /// `(note path, commit id)` to revert to, staged while the `confirm`
+    /// dialog is up — mirrors `pending_delete`'s pattern so `y`/`n` in
+    /// `handle_confirm_key` can handle either kind of pending action.
+    pending_revert: Option<(std::path::PathBuf, String)>,
+    /// Cache for the footer's "{n} changes" indicator: `(note path, revision
+    /// count)` for whichever note was last checked, so `run()` calling this
+    /// every draw tick only actually re-walks history when the selected
+    /// note has changed, not on every idle redraw.
+    history_count_cache: Option<(std::path::PathBuf, usize)>,
 }
 
 /// One recorded status-bar message, with the time it was set — shown in the
@@ -284,6 +309,14 @@ impl App {
             pending_changes: std::collections::HashMap::new(),
             which_key_input: InputBox::default(),
             which_key_selected: 0,
+            favorite_editor: shiki_core::editor::detect_favorite_editor(),
+            show_dates: false,
+            show_history: false,
+            history_entries: Vec::new(),
+            history_selected: 0,
+            history_viewing: None,
+            pending_revert: None,
+            history_count_cache: None,
         })
     }
 
@@ -593,6 +626,39 @@ impl App {
         self.show_theme_picker = true;
     }
 
+    /// The editor mode actually in effect right now: the resolved favorite
+    /// editor's bare binary name when `use_favorite_editor` is on (falling
+    /// back to the configured `general.editor` if none could be detected,
+    /// matching `Action::EditInline`'s own fallback so this never claims a
+    /// mode that isn't what would really happen), or `"native"` — the
+    /// built-in inline editor — when it's off.
+    pub fn editor_status_label(&self) -> String {
+        if self.config.general.use_favorite_editor {
+            let editor = self
+                .favorite_editor
+                .as_deref()
+                .unwrap_or(&self.config.general.editor);
+            editor
+                .split_whitespace()
+                .next()
+                .unwrap_or(editor)
+                .to_string()
+        } else {
+            "native".to_string()
+        }
+    }
+
+    /// Flips `general.use_favorite_editor` and persists it immediately, so
+    /// switching between the built-in editor and the OS favorite doesn't
+    /// require hand-editing config.toml.
+    fn toggle_favorite_editor(&mut self) {
+        self.config.general.use_favorite_editor = !self.config.general.use_favorite_editor;
+        if let Ok(path) = Config::default_path() {
+            let _ = self.config.save(&path);
+        }
+        self.set_status(format!("favorite editor: {}", self.editor_status_label()));
+    }
+
     fn handle_theme_picker_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
@@ -734,6 +800,166 @@ impl App {
                 self.which_key_selected = 0;
             }
             _ => {}
+        }
+    }
+
+    /// Resolves the selected note's path relative to its notebook's root —
+    /// what `shiki_core::git::file_history`/`show_file_at`/`revert_file_to`
+    /// need, since git works in repo-relative paths.
+    fn selected_note_relative_path(&self) -> Option<(Notebook, std::path::PathBuf)> {
+        let nb = self.selected_notebook()?.clone();
+        let note = self.selected_note()?;
+        let relative = note.path.strip_prefix(&nb.path).ok()?.to_path_buf();
+        Some((nb, relative))
+    }
+
+    /// Loads the selected note's real version history (every commit that
+    /// changed it) and opens the history modal.
+    fn open_history(&mut self) {
+        let Some((nb, relative)) = self.selected_note_relative_path() else {
+            self.set_status("no note selected".into());
+            return;
+        };
+        self.history_entries =
+            shiki_core::git::file_history(&nb.path, &relative).unwrap_or_default();
+        self.history_selected = 0;
+        self.history_viewing = None;
+        self.show_history = true;
+        if self.history_entries.is_empty() {
+            self.set_status("no history yet — sync (`s`) to commit this note first".into());
+        }
+    }
+
+    fn handle_history_key(&mut self, key: KeyEvent) {
+        if self.history_viewing.is_some() {
+            match key.code {
+                KeyCode::Esc => self.history_viewing = None,
+                KeyCode::Char('r') => self.start_revert_selected_history(),
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.show_history = false,
+            KeyCode::Enter => self.view_selected_history(),
+            KeyCode::Char('r') => self.start_revert_selected_history(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.history_selected + 1 < self.history_entries.len() {
+                    self.history_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.history_selected = self.history_selected.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.history_selected = (self.history_selected + PAGE_STEP as usize)
+                    .min(self.history_entries.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.history_selected = self.history_selected.saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.history_selected = 0,
+            KeyCode::End => self.history_selected = self.history_entries.len().saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    /// Fetches and shows the highlighted revision's full content — a plain
+    /// read-only look at what the note used to say, before deciding whether
+    /// to `r`evert to it.
+    fn view_selected_history(&mut self) {
+        let Some((nb, relative)) = self.selected_note_relative_path() else {
+            return;
+        };
+        let Some(entry) = self.history_entries.get(self.history_selected).cloned() else {
+            return;
+        };
+        match shiki_core::git::show_file_at(&nb.path, &entry.commit_id, &relative) {
+            Ok(content) => self.history_viewing = Some((entry.commit_id, content)),
+            Err(e) => self.set_status(format!("could not load revision: {e}")),
+        }
+    }
+
+    /// Stages a revert of the currently highlighted (or viewed) revision
+    /// behind the usual `y`/`n` confirmation, since it overwrites the
+    /// note's current working content.
+    fn start_revert_selected_history(&mut self) {
+        let Some(note) = self.selected_note() else {
+            return;
+        };
+        let commit_id = self
+            .history_viewing
+            .as_ref()
+            .map(|(id, _)| id.clone())
+            .or_else(|| {
+                self.history_entries
+                    .get(self.history_selected)
+                    .map(|e| e.commit_id.clone())
+            });
+        let Some(commit_id) = commit_id else {
+            return;
+        };
+        let short = commit_id.chars().take(7).collect::<String>();
+        let message = format!(
+            "Revert '{}' to {short} — overwrites the current content?",
+            note.file_stem()
+        );
+        self.pending_revert = Some((note.path.clone(), commit_id));
+        self.confirm = Some(confirm::ConfirmDialog::new(message));
+    }
+
+    /// Writes the reverted content back to disk and lets the normal sync
+    /// flow pick it up as a pending change, same as any other edit.
+    fn perform_revert(&mut self, note_path: &std::path::Path, commit_id: &str) {
+        let Some(nb) = self.selected_notebook().cloned() else {
+            return;
+        };
+        let Ok(relative) = note_path.strip_prefix(&nb.path) else {
+            return;
+        };
+        match shiki_core::git::revert_file_to(&nb.path, commit_id, relative) {
+            Ok(()) => {
+                let short = commit_id.chars().take(7).collect::<String>();
+                self.refresh_notes_preserve_selection();
+                self.note_changed(&nb.name);
+                self.set_status(format!("reverted to {short}"));
+                self.show_history = false;
+                self.history_viewing = None;
+                self.history_count_cache = None;
+            }
+            Err(e) => self.set_status(format!("revert error: {e}")),
+        }
+    }
+
+    /// Keeps the footer's "{n} changes" indicator up to date without
+    /// re-walking the note's git history on every draw tick — only when the
+    /// selected note has actually changed since the last check. Called once
+    /// per `run()` loop iteration, right before drawing.
+    fn refresh_history_cache(&mut self) {
+        let current_path = self.selected_note().map(|n| n.path.clone());
+        let Some(current_path) = current_path else {
+            self.history_count_cache = None;
+            return;
+        };
+        if self.history_count_cache.as_ref().map(|(p, _)| p) == Some(&current_path) {
+            return;
+        }
+        let count = self
+            .selected_note_relative_path()
+            .and_then(|(nb, relative)| shiki_core::git::file_history(&nb.path, &relative).ok())
+            .map(|revisions| revisions.len())
+            .unwrap_or(0);
+        self.history_count_cache = Some((current_path, count));
+    }
+
+    /// The cached revision count for whichever note is currently selected,
+    /// for the footer — `None` when no note is selected at all (vs. `Some(0)`
+    /// for a note that's never been committed).
+    pub fn note_revision_count(&self) -> Option<usize> {
+        let note = self.selected_note()?;
+        match &self.history_count_cache {
+            Some((path, count)) if path == &note.path => Some(*count),
+            _ => None,
         }
     }
 
@@ -1047,14 +1273,20 @@ impl App {
     /// etc.) are surfaced, never panic: the commit already succeeded either
     /// way, so nothing pending is lost, and the next attempt just retries
     /// the push.
-    fn run_sync(&self, nb: &Notebook, force_push: bool) -> String {
+    fn run_sync(&mut self, nb: &Notebook, force_push: bool) -> String {
         let sync = self.config.sync_for(&nb.name);
         let summary =
             shiki_core::git::diff_summary(&nb.path).unwrap_or_else(|_| "changes".to_string());
         let message = format!("{}{summary}", self.config.git.commit_prefix);
         let mut parts = Vec::new();
         match shiki_core::git::commit_all(&nb.path, &message) {
-            Ok(true) => parts.push(format!("committed: {summary}")),
+            Ok(true) => {
+                parts.push(format!("committed: {summary}"));
+                // A new commit may have changed the currently-previewed
+                // note's revision count — force the footer's cache to
+                // recompute instead of showing a stale number.
+                self.history_count_cache = None;
+            }
             Ok(false) => parts.push("no changes to commit".to_string()),
             Err(e) => parts.push(format!("commit error: {e}")),
         }
@@ -1258,11 +1490,22 @@ impl App {
             Action::MoveNote => self.start_move_note(),
             Action::SortNotes => self.cycle_sort(),
             Action::ToggleTreeView => self.open_tree(),
+            Action::ToggleDates => {
+                self.show_dates = !self.show_dates;
+                self.set_status(format!(
+                    "note dates: {}",
+                    if self.show_dates { "on" } else { "off" }
+                ));
+            }
+            Action::ShowHistory => self.open_history(),
+            Action::ToggleFavoriteEditor => self.toggle_favorite_editor(),
 
             Action::EditInline => {
                 if self.config.general.use_favorite_editor {
                     if let Some(note) = self.selected_note() {
-                        let editor = shiki_core::editor::detect_favorite_editor()
+                        let editor = self
+                            .favorite_editor
+                            .clone()
                             .unwrap_or_else(|| self.config.general.editor.clone());
                         self.want_external_edit = Some((note.path.clone(), editor));
                     }
@@ -1446,10 +1689,13 @@ impl App {
                             self.set_status(format!("notebook '{name}' deleted"));
                         }
                     }
+                } else if let Some((note_path, commit_id)) = self.pending_revert.take() {
+                    self.perform_revert(&note_path, &commit_id);
                 }
             }
             _ => {
                 self.pending_delete = None;
+                self.pending_revert = None;
             }
         }
         self.confirm = None;
@@ -1530,6 +1776,14 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        // Checked first, ahead of every other modal: a revert confirmation
+        // can be opened *from inside* the history modal (confirm-over-modal),
+        // and confirm must intercept `y`/`n` in that case rather than the
+        // modal underneath it swallowing the keypress first.
+        if self.confirm.is_some() {
+            self.handle_confirm_key(key);
+            return;
+        }
         if self.show_which_key {
             self.handle_which_key_key(key);
             return;
@@ -1554,8 +1808,8 @@ impl App {
             self.handle_tree_key(key);
             return;
         }
-        if self.confirm.is_some() {
-            self.handle_confirm_key(key);
+        if self.show_history {
+            self.handle_history_key(key);
             return;
         }
         match self.mode {
@@ -1665,6 +1919,7 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         if let Ok(size) = terminal.size() {
             app.last_frame_area = Rect::new(0, 0, size.width, size.height);
         }
+        app.refresh_history_cache();
         terminal.draw(|frame| draw(frame, app))?;
 
         if let Some((path, editor)) = app.want_external_edit.take() {
@@ -1746,12 +2001,6 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         );
     }
 
-    if let Some(dialog) = &app.confirm {
-        let popup_area = centered_rect(frame.area(), (dialog.message.len() as u16 + 12).max(30), 3);
-        frame.render_widget(Clear, popup_area);
-        dialog.render(frame, popup_area, hex_to_color(&app.theme.warning));
-    }
-
     if app.show_tags {
         let tags = TagIndex::build(&app.notes);
         let popup_area = centered_rect(frame.area(), 40, (tags.len() as u16 + 2).max(3));
@@ -1775,8 +2024,22 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         render_tree(frame, frame.area(), app);
     }
 
+    if app.show_history {
+        render_history(frame, frame.area(), app);
+    }
+
     if app.show_which_key {
         which::render(frame, frame.area(), app);
+    }
+
+    // Rendered last, on top of every other modal: a confirmation (e.g. a
+    // history revert) can be triggered *from inside* one of them, and must
+    // stay visually on top rather than getting painted over by whichever
+    // modal is still "open" underneath it.
+    if let Some(dialog) = &app.confirm {
+        let popup_area = centered_rect(frame.area(), (dialog.message.len() as u16 + 12).max(30), 3);
+        frame.render_widget(Clear, popup_area);
+        dialog.render(frame, popup_area, hex_to_color(&app.theme.warning));
     }
 }
 
@@ -1939,5 +2202,64 @@ fn render_tree(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
 
     let mut state = ListState::default();
     state.select(app.tree_selected_row());
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+fn render_history(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
+    let height = (frame_area.height * 3 / 4).max(8);
+    let popup_area = centered_rect(frame_area, (frame_area.width * 3 / 4).max(50), height);
+    frame.render_widget(Clear, popup_area);
+
+    let fg = hex_to_color(&app.theme.fg);
+    let muted = hex_to_color(&app.theme.muted);
+
+    if let Some((commit_id, content)) = &app.history_viewing {
+        let short = commit_id.chars().take(7).collect::<String>();
+        let title = format!(
+            " {}  Revision {short}  —  r revert · esc back ",
+            icons::HISTORY
+        );
+        let paragraph = ratatui::widgets::Paragraph::new(content.as_str())
+            .block(panel_block(Line::from(title), true, &app.theme))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(paragraph, popup_area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .history_entries
+        .iter()
+        .map(|entry| {
+            let short = entry.commit_id.chars().take(7).collect::<String>();
+            ListItem::new(Line::from(vec![
+                ratatui::text::Span::styled(
+                    format!("{} ", entry.date.format("%Y-%m-%d %H:%M")),
+                    Style::default().fg(fg),
+                ),
+                ratatui::text::Span::styled(format!("{short}  "), Style::default().fg(muted)),
+                ratatui::text::Span::styled(entry.message.clone(), Style::default().fg(fg)),
+            ]))
+        })
+        .collect();
+    let highlight_symbol = format!("{} ", icons::ARROW);
+    let title = format!(
+        " {}  History [{} revisions]  —  enter view · r revert · esc/q close ",
+        icons::HISTORY,
+        app.history_entries.len()
+    );
+    let list = List::new(items)
+        .block(panel_block(Line::from(title), true, &app.theme))
+        .highlight_style(
+            Style::default()
+                .bg(hex_to_color(&app.theme.selection))
+                .fg(hex_to_color(&app.theme.accent))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(&highlight_symbol);
+
+    let mut state = ListState::default();
+    if !app.history_entries.is_empty() {
+        state.select(Some(app.history_selected));
+    }
     frame.render_stateful_widget(list, popup_area, &mut state);
 }

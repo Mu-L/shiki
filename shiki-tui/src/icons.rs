@@ -21,3 +21,4 @@ pub const CLIPBOARD: char = '\u{f0ea}'; // clipboard, copy-logs shortcut
 pub const TREE: char = '\u{f1bb}'; // tree, notebook tree view
 pub const DOWNLOAD: char = '\u{f019}'; // download, "needs pull" indicator (behind)
 pub const UPLOAD: char = '\u{f093}'; // upload, "needs push" indicator (ahead)
+pub const HISTORY: char = '\u{f1da}'; // history, note version history / date toggle

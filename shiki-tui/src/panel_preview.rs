@@ -1,6 +1,6 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
@@ -15,12 +15,18 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let muted = hex_to_color(&app.theme.muted);
     let link = hex_to_color(&app.theme.link);
 
-    let title = match (app.selected_note(), app.selected_folder()) {
-        (Some(n), _) => format!(" {}  {}  [j/k scroll] ", icons::EYE, n.frontmatter.title),
-        (None, Some(folder)) => format!(" {}  {folder}/ ", icons::NOTEBOOK),
-        (None, None) => format!(" {}  Preview ", icons::EYE),
+    let title: Line = match (app.selected_note(), app.selected_folder()) {
+        (Some(n), _) => Line::from(vec![
+            Span::raw(format!(" {}  {}  ", icons::EYE, n.frontmatter.title)),
+            Span::styled(
+                format!("({}) ", n.frontmatter.date.format("%Y-%m-%d")),
+                Style::default().fg(muted),
+            ),
+        ]),
+        (None, Some(folder)) => Line::from(format!(" {}  {folder}/ ", icons::NOTEBOOK)),
+        (None, None) => Line::from(format!(" {}  Preview ", icons::EYE)),
     };
-    let block = panel_block(Line::from(title), focused, &app.theme);
+    let block = panel_block(title, focused, &app.theme);
 
     let lines = match (app.selected_note(), app.selected_folder()) {
         (Some(note), _) => markdown_to_lines(&note.body, fg, accent, muted, link),

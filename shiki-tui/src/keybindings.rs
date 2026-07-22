@@ -12,6 +12,7 @@ pub enum Action {
     GlobalSearch,
     ToggleTags,
     ShowLogs,
+    ToggleFavoriteEditor,
     // Notebooks-focus
     NewNotebook,
     RenameNotebook,
@@ -30,9 +31,12 @@ pub enum Action {
     MoveNote,
     SortNotes,
     ToggleTreeView,
+    ToggleDates,
     // Notes- and Preview-focus
     EditInline,
     EditExternal,
+    // Preview-focus
+    ShowHistory,
 }
 
 /// Translates a config string (e.g. `"enter"`, `"tab"`, `"a"`, `"space"`) into a `KeyCode`.
@@ -84,6 +88,11 @@ impl KeyMaps {
         bind(&mut global, &cfg.global.global_search, Action::GlobalSearch);
         bind(&mut global, &cfg.global.tags_panel, Action::ToggleTags);
         bind(&mut global, &cfg.global.logs, Action::ShowLogs);
+        bind(
+            &mut global,
+            &cfg.global.toggle_favorite_editor,
+            Action::ToggleFavoriteEditor,
+        );
 
         let mut notebooks = HashMap::new();
         bind(&mut notebooks, &cfg.notebooks.new, Action::NewNotebook);
@@ -118,6 +127,7 @@ impl KeyMaps {
         bind(&mut notes, &cfg.notes.move_to_notebook, Action::MoveNote);
         bind(&mut notes, &cfg.notes.sort, Action::SortNotes);
         bind(&mut notes, &cfg.notes.tree_view, Action::ToggleTreeView);
+        bind(&mut notes, &cfg.notes.toggle_dates, Action::ToggleDates);
 
         let mut preview = HashMap::new();
         bind(&mut preview, &cfg.preview.edit_inline, Action::EditInline);
@@ -126,6 +136,7 @@ impl KeyMaps {
             &cfg.preview.edit_external,
             Action::EditExternal,
         );
+        bind(&mut preview, &cfg.preview.history, Action::ShowHistory);
 
         Self {
             leader,
@@ -202,6 +213,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::GlobalSearch => "search all notes",
         Action::ToggleTags => "tags panel",
         Action::ShowLogs => "view logs",
+        Action::ToggleFavoriteEditor => "toggle favorite editor",
         Action::NewNotebook => "new notebook",
         Action::RenameNotebook => "rename notebook",
         Action::DeleteNotebook => "delete notebook",
@@ -218,8 +230,10 @@ pub fn action_label(action: Action) -> &'static str {
         Action::MoveNote => "move to notebook",
         Action::SortNotes => "cycle sort order",
         Action::ToggleTreeView => "notebook tree (all notes)",
+        Action::ToggleDates => "toggle note dates in list",
         Action::EditInline => "edit (insert mode)",
         Action::EditExternal => "edit externally ($EDITOR)",
+        Action::ShowHistory => "note history (view/revert)",
     }
 }
 
@@ -229,6 +243,7 @@ pub fn action_icon(action: Action) -> char {
         Action::GlobalSearch | Action::JumpSearch => crate::icons::SEARCH,
         Action::ToggleTags => crate::icons::TAG,
         Action::ShowLogs => crate::icons::LIST,
+        Action::ToggleFavoriteEditor => crate::icons::PENCIL,
         Action::NewNotebook | Action::NewNote => crate::icons::NOTE,
         Action::RenameNotebook | Action::RenameNote => crate::icons::PENCIL,
         Action::DeleteNotebook | Action::DeleteNote => crate::icons::WARNING,
@@ -242,5 +257,6 @@ pub fn action_icon(action: Action) -> char {
         Action::MoveNote => crate::icons::ARROW,
         Action::SortNotes => crate::icons::COLUMNS,
         Action::ToggleTreeView => crate::icons::TREE,
+        Action::ToggleDates | Action::ShowHistory => crate::icons::HISTORY,
     }
 }

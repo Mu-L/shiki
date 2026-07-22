@@ -8,12 +8,14 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Omar"]
 license = "MIT"
 repository = "https://github.com/omar/shiki"
 description = "shiki (私記) - TUI note-taking app written in Rust"
+keywords = ["notes", "tui", "markdown", "git", "cli"]
+categories = ["command-line-utilities", "text-editors"]
 
 [workspace.dependencies]
 shiki-core = { path = "shiki-core" }

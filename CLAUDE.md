@@ -168,10 +168,37 @@ its subfolders then notes, or "Empty folder." if there's nothing there. This rep
 descending, the same way selecting a note already shows its content. `App::notes_relative_path` is
 `pub` specifically so `panel_preview.rs` (a different module) can build that sub-path.
 
+**The note-preview title is a multi-`Span` `Line`, not a plain string, so the date can be a
+different color than the title.** `panel_block`'s `title_style` (bold, `theme.panel_title`) only
+applies to spans that don't set their own style — a plain `Span::raw` for the title inherits it,
+while the trailing `Span::styled(date, fg(muted))` overrides just the color, landing on a visibly
+de-emphasized date next to a normal-looking title without needing two separate widgets. This
+replaced a `"[j/k scroll]"` hint in the title, which stopped earning its space once scrolling
+(and now `PageUp`/`PageDown`/`Home`/`End`) had been the obvious way to move around for a while.
+`App.show_dates` (notes-scope `D`, off by default) does the equivalent in the NOTES list itself —
+same append-a-muted-span approach, per note item this time.
+
 **Collapsed (out-of-focus) panels are 1 column wide (`layout::COLLAPSED`), not 3.** At 3 columns a
 collapsed panel showed a sliver of unreadable truncated content alongside its border; at 1 column
 it's just the border line, which is all a collapsed panel needs to communicate — the user already
 knows it's there and can `tab`/`h` back into it.
+
+**`layout::split` has three size tiers, not one fixed 3-column layout** — `columned` (the original
+side-by-side layout, `main.width >= STACK_WIDTH == 70`), `stacked` (same focused/collapsed
+proportions from `tier_constraints`, just split vertically instead of horizontally, so a narrow-
+but-tall window — portrait, a many-way tmux split, a square-ish terminal — still gives the visible
+panel(s) the full width instead of a sliver), and `single` (`main.width < SINGLE_WIDTH == 46` or
+`main.height < SINGLE_HEIGHT == 14`: only the focused panel renders at all, full screen, no
+collapsed siblings — even a 1-column border doesn't fit alongside a usable panel at that size).
+`single` gives the two non-focused panels a zero-sized `Rect` rather than omitting them — `draw()`
+always renders all three panels unconditionally regardless of tier, and rendering into a
+zero-sized `Rect` is a safe no-op in ratatui, so nothing outside `layout.rs` needed to change.
+Navigation (`hjkl`/`tab`/`enter`, all driving `App.focus`) is completely tier-agnostic — moving
+between "screens" in `single` tier is the exact same `navigate_forward`/`navigate_backward` calls
+as switching panels in `columned`, just reflected differently by whichever tier `split` picked.
+Verified by resizing an actual tmux pane through all three tiers (200×50 down to 20×8) and
+confirming no panic and no broken rendering at any size, including navigating between panels while
+in `single` tier.
 
 **Notebook = directory + independent git repo** (`shiki-core/src/notebook.rs`,
 `shiki-core/src/git.rs`, via `git2`). `NotebookStore::create` calls `git::init_repo` immediately,
@@ -207,14 +234,58 @@ move-to-notebook), `Edit` routes to `handle_edit_key` (forwards keys into the `t
 checked before mode dispatch. External editing (`E`, or `i` when
 `general.use_favorite_editor` is on) sets `want_external_edit: Option<(PathBuf, String)>` — the
 editor command travels with the path since it's resolved per-invocation (static configured editor
-for `E`, OS-detected favorite via `shiki_core::editor::detect_favorite_editor` for `i`) — `run()`
-picks this up between draw calls to disable raw mode / leave the alternate screen, spawn the
-editor via `shiki_core::editor::command_for` (splits multi-word commands like `"code --wait"`),
-and restore the terminal. The theme picker (leader+`c`) live-previews by mutating `self.theme` as
-you move the cursor and only persists to `config.toml` on `Enter`; `Esc` reverts to
+for `E`, the cached `App.favorite_editor` for `i` — see below) — `run()` picks this up between draw
+calls to disable raw mode / leave the alternate screen, spawn the editor via
+`shiki_core::editor::command_for` (splits multi-word commands like `"code --wait"`), and restore
+the terminal. The theme picker (leader+`c`) live-previews by mutating `self.theme` as you move the
+cursor and only persists to `config.toml` on `Enter`; `Esc` reverts to
 `available_themes[theme_index]`. `shiki-tui/src/command.rs`'s `CommandPalette` is still unused
 dead code — the notes-scope search (`/`) and global search (leader+`g`) were both built directly
 in `App` instead.
+
+**`App.favorite_editor: Option<String>` is resolved once at startup, not per-render.**
+`shiki_core::editor::detect_favorite_editor()` can shell out to `xdg-mime` on Linux when
+`$VISUAL`/`$EDITOR` aren't set — cheap once, but `draw()` runs roughly every ~100ms even while
+idle (the `run()` loop's poll timeout), so calling it there would mean re-spawning that subprocess
+several times a second for no reason. Cached at startup and reused by both the footer's editor-mode
+indicator (`App::editor_status_label`) and `Action::EditInline`'s dispatch, so the two can never
+disagree about which editor is actually in effect. leader+`e` (`Action::ToggleFavoriteEditor` →
+`App::toggle_favorite_editor`) flips `general.use_favorite_editor` and persists it immediately
+(same `Config::save` pattern as the theme picker), so switching between the built-in editor and the
+OS favorite doesn't need hand-editing config.toml — the footer always shows which one is active:
+the resolved editor's bare binary name (e.g. `nvim`) when on, `native` when off. Every note CRUD
+operation (create via `a`, edit via `i`, delete via `d`, rename via `r`) already works identically
+regardless of which mode is active — `native` isn't a reduced-functionality fallback.
+
+**Note version history (PREVIEW-scope `H`) is real git history, not a separate versioning
+system.** `shiki_core::git::file_history(repo_path, file_relative)` walks the revwalk from `HEAD`
+and, for each commit, compares the file's blob at that path against its first parent's — a commit
+is included only when the blob actually changed (or the file didn't exist in the parent yet), the
+same idea as `git log -- <path>` implemented by hand since git2 has no built-in "log for one path"
+helper. `show_file_at`/`revert_file_to` read/write the file's *entire* content at a given commit
+(frontmatter included, since that's genuinely what the blob contains) — a revert is a full-file
+replace, not a body-only patch. `revert_file_to` deliberately doesn't commit by itself: the
+reverted file just becomes a normal pending change, so it flows through the exact same `s`/`u`/
+`auto_sync` path as any other edit, rather than needing a special "revert commit" code path.
+`App::pending_revert: Option<(PathBuf, String)>` mirrors `pending_delete`'s pattern (both drive the
+same shared `confirm: Option<ConfirmDialog>`/`handle_confirm_key`) rather than inventing a second
+confirmation mechanism. **The confirm dialog is rendered last in `draw()`, after every modal, not
+before them** — a revert confirmation is opened *from inside* the history modal, so if `confirm`
+rendered earlier (as it originally did, right after `pending_input`), the history modal painted
+over it and the dialog was invisible despite `App.confirm` being genuinely `Some` (hit this exact
+bug while building this: `on_key`'s `confirm.is_some()` check already came first for input
+handling, but `draw()`'s *render* order didn't match, since it's a separate ordering that has to be
+kept in sync by hand — there's no shared single source of truth for both). If you add another
+modal-launched-from-a-modal confirmation, don't move `confirm`'s render block back up.
+
+**The footer's "{n} changes" (PREVIEW only) is cached per note path, not recomputed every
+draw.** `App::refresh_history_cache`, called once per `run()` loop iteration right before
+`terminal.draw`, only actually re-walks the note's history when the selected note's path differs
+from the last one it checked — a full revwalk on every ~100ms idle redraw would be wasteful.
+The cache is explicitly invalidated (`history_count_cache = None`) after any commit
+(`run_sync`'s `Ok(true)` branch) and after a revert, since either can change the count for the
+*same* path without the path itself changing — path-based cache invalidation alone would miss
+both of those and show a stale number.
 
 **`PageUp`/`PageDown`/`Home`/`End` are handled explicitly everywhere they're needed — they are not
 free from ratatui/tui-textarea.** The one place they *do* come for free is the inline editor
@@ -406,3 +477,26 @@ Commands section above for testing in isolation.
 
 `Cargo.lock` is committed intentionally — `shiki-cli` produces a binary, not a library, so the
 lockfile should be checked in for reproducible builds (don't add it to `.gitignore`).
+
+**`shiki doctor` (`shiki-cli/src/commands/doctor.rs`) is handled *before* `Context::load()` in
+`main()`, not through the normal command dispatch.** Every other subcommand goes through
+`Context::load()?` first (parses `config.toml`, propagating a raw TOML error and exiting if it's
+malformed); `doctor` exists specifically to still work — and say what's wrong — in exactly that
+broken-config situation, so it can't depend on `Context::load()` succeeding. It does its own
+defensive checks instead: `Config::parse` (a `load_or_init` split-out, see below) wrapped in a
+match rather than propagated via `?`, `on_path()` (a plain `$PATH` scan — deliberately not
+executing the found binary, since probing a user's arbitrary `general.editor` command with
+`--version` could hang or have side effects), and falls back to `Config::default()` for the
+checks that need *some* config (editor, notebooks) when parsing failed. Reports config/data-dir/
+templates-dir/git/gh/terminal-truecolor/editor/notebooks as pass/warn/fail with a summary count,
+and exits non-zero only if something actually failed (warnings don't fail the exit code). If you
+add a new subcommand that similarly shouldn't require a working config, follow the same
+before-`Context::load()` pattern in `main()`, not a special-case inside the dispatch `match`.
+
+**Every crate inherits `repository`/`keywords`/`categories` via `.workspace = true` in its own
+`Cargo.toml` — don't assume setting them once under `[workspace.package]` is enough.** Workspace
+inheritance requires each field to be explicitly opted into per-crate; only `version`/`edition`/
+`authors`/`license` had this before, so every crate's manifest had no `repository` at all (`cargo
+package` warned "manifest has no documentation, homepage or repository") until this was added
+everywhere. `readme = "../README.md"` is a plain (non-inherited) path per crate, since `readme`
+can't sensibly inherit a single value across crates that live in different directories.

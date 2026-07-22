@@ -333,6 +333,93 @@ pub fn remote_url(path: &Path) -> Option<String> {
     remote.url().map(String::from)
 }
 
+/// One commit that changed a specific file — the note's real version
+/// history, since every note lives in a git repo already; no separate
+/// versioning system needed.
+#[derive(Debug, Clone)]
+pub struct FileRevision {
+    /// Full 40-hex commit id — `show_file_at`/`revert_file_to` need the
+    /// exact id, not an abbreviation; truncate for display, not for lookup.
+    pub commit_id: String,
+    pub date: chrono::DateTime<chrono::Local>,
+    pub message: String,
+}
+
+/// Every commit that changed `file_relative` (relative to the notebook
+/// root at `repo_path`), newest first. Walks history from `HEAD` comparing
+/// each commit's blob at that path against its first parent's — a commit
+/// is included only when that blob actually differs (or the file didn't
+/// exist yet in the parent), same idea as `git log -- <path>`. Empty (not
+/// an error) for a brand-new repo with no commits yet, or a file that was
+/// never committed.
+pub fn file_history(repo_path: &Path, file_relative: &Path) -> Result<Vec<FileRevision>> {
+    let repo = Repository::open(repo_path)?;
+    if repo.head().is_err() {
+        return Ok(Vec::new());
+    }
+
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+    revwalk.set_sorting(git2::Sort::TIME)?;
+
+    let mut revisions = Vec::new();
+    for oid in revwalk {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let tree = commit.tree()?;
+        let entry_id = tree.get_path(file_relative).ok().map(|e| e.id());
+        let Some(entry_id) = entry_id else {
+            continue;
+        };
+
+        let parent_entry_id = commit
+            .parent(0)
+            .ok()
+            .and_then(|parent| parent.tree().ok())
+            .and_then(|tree| tree.get_path(file_relative).ok())
+            .map(|e| e.id());
+
+        if parent_entry_id == Some(entry_id) {
+            continue; // unchanged at this path since the previous commit
+        }
+
+        let time = commit.time();
+        let date = chrono::DateTime::from_timestamp(time.seconds(), 0)
+            .unwrap_or_default()
+            .with_timezone(&chrono::Local);
+        revisions.push(FileRevision {
+            commit_id: oid.to_string(),
+            date,
+            message: commit.summary().unwrap_or("").to_string(),
+        });
+    }
+    Ok(revisions)
+}
+
+/// `file_relative`'s full content as it was in `commit_id` — for viewing an
+/// old revision, or as the source for `revert_file_to`.
+pub fn show_file_at(repo_path: &Path, commit_id: &str, file_relative: &Path) -> Result<String> {
+    let repo = Repository::open(repo_path)?;
+    let oid = git2::Oid::from_str(commit_id)?;
+    let commit = repo.find_commit(oid)?;
+    let tree = commit.tree()?;
+    let entry = tree.get_path(file_relative)?;
+    let blob = repo.find_blob(entry.id())?;
+    Ok(String::from_utf8_lossy(blob.content()).into_owned())
+}
+
+/// Overwrites the current working copy of `file_relative` with its content
+/// from `commit_id` — a full-file revert (frontmatter included, since
+/// that's what's actually stored in the blob), not just the body text.
+/// Doesn't commit by itself: the reverted file just shows up as a normal
+/// pending change, picked up by the usual sync flow (manual `s`/`u`, or
+/// `auto_sync`) like any other edit.
+pub fn revert_file_to(repo_path: &Path, commit_id: &str, file_relative: &Path) -> Result<()> {
+    let content = show_file_at(repo_path, commit_id, file_relative)?;
+    std::fs::write(repo_path.join(file_relative), content)?;
+    Ok(())
+}
+
 /// Quick status: current branch, uncommitted changes, and how far ahead/
 /// behind `refs/remotes/{remote}/{branch}` local `HEAD` is (from the last
 /// fetch — this doesn't talk to the network itself).

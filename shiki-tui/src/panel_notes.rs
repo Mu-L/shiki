@@ -28,8 +28,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 )
             })
             .chain(app.notes.iter().map(|note| {
-                ListItem::new(format!("{}  {}", icons::NOTE, note.frontmatter.title))
-                    .style(Style::default().fg(fg))
+                let mut spans = vec![ratatui::text::Span::styled(
+                    format!("{}  {}", icons::NOTE, note.frontmatter.title),
+                    Style::default().fg(fg),
+                )];
+                if app.show_dates {
+                    spans.push(ratatui::text::Span::styled(
+                        format!("  ({})", note.frontmatter.date.format("%Y-%m-%d")),
+                        Style::default().fg(muted),
+                    ));
+                }
+                ListItem::new(Line::from(spans))
             }))
             .collect()
     };

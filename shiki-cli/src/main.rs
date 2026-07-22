@@ -60,6 +60,8 @@ enum Commands {
     },
     /// Shows the path to the config file
     Config,
+    /// Checks the environment (config, data dir, git, editor, terminal, notebooks)
+    Doctor,
     /// Manages notebooks
     Notebook {
         #[command(subcommand)]
@@ -114,6 +116,14 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Handled before `Context::load()` — doctor needs to work (and say why)
+    // even when the config is broken, which is precisely the situation
+    // someone reaching for it is usually in.
+    if matches!(cli.command, Some(Commands::Doctor)) {
+        return commands::doctor::run();
+    }
+
     let mut ctx = Context::load()?;
 
     match cli.command {
@@ -153,6 +163,7 @@ fn main() -> Result<()> {
             commands::sync::run(&ctx.store, &notebook, &ctx.config.git)
         }
         Some(Commands::Config) => commands::config::run(),
+        Some(Commands::Doctor) => unreachable!("handled before Context::load() above"),
         Some(Commands::Notebook { action }) => match action {
             NotebookAction::Create { name } => commands::notebook::create(&ctx.store, &name),
             NotebookAction::List => commands::notebook::list(&ctx.store),

@@ -149,6 +149,17 @@ Yazi): browsing NOTEBOOKS shows all three panels at their normal width; moving i
 NOTES collapses NOTEBOOKS down; moving into PREVIEW collapses both NOTEBOOKS and NOTES
 so the note has (almost) the full width to read comfortably.
 
+This layout is responsive to the terminal's actual size, not just one fixed arrangement:
+
+- **Wide** (≥70 columns): the 3-column layout above.
+- **Narrow but tall, or square** (46–70 columns wide): the same panels, same
+  focused/collapsed proportions, just stacked top-to-bottom instead of side-by-side — a
+  portrait window or a many-way terminal split still gets a usable full-width panel
+  instead of three unreadably thin columns.
+- **Very small** (<46 columns or <14 rows): only the focused panel is shown, full screen —
+  no collapsed siblings at all. `h`/`l`/`tab` still move between panels exactly as always;
+  at this size that just means switching which one is on screen, one at a time.
+
 ### Modes (vi-like)
 
 | Mode | Description |
@@ -192,6 +203,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `g` | Search all notes (title + body, every notebook) — modal, Enter/click to jump |
 | `T` | Tags panel |
 | `l` | Logs — scrollback of every status-bar message (including errors that already scrolled past); `j`/`k` scroll, `y`/`c` copies the whole log to the clipboard (OSC 52), `Esc`/`q` closes |
+| `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 
 #### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
 
@@ -229,13 +241,15 @@ sync attempt (manual or automatic) just tries the push again.
 | `m` | Move the note to another notebook |
 | `o` | Cycle sort order (filename / title A-Z / date newest-first) |
 | `T` | Tree view — every folder and note in the notebook, fully expanded, in one scrollable overview; `j`/`k` move, `enter`/`l` jumps straight to the selected note, `esc`/`q` closes |
+| `D` | Toggle each note's date next to its title in the list (off by default) |
 
 #### `[keybindings.preview]` — active while PREVIEW is focused
 
 | Key | Action |
 |---|---|
-| `i` | Edit inline (or the OS favorite editor) |
+| `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
+| `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `r` reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
 
 ---
 
@@ -367,6 +381,7 @@ theme_picker = "c"
 global_search = "g"
 tags_panel = "T"
 logs = "l"
+toggle_favorite_editor = "e"
 
 [keybindings.notebooks]
 new = "a"
@@ -388,10 +403,12 @@ daily_note = "t"
 move_to_notebook = "m"
 sort = "o"
 tree_view = "T"
+toggle_dates = "D"
 
 [keybindings.preview]
 edit_inline = "i"
 edit_external = "E"
+history = "H"
 
 [theme]
 name = "catppuccin-mocha"
