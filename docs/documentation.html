@@ -59,19 +59,15 @@
   <section id="layout">
     <div class="container">
       <h2>Layout (3 panels, Yazi-inspired)</h2>
-      <pre class="ascii">┌──────────────┬───────────────────────────────────────┬─────────────────────────────┐
-│  NOTEBOOKS   │  NOTES                                │  PREVIEW                    │
-│              │                                       │                             │
-│  &gt; personal  │  &gt; 2026-07-22-daily                   │  # 2026-07-22 Daily         │
-│    work      │    meeting-q3-planning                │                             │
-│    projects  │    rust-ideas                          │  ## Tasks                   │
-│              │    shiki-todo-list                     │  - [ ] Review PR            │
-│  [1/3]       │    book-notes-atomic-habits            │  - [ ] Write docs           │
-│              │                                        │                             │
-│              │  20 notes  |  [/] to search            │                             │
-├──────────────┴───────────────────────────────────────┴─────────────────────────────┤
-│  NORMAL  │  personal  │  synced ✓  │  ? for help                                    │
-└────────────────────────────────────────────────────────────────────────────────────┘</pre>
+      <div class="term-window" style="margin-bottom: 24px;">
+        <div class="term-titlebar">
+          <span class="term-dot red"></span>
+          <span class="term-dot yellow"></span>
+          <span class="term-dot green"></span>
+          <span class="term-title">shiki — personal/Book recommendations.md</span>
+        </div>
+        <img src="assets/screenshots/gruvbox-dark.png" alt="shiki's real three-pane layout: Notebooks, Notes, Preview" />
+      </div>
       <p>
         Panels behind the current focus collapse to a thin strip (Miller-columns style, like
         Yazi): browsing NOTEBOOKS shows all three panels at their normal width; moving into NOTES
