@@ -1,0 +1,117 @@
+/* Styles specific to documentation.html — layered on top of styles.css's
+   theme variables and base rules, not a replacement for them. */
+
+.doc-hero {
+  padding: 64px 0 32px;
+  border-bottom: none;
+}
+
+.doc-hero h1 {
+  font-size: 2.4rem;
+  color: var(--panel-title);
+}
+
+.doc-toc {
+  position: sticky;
+  top: 57px; /* sits right under .topbar */
+  z-index: 9;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.doc-toc .container {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.doc-toc a {
+  color: var(--muted);
+}
+
+.doc-toc a:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.doc-page section {
+  padding: 56px 0;
+}
+
+.doc-page h2 {
+  font-size: 1.6rem;
+}
+
+.doc-page h3 {
+  font-size: 1.05rem;
+  color: var(--fg);
+  margin: 32px 0 12px;
+}
+
+.doc-page h3:first-of-type {
+  margin-top: 0;
+}
+
+.topbar nav a.active {
+  color: var(--accent);
+}
+
+pre.ascii,
+pre.code {
+  background: var(--statusbar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0 28px;
+  font-size: 0.88rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ref-table th,
+.ref-table td {
+  text-align: left;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.ref-table th {
+  background: var(--statusbar);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ref-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ref-table td:first-child {
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+  width: 1%;
+}
+
+@media (max-width: 700px) {
+  .doc-toc .container {
+    gap: 12px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+}

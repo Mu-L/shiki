@@ -35,23 +35,28 @@ function applyTheme(themeId) {
     el.classList.toggle("active", el.dataset.themeId === theme.id);
   });
 
+  // Only present on the home page's Themes section — pages like
+  // documentation.html apply the chosen theme's colors via the CSS
+  // variables above but have no screenshot/fallback preview to update.
   const img = document.getElementById("theme-screenshot");
   const fallback = document.getElementById("term-fallback");
   const title = document.getElementById("theme-screenshot-title");
   const caption = document.getElementById("screenshot-caption");
 
-  if (theme.screenshot) {
-    img.src = `assets/screenshots/${theme.id}.png`;
-    img.hidden = false;
-    fallback.hidden = true;
-    caption.textContent = "Real screenshot, captured with this exact theme.";
-  } else {
-    img.hidden = true;
-    fallback.hidden = false;
-    caption.textContent =
-      "Live CSS mockup (a real screenshot for this palette isn't captured yet) — colors are still the exact values shiki uses.";
+  if (img && fallback && caption) {
+    if (theme.screenshot) {
+      img.src = `assets/screenshots/${theme.id}.png`;
+      img.hidden = false;
+      fallback.hidden = true;
+      caption.textContent = "Real screenshot, captured with this exact theme.";
+    } else {
+      img.hidden = true;
+      fallback.hidden = false;
+      caption.textContent =
+        "Live CSS mockup (a real screenshot for this palette isn't captured yet) — colors are still the exact values shiki uses.";
+    }
   }
-  title.textContent = `shiki — theme: ${theme.id}`;
+  if (title) title.textContent = `shiki — theme: ${theme.id}`;
 
   try {
     localStorage.setItem(STORAGE_KEY, theme.id);
@@ -63,6 +68,7 @@ function applyTheme(themeId) {
 
 function buildSwatches() {
   const container = document.getElementById("theme-swatches");
+  if (!container) return; // this script is shared across pages — not every page has a switcher
   THEMES.forEach((theme) => {
     const btn = document.createElement("button");
     btn.className = "swatch";
@@ -195,6 +201,7 @@ function renderChangelog(markdown) {
 
 async function loadChangelog() {
   const container = document.getElementById("changelog-content");
+  if (!container) return; // this script is shared across pages — not every page has a changelog
   try {
     const res = await fetch(CHANGELOG_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

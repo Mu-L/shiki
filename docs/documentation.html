@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="gruvbox-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation — shiki (私記)</title>
+  <meta name="description" content="Complete reference for shiki: every keybinding, every CLI command, the full config.toml schema, note format, and included themes." />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23282828'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23458588' font-family='monospace'%3E%3E_%3C/text%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/documentation.css" />
+</head>
+<body class="doc-page">
+
+  <header class="topbar">
+    <div class="brand"><a href="index.html" style="color:inherit;text-decoration:none;">shiki (私記)</a><span class="cursor"></span></div>
+    <nav>
+      <a href="index.html#themes">Themes</a>
+      <a href="index.html#features">Features</a>
+      <a href="index.html#install">Install</a>
+      <a href="documentation.html" class="active">Docs</a>
+      <a href="index.html#changelog">Changelog</a>
+      <a href="https://github.com/sazardev/shiki">GitHub</a>
+      <span class="pill" id="version-pill" hidden></span>
+    </nav>
+  </header>
+
+  <section class="doc-hero">
+    <div class="container">
+      <span class="eyebrow">Reference</span>
+      <h1>Documentation</h1>
+      <p class="muted" style="max-width: 62ch;">
+        Every keybinding, every CLI command, the full <code>config.toml</code> schema, note
+        format, and included themes — extracted directly from the project's own source of truth
+        (<a href="https://github.com/sazardev/shiki/blob/main/IDEA.md">IDEA.md</a>), not
+        paraphrased.
+      </p>
+    </div>
+  </section>
+
+  <nav class="doc-toc">
+    <div class="container">
+      <a href="#layout">Layout</a>
+      <a href="#modes">Modes</a>
+      <a href="#keybindings">Keybindings</a>
+      <a href="#cli">CLI</a>
+      <a href="#filesystem">Filesystem</a>
+      <a href="#note-format">Note format</a>
+      <a href="#themes-ref">Themes</a>
+      <a href="#config">config.toml</a>
+    </div>
+  </nav>
+
+  <section id="layout">
+    <div class="container">
+      <h2>Layout (3 panels, Yazi-inspired)</h2>
+      <pre class="ascii">┌──────────────┬───────────────────────────────────────┬─────────────────────────────┐
+│  NOTEBOOKS   │  NOTES                                │  PREVIEW                    │
+│              │                                       │                             │
+│  &gt; personal  │  &gt; 2026-07-22-daily                   │  # 2026-07-22 Daily         │
+│    work      │    meeting-q3-planning                │                             │
+│    projects  │    rust-ideas                          │  ## Tasks                   │
+│              │    shiki-todo-list                     │  - [ ] Review PR            │
+│  [1/3]       │    book-notes-atomic-habits            │  - [ ] Write docs           │
+│              │                                        │                             │
+│              │  20 notes  |  [/] to search            │                             │
+├──────────────┴───────────────────────────────────────┴─────────────────────────────┤
+│  NORMAL  │  personal  │  synced ✓  │  ? for help                                    │
+└────────────────────────────────────────────────────────────────────────────────────┘</pre>
+      <p>
+        Panels behind the current focus collapse to a thin strip (Miller-columns style, like
+        Yazi): browsing NOTEBOOKS shows all three panels at their normal width; moving into NOTES
+        collapses NOTEBOOKS down; moving into PREVIEW collapses both NOTEBOOKS and NOTES so the
+        note has (almost) the full width to read comfortably.
+      </p>
+      <p>This layout is responsive to the terminal's actual size, not just one fixed arrangement:</p>
+      <ul>
+        <li><strong>Wide</strong> (≥70 columns): the 3-column layout above.</li>
+        <li><strong>Narrow but tall, or square</strong> (46–70 columns wide): the same panels, same
+          focused/collapsed proportions, just stacked top-to-bottom instead of side-by-side — a
+          portrait window or a many-way terminal split still gets a usable full-width panel instead
+          of three unreadably thin columns.</li>
+        <li><strong>Very small</strong> (&lt;46 columns or &lt;14 rows): only the focused panel is
+          shown, full screen — no collapsed siblings at all. <code>h</code>/<code>l</code>/<code>tab</code>
+          still move between panels exactly as always; at this size that just means switching which
+          one is on screen, one at a time.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="modes">
+    <div class="container">
+      <h2>Modes (vi-like)</h2>
+      <table class="ref-table">
+        <thead><tr><th>Mode</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>NORMAL</code></td><td>Navigation, single-key shortcuts</td></tr>
+          <tr><td><code>INSERT</code></td><td>Typing in search / input</td></tr>
+          <tr><td><code>EDIT</code></td><td>Inline editor active (tui-textarea)</td></tr>
+          <tr><td><code>VISUAL</code></td><td>Multi-note selection</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="keybindings">
+    <div class="container">
+      <h2>Keybindings</h2>
+      <p class="muted" style="max-width: 68ch;">
+        Keybindings aren't one flat list — they're scoped to <em>what's focused</em>, so the same
+        physical key can mean something different (but locally sensible) in each panel. Navigation
+        is hardcoded (not configurable, since it behaves the same everywhere); everything else lives
+        in its own editable <code>config.toml</code> table: <code>[keybindings.global]</code> (needs
+        the leader key first), <code>[keybindings.notebooks]</code>, <code>[keybindings.notes]</code>,
+        <code>[keybindings.preview]</code>.
+      </p>
+
+      <h3>Navigation (hardcoded, works everywhere)</h3>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>j</code> / <code>k</code> / <code>↓</code> / <code>↑</code></td><td>Navigate lists (down / up); scrolls the note while PREVIEW is focused</td></tr>
+          <tr><td><code>PageDown</code> / <code>PageUp</code></td><td>Jump 10 at a time — same lists/scroll as <code>j</code>/<code>k</code>, just a bigger step</td></tr>
+          <tr><td><code>Home</code> / <code>End</code></td><td>Jump to the first/last notebook or note, or the top/bottom of the note in PREVIEW</td></tr>
+          <tr><td><code>l</code> / <code>→</code> / <code>enter</code></td><td>Go one level deeper (Yazi-style): NOTEBOOKS → NOTES → PREVIEW</td></tr>
+          <tr><td><code>h</code> / <code>←</code></td><td>Go back one level (Yazi-style)</td></tr>
+          <tr><td><code>tab</code></td><td>Cycle focus between panels</td></tr>
+          <tr><td><code>?</code></td><td>Which-key — near-full-screen list of every binding, doubling as a command palette: type to filter (by key, action, or scope), <code>↑</code>/<code>↓</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move the selection, <code>enter</code> runs the highlighted action immediately, <code>Esc</code> just closes</td></tr>
+          <tr><td><code>q</code></td><td>Quit</td></tr>
+          <tr><td><code>Esc</code></td><td>Back to NORMAL / close popup / cancel leader</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:0.88rem;"><code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code>
+      also work inside every scrollable modal (which-key, logs, global search, tree view) using the
+      same list/selection they already navigate with <code>j</code>/<code>k</code>.</p>
+
+      <h3><code>[keybindings.global]</code> — press <code>leader</code> (default <code>space</code>), then:</h3>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>c</code></td><td>Pick a theme — modal, live preview while browsing, Enter confirms</td></tr>
+          <tr><td><code>g</code></td><td>Search all notes (title + body, every notebook) — modal, Enter/click to jump</td></tr>
+          <tr><td><code>T</code></td><td>Tags panel — <code>j</code>/<code>k</code> browse tags, <code>Enter</code>/<code>l</code> drills into the notes carrying one, <code>Enter</code>/<code>l</code> there jumps to it, <code>h</code>/<code>Esc</code> goes back a level</td></tr>
+          <tr><td><code>l</code></td><td>Logs — persistent scrollback of every status-bar message (survives restarts, <code>~/.config/shiki/shiki.log</code>), including errors that already scrolled past; <code>j</code>/<code>k</code> scroll, <code>y</code>/<code>c</code> copies the whole log to the clipboard (OSC 52), <code>x</code> clears all logs (confirmation required), <code>Esc</code>/<code>q</code> closes</td></tr>
+          <tr><td><code>b</code></td><td>Notebook drawer — left-side sidebar, every notebook's git status in color (dirty/ahead/behind); <code>j</code>/<code>k</code> or click a row to jump to it, <code>n</code>/click "New" to create a notebook, <code>i</code>/click "Import" to clone from a pasted URL, <code>Esc</code>/<code>b</code> again closes</td></tr>
+          <tr><td><code>e</code></td><td>Toggle <code>general.use_favorite_editor</code> on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. <code>nvim</code>) when on, <code>native</code> (the built-in inline editor) when off</td></tr>
+          <tr><td><code>U</code></td><td>Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and Enter downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it</td></tr>
+        </tbody>
+      </table>
+
+      <h3><code>[keybindings.notebooks]</code> — active while NOTEBOOKS is focused</h3>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>a</code></td><td>New notebook. If the name entered is a git URL (<code>https://</code>, <code>git@host:...</code>, <code>ssh://</code>, <code>git://</code>) instead of a plain name, the notebook name is derived from the repo instead, and the notebook is created, its remote set, and pulled immediately — importing an existing repo is just <code>a</code> + paste URL + Enter</td></tr>
+          <tr><td><code>r</code></td><td>Rename notebook</td></tr>
+          <tr><td><code>d</code></td><td>Delete notebook (with confirmation)</td></tr>
+          <tr><td><code>s</code></td><td>Git sync — commit (message auto-built from the diff, naming files directly for a small change, e.g. "shiki: added (First note.md)"), + push if the resolved policy's <code>auto_push</code> is on</td></tr>
+          <tr><td><code>u</code></td><td>Sync and always push, regardless of <code>auto_push</code>/<code>auto_sync</code> — the explicit "do it now" override</td></tr>
+          <tr><td><code>p</code></td><td>Git pull (fetch + fast-forward merge from the configured remote)</td></tr>
+          <tr><td><code>P</code></td><td>Git pull for every notebook that has a remote configured</td></tr>
+          <tr><td><code>R</code></td><td>Set the notebook's git remote (URL or local path)</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="max-width:68ch; font-size:0.88rem;">
+        Beyond manual <code>s</code>, a notebook can sync <strong>itself</strong> in the background:
+        <code>[git] auto_sync = true</code> (off by default) syncs automatically every
+        <code>auto_sync_every</code> note changes (new/edited/renamed/deleted/moved), not just on
+        manual <code>s</code>. <code>auto_push</code>, <code>auto_sync</code>, and
+        <code>auto_sync_every</code> can all be overridden per notebook under
+        <code>[notebooks.&lt;name&gt;]</code>, falling back to the global <code>[git]</code> values
+        for anything left unset. A failed push never blocks or loses anything — the commit already
+        happened locally either way, and the next sync attempt just tries the push again.
+      </p>
+
+      <h3><code>[keybindings.notes]</code> — active while NOTES is focused</h3>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>a</code></td><td>New note (empty title stamps today's date and jumps straight to editing)</td></tr>
+          <tr><td><code>f</code></td><td>New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first</td></tr>
+          <tr><td><code>r</code></td><td>Rename note</td></tr>
+          <tr><td><code>d</code></td><td>Delete the selected note <em>or</em> folder (with confirmation) — a folder deletes everything inside it too. In <code>v</code> select mode, deletes every selected item at once</td></tr>
+          <tr><td><code>i</code></td><td>Edit inline (or the OS favorite editor if <code>general.use_favorite_editor</code>)</td></tr>
+          <tr><td><code>E</code></td><td>Edit externally ($EDITOR)</td></tr>
+          <tr><td><code>/</code></td><td>Fuzzy-jump to a note by title anywhere in the current notebook (any folder depth)</td></tr>
+          <tr><td><code>t</code></td><td>New/open today's daily note</td></tr>
+          <tr><td><code>m</code></td><td>Move the selected note <em>or</em> folder — prompts for a <code>notebook/path/within/it</code> target, prefilled with the current one; edit the trailing segments to move within the same notebook (missing folders are created), or replace the first segment to move to a different (existing) notebook. In <code>v</code> select mode, moves every selected item at once</td></tr>
+          <tr><td><code>o</code></td><td>Cycle sort order (filename / title A-Z / date newest-first)</td></tr>
+          <tr><td><code>T</code></td><td>Tree view — every folder and note in the notebook, fully expanded, in one scrollable overview; <code>j</code>/<code>k</code> move, <code>enter</code>/<code>l</code> jumps straight to the selected note, <code>esc</code>/<code>q</code> closes</td></tr>
+          <tr><td><code>D</code></td><td>Toggle each note's date next to its title in the list (off by default)</td></tr>
+          <tr><td><code>v</code></td><td>Select mode (<code>Mode::Visual</code>) — anchors a multi-select range at the current item; <code>j</code>/<code>k</code> extend/shrink it, <code>v</code>/<code>Esc</code> cancels. <code>d</code>/<code>m</code> (above) act on the whole range instead of one item</td></tr>
+          <tr><td><code>y</code></td><td>Select-mode only: copies every selected note/folder to a prompted target (same <code>notebook/path</code> syntax as <code>m</code>), leaving the originals in place</td></tr>
+        </tbody>
+      </table>
+
+      <h3><code>[keybindings.preview]</code> — active while PREVIEW is focused</h3>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>i</code></td><td>Edit inline (or the OS favorite editor if <code>general.use_favorite_editor</code>)</td></tr>
+          <tr><td><code>E</code></td><td>Edit externally ($EDITOR)</td></tr>
+          <tr><td><code>H</code></td><td>Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> views a revision's full content (frontmatter included, since that's what's actually in the commit), <code>r</code> reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by <code>s</code>/<code>u</code>/<code>auto_sync</code> like any other edit. The footer shows the count while reading a note (<code>{n} changes</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="cli">
+    <div class="container">
+      <h2>CLI commands</h2>
+      <pre class="code">shiki                     # launch TUI
+shiki new &lt;title&gt;         # create note + open $EDITOR
+shiki daily               # create/open today's daily note
+shiki list                # list notes in the default notebook
+shiki list -n work        # list notes in "work"
+shiki show &lt;note&gt;         # show rendered content (ANSI)
+shiki edit &lt;note&gt;         # edit with $EDITOR
+shiki search &lt;query&gt;      # search and show results
+shiki sync                # git commit+push default notebook
+shiki sync -n work        # git sync in "work"
+shiki config              # show config path
+shiki notebook create &lt;name&gt;
+shiki notebook list
+shiki notebook rename &lt;old&gt; &lt;new&gt;
+shiki theme list          # list built-in themes, marking the active one
+shiki theme set &lt;name&gt;    # switch theme (persisted to config.toml)
+shiki theme create [--from &lt;name&gt;]  # scaffold all 19 color overrides from a real palette
+shiki doctor              # environment health check (works even with a broken config)</pre>
+    </div>
+  </section>
+
+  <section id="filesystem">
+    <div class="container">
+      <h2>Filesystem layout</h2>
+
+      <h3>Data (<code>~/.local/share/shiki/</code>)</h3>
+      <pre class="code">~/.local/share/shiki/
+├── personal/              # one notebook = one directory
+│   ├── .git/              # independent git repo per notebook
+│   ├── 2026-07-22-daily.md
+│   ├── meeting-q3-planning.md
+│   ├── rust-ideas.md
+│   └── projects/          # notebooks nest folders arbitrarily deep, like `nb` —
+│       └── website/       # the NOTES panel browses them one level at a time
+│           └── todo.md    # (l/→/enter opens a folder, h/← goes back up)
+├── work/
+│   ├── .git/
+│   ├── sprint-review.md
+│   └── architecture.md
+└── projects/
+    └── ...</pre>
+      <p class="muted" style="max-width:68ch; font-size:0.9rem;">
+        Frontmatter is optional on read: a plain <code>.md</code> file with no <code>---</code>
+        block (from <code>nb</code>, an existing repo, or anywhere else) still shows up as a note
+        — its title comes from the first <code># heading</code> or the filename, its date from
+        the file's mtime. It only gains real frontmatter once you touch it through shiki
+        (rename/edit); until then it's left exactly as it was on disk.
+      </p>
+
+      <h3>Config (<code>~/.config/shiki/</code>)</h3>
+      <pre class="code">~/.config/shiki/
+├── config.toml            # general configuration
+├── keybindings.toml       # custom shortcuts (optional)
+├── theme.toml             # custom theme (optional)
+├── shiki.log              # persistent status/log history (leader+l to view, x to clear)
+└── templates/             # templates
+    ├── default.md
+    ├── daily.md
+    └── meeting.md</pre>
+    </div>
+  </section>
+
+  <section id="note-format">
+    <div class="container">
+      <h2>Note format (Markdown + YAML frontmatter)</h2>
+      <pre class="code">---
+title: My note
+date: 2026-07-22
+tags: [rust, tui, ideas]
+notebook: personal
+links: [[another-note]], [[third-link]]
+template: default
+---
+
+# My note
+
+Content in **markdown**.
+
+- List of items
+- Code: `let x = 1;`
+
+[[wikilink]] to another note — navigable from the TUI.</pre>
+    </div>
+  </section>
+
+  <section id="themes-ref">
+    <div class="container">
+      <h2>Included themes</h2>
+      <ul>
+        <li><strong>Catppuccin</strong> — Mocha, Macchiato, Frappé, Latte</li>
+        <li><strong>Tokyo Night</strong> — Storm, Night, Moon</li>
+        <li><strong>Gruvbox</strong> — Dark, Light</li>
+        <li><strong>Nord</strong></li>
+        <li><strong>Solarized</strong> — Dark, Light</li>
+        <li><strong>Default</strong> — inherits the terminal's own colors (fallback;
+          <code>bg</code>/<code>fg</code>/<code>border</code> are <code>"reset"</code>, accents use
+          the terminal's native ANSI colors) instead of imposing a fixed palette</li>
+      </ul>
+      <p class="muted" style="max-width:68ch;">
+        Each theme defines 19 configurable color slots: <code>bg</code>, <code>fg</code>,
+        <code>accent</code>, <code>selection</code>, <code>border</code>, <code>statusbar</code>,
+        <code>highlight</code>, <code>error</code>, <code>warning</code>, <code>success</code>,
+        <code>inactive</code>, <code>scrollbar</code>, <code>tab_active</code>,
+        <code>tab_inactive</code>, <code>panel_title</code>, <code>cursor</code>, <code>link</code>,
+        <code>tag</code>, <code>muted</code>. Slots accept <code>#rrggbb</code> hex, the terminal's
+        native ANSI names (<code>red</code>, <code>blue</code>, <code>cyan</code>,
+        <code>darkgray</code>, …), or <code>"reset"</code> to inherit the terminal's own default for
+        that slot. See the live theme switcher on the <a href="index.html#themes">home page</a>.
+      </p>
+    </div>
+  </section>
+
+  <section id="config">
+    <div class="container">
+      <h2>Full <code>config.toml</code> reference</h2>
+      <pre class="code">[general]
+default_notebook = "personal"
+editor = "nvim"
+daily_template = "daily"
+# When true, `i` opens the OS's detected favorite editor (env $VISUAL/$EDITOR,
+# then the desktop's default text/plain handler) instead of the inline editor.
+use_favorite_editor = false
+
+[keybindings]
+leader = "space"
+quit = "q"
+
+[keybindings.global]
+theme_picker = "c"
+global_search = "g"
+tags_panel = "T"
+logs = "l"
+toggle_favorite_editor = "e"
+check_update = "U"
+drawer = "b"
+
+[keybindings.notebooks]
+new = "a"
+rename = "r"
+delete = "d"
+sync = "s"
+pull = "p"
+pull_all = "P"
+set_remote = "R"
+
+[keybindings.notes]
+new = "a"
+new_folder = "f"
+rename = "r"
+delete = "d"
+edit_inline = "i"
+edit_external = "E"
+search = "/"
+daily_note = "t"
+move_to_notebook = "m"
+sort = "o"
+tree_view = "T"
+toggle_dates = "D"
+visual = "v"
+copy_entries = "y"
+
+[keybindings.preview]
+edit_inline = "i"
+edit_external = "E"
+history = "H"
+
+[theme]
+name = "gruvbox-dark"
+# Every one of a theme's 19 color slots can be overridden individually —
+# accent, bg, fg, selection, border, statusbar, highlight, error, warning,
+# success, inactive, scrollbar, tab_active, tab_inactive, panel_title,
+# cursor, link, tag, muted. Override as many or as few as you want; anything
+# left unset falls back to `name`'s own value for that slot. A couple of
+# examples:
+# accent = "blue"
+# bg = "#1e1e2e"
+# fg = "#cdd6f4"
+#
+# `shiki theme create [--from <theme>]` scaffolds *all 19* here at once,
+# copied from a real palette (defaulting to whichever theme is active) —
+# a starting point to edit slot-by-slot instead of hand-typing hex codes
+# from scratch with no example to copy from.
+
+[git]
+auto_commit = true
+auto_push = false
+commit_prefix = "shiki: "
+remote = "origin"
+branch = "main"
+sign_commits = false
+auto_sync = false
+auto_sync_every = 5
+# Auto-configures a notebook's remote on creation (plain name, not a pasted
+# URL) — "{notebook}" is replaced with the new notebook's name. The remote
+# still has to already exist on that server; this doesn't create one via
+# any hosting provider's API. Empty (the default) means don't auto-configure
+# anything.
+remote_template = ""
+# remote_template = "git@git.example.com:notes/{notebook}.git"
+
+# Optional per-notebook overrides of [git] — anything left unset here falls
+# back to the global values above.
+[notebooks.work]
+auto_sync = true
+auto_sync_every = 3
+auto_push = true</pre>
+      <p class="muted" style="font-size:0.9rem;">
+        Source: <a href="https://github.com/sazardev/shiki/blob/main/IDEA.md">IDEA.md</a> on
+        <code>main</code> — if this page and the repo ever disagree, the repo is correct.
+      </p>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/sazardev/shiki">GitHub</a>
+        <a href="https://github.com/sazardev/shiki/issues">Issues</a>
+        <a href="https://github.com/sazardev/shiki/blob/main/LICENSE">MIT License</a>
+        <a class="coffee-link" href="https://buymeacoffee.com/sazarcode">☕ Buy me a coffee</a>
+      </div>
+      <small>shiki (私記) — built by <a href="https://github.com/sazardev">sazardev</a>. Free and open source, forever.</small>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

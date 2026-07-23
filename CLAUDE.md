@@ -258,6 +258,26 @@ flipping the button to "Copied!" for 1.5s. A failed `navigator.clipboard.writeTe
 context, denied permission) fails silently — the command text itself is still fully visible and
 selectable by hand either way, so nothing is actually broken by a Clipboard API failure.
 
+**`docs/documentation.html` is a real reference manual, not another marketing page** — every
+keybinding table, the CLI command list, the full `config.toml` example, note format, and
+filesystem layout, copied verbatim from `IDEA.md` (not paraphrased/summarized) so this page and
+the repo can't quietly drift into saying different things about the same behavior. The homepage's
+own Documentation section (`#docs` in `index.html`) used to link out to README/IDEA.md/CONTRIBUTING
+on GitHub directly; those three now belong to the open-source/contributor side of the project (
+`CONTRIBUTING.md` links contributors there already) and were removed from the homepage entirely —
+`#docs` is now a short teaser with one button to `documentation.html`, the single dedicated place
+for "how do I actually use this." The nav's "Docs" link points straight at
+`documentation.html`, not `#docs`, since the real content lives there now.
+
+**`docs/js/main.js` had to become genuinely reusable across pages, not written for `index.html`
+alone, once `documentation.html` started including it too** — `applyTheme`/`buildSwatches`/
+`loadChangelog` originally called `document.getElementById(...)` and used the result unconditionally
+(a real `TypeError: Cannot set properties of null` was hit live building this, since
+`documentation.html` has no `#theme-screenshot`/`#term-fallback`/`#changelog-content`). Each of
+those now guards on the element actually existing before touching it, so the same `main.js` can be
+dropped into any future page and only the parts relevant to that page's own DOM actually run — no
+per-page script variants to keep in sync.
+
 ## Architecture
 
 Cargo workspace, four crates with a strict one-way dependency chain:
