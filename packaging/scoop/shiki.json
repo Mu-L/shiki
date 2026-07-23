@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/sazardev/shiki/releases/download/v0.4.0/shiki-v0.4.0-x86_64-pc-windows-msvc.zip",
-            "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000"
+            "hash": "sha256:4327ed0593d98319060a739cec298248a1e73b91bf038a049873595f7a80568b"
         }
     },
     "bin": "shiki.exe",
