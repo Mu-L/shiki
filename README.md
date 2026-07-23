@@ -2,16 +2,59 @@
 
 > **Personal notes, private log.**
 > A TUI note-taking app in Rust — three-pane Yazi-style navigation, notebooks as
-> git repos, Markdown with frontmatter, inline and external editing, themes,
-> and fast fuzzy search. See [IDEA.md](IDEA.md) for the full design spec and
-> [CHANGELOG.md](CHANGELOG.md) for release history.
+> independent git repos, Markdown with frontmatter, inline and external editing,
+> real per-note version history, themes, and fast fuzzy search.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/sazardev/shiki?style=social)](https://github.com/sazardev/shiki/stargazers)
+[![GitHub last commit](https://img.shields.io/github/last-commit/sazardev/shiki)](https://github.com/sazardev/shiki/commits/main)
+[![GitHub repo size](https://img.shields.io/github/repo-size/sazardev/shiki)](https://github.com/sazardev/shiki)
+
+![Rust](https://img.shields.io/badge/Rust-2021-CE422B?logo=rust&logoColor=white)
+![ratatui](https://img.shields.io/badge/ratatui-0.29-blue?logo=rust&logoColor=white)
+![tokio](https://img.shields.io/badge/tokio-1.x-blue?logo=rust&logoColor=white)
+![git2](https://img.shields.io/badge/git2-0.19-orange?logo=git&logoColor=white)
+![clap](https://img.shields.io/badge/clap-4.x-blue?logo=rust&logoColor=white)
+
+See [IDEA.md](IDEA.md) for the full design spec (keybinding tables, config schema, theme list) and
+[CHANGELOG.md](CHANGELOG.md) for release history.
+
+## Features
+
+- **Three-pane TUI**, Yazi-inspired: modal navigation (`hjkl`/arrows), collapsing Miller-columns
+  layout, and fully **responsive to terminal size** — wide terminals get the 3-column layout,
+  narrow/square ones stack panels vertically, very small ones show just the focused panel,
+  full screen.
+- **Notebooks are independent git repos** — plain directories under the hood, each its own repo,
+  with folders nested to any depth (`nb`-style). Frontmatter is optional on read, so a plain
+  Markdown file dropped in from elsewhere still shows up.
+- **Real per-note version history** (not a separate versioning system): every commit that changed
+  a specific note, browsable and revertible straight from the TUI.
+- **Full git workflow per notebook**: manual sync/push/pull, `auto_sync` (commit + push
+  automatically every N changes), per-notebook policy overrides, robust HTTPS/SSH auth that
+  reuses your system's own git credential store, and automatic fallback to the remote's actual
+  default branch.
+- **Six built-in themes** (Catppuccin, Tokyo Night, Gruvbox, Nord, Solarized, and a terminal-native
+  default that inherits your terminal's own palette) with a live-preview picker.
+- **Config-driven keybindings**, scoped by focus, fully remappable in `config.toml` — nothing
+  hardcoded except plain navigation.
+- **Global fuzzy search** across every notebook, plus in-notebook fuzzy jump.
+- **Notebook tree view**, tags panel, daily notes with templates, moving notes between notebooks,
+  cycling sort order, an optional date column in the notes list.
+- **Inline editor** built into the TUI, or your favorite external editor — auto-detected from
+  `$VISUAL`/`$EDITOR`/the OS default, toggleable on the fly from the footer.
+- **Logs modal** recording every status message (so errors don't get lost), with one-key clipboard
+  copy (OSC 52) for pasting elsewhere.
+- **`shiki doctor`** — an environment health check that works even with a broken config.
+- **CLI commands** alongside the TUI (`new`, `list`, `edit`, `show`, `search`, `daily`, `sync`,
+  `notebook`, `theme`, `config`, `doctor`) for quick one-off operations without opening the UI.
 
 ## Install
 
 Not published to crates.io yet — install straight from a clone:
 
 ```sh
-git clone https://github.com/omar/shiki
+git clone https://github.com/sazardev/shiki
 cd shiki
 cargo install --path shiki-cli
 ```
