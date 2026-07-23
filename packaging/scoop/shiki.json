@@ -1,12 +1,12 @@
 {
-    "version": "0.5.0",
+    "version": "0.8.0",
     "description": "TUI note-taking app with a Yazi-inspired three-pane layout and git-backed notebooks",
     "homepage": "https://github.com/sazardev/shiki",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/sazardev/shiki/releases/download/v0.5.0/shiki-v0.5.0-x86_64-pc-windows-msvc.zip",
-            "hash": "sha256:16c9e53ae72d79bb18f4397a7a6d512c681a8433b2871d4b632a1e683ce07a29"
+            "url": "https://github.com/sazardev/shiki/releases/download/v0.8.0/shiki-v0.8.0-x86_64-pc-windows-msvc.zip",
+            "hash": "sha256:e9fba6133bd19250b3d2ecb21a08aae9a5c949df36565812be091af9a05498d6"
         }
     },
     "bin": "shiki.exe",
