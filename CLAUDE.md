@@ -46,6 +46,25 @@ The TUI status bar shows it (right-aligned in the footer, paired with the `? hel
 (inherited) manifest version at compile time. Cutting a release is two steps: bump the workspace
 version, add a `CHANGELOG.md` entry (follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)).
 
+**Tagging the release is automatic, not a manual `git tag && git push` step anymore.**
+`.github/workflows/auto-tag.yml` watches every push to `main`; if the triggering commit's message
+contains `[PUBLISH]`, it reads the version straight out of the root `Cargo.toml`, checks
+`git ls-remote --tags origin` to confirm that tag doesn't already exist, and pushes it itself. This
+exists because v0.7.0 was tagged locally but the `git push origin v0.7.0` step was never actually
+run — the tag sat on nobody's remote, `release.yml` (which only triggers on a pushed `v*` tag)
+never ran, and crates.io silently stayed on 0.5.0 for three version bumps before anyone noticed.
+Pushing the tag with the default `GITHUB_TOKEN` would silently not work either: GitHub suppresses
+workflow triggers caused by a token a workflow already used, specifically to prevent infinite
+trigger loops, so a tag pushed that way would never fire `release.yml`. `auto-tag.yml` instead
+pushes using a `RELEASE_TAG_PAT` secret (a personal access token with repo write access) so the tag
+push looks like it came from a real user. **That secret doesn't exist yet** — same
+not-yet-provisioned-secret situation as `AUR_SSH_PRIVATE_KEY` below; until Omar adds it,
+`auto-tag.yml` still runs and fails loudly with a clear `::error::` annotation rather than silently
+no-op'ing, so a missing secret can't reproduce the exact "nobody noticed" failure mode it exists to
+prevent. To cut a release: bump the version, add the changelog entry, and include `[PUBLISH]`
+anywhere in the commit message that lands on `main` — everything downstream (tag → build → GitHub
+Release → crates.io → packaging manifests) follows automatically.
+
 **The status bar paints no background** (`status_bar.rs` — no `.bg(...)` anywhere, spans just use
 themed fg colors on the terminal's own background) and only shows what's contextually useful: the
 mode label is omitted entirely in `Mode::Normal` (only INSERT/EDIT/VISUAL are worth flagging),
@@ -132,6 +151,42 @@ then failed with "src refspec 'refs/heads/main' does not match any existing obje
 didn't exist locally. `push` now resolves the branch itself via `repo.head()?.shorthand()`, so it's
 never out of sync with what `pull` actually created. Don't reintroduce a `branch` parameter here;
 if a caller needs to know which branch got pushed, read it off `GitStatus.branch` instead.
+
+## Marketing site (`/docs`, GitHub Pages)
+
+**`/docs` is a plain static HTML/CSS/JS site (no build step, no framework) served by GitHub Pages
+from `main`'s `/docs` folder — deliberately not a `gh-pages` branch or a generator like
+Astro/11ty**, since a single marketing page doesn't need componentization and a build step would
+be one more thing to keep working. `docs/css/styles.css`'s theme variables (`[data-theme="..."]`
+blocks) are copied verbatim from `shiki-config/src/themes/*.rs` — if a theme's hex values change
+there, or a new theme is added to `themes/mod.rs::all()`, update both `styles.css` and the
+`THEMES` array in `docs/js/main.js` (which drives the swatch buttons) so the site doesn't silently
+drift out of sync with the app it's advertising.
+
+**The theme switcher only swaps in a real screenshot for the 5 themes that actually have one
+captured** (`docs/assets/screenshots/*.png`, via `scripts/screenshots.sh` — gruvbox-dark,
+catppuccin-mocha, tokyo-night-storm, nord, solarized-dark). Showing one theme's real screenshot
+while claiming it's another would be actively misleading; the other 7 themes fall back to
+`#term-fallback`, a small CSS-only mockup of the three-pane layout that recolors correctly via the
+same CSS variables (verified live: switching to `catppuccin-latte`, which has no screenshot,
+correctly swaps to the light-mode CSS mockup instead of showing gruvbox-dark's screenshot with
+wrong colors). Note `/screenshots` at the repo root is gitignored (regenerable marketing output,
+not source) but `docs/assets/screenshots/` is a different, non-ignored path — the `.gitignore`
+rule is root-anchored (`/screenshots`), so copies living under `docs/` are unaffected.
+
+**The changelog section fetches `CHANGELOG.md` live from `raw.githubusercontent.com/.../main/...`
+at page load rather than duplicating its content into the HTML by hand** — verified live serving
+`/docs` locally: it rendered the actual current `CHANGELOG.md` from GitHub, including the
+in-progress `## [Unreleased]` section, with no manual sync step. `docs/js/main.js` includes a
+small hand-rolled parser for exactly the subset of Keep a Changelog's format this file actually
+uses (`##`/`###` headers, `-` bullets, `` `code` ``, `**bold**`, `[text](url)`) rather than pulling
+in a general markdown library for a single file with known formatting. A real bug hit and fixed
+while building this: CHANGELOG.md hand-wraps long bullets at ~100 columns, sometimes splitting a
+single `` `code span` `` across two physical lines — parsing each line independently and
+concatenating already-rendered HTML (the first version of this) let an unpaired backtick on one
+line pair with the *next* bullet's own backtick, wrapping unrelated plain text in a spurious code
+box. Fixed by accumulating a bullet's full raw text across all its continuation lines first and
+running it through the inline-formatting regexes only once, at the end.
 
 ## Architecture
 
@@ -392,6 +447,31 @@ values, not blanks), and — deliberately — also sets `config.theme.name` to t
 not just the overrides: every slot is about to be explicitly overridden with `base`'s colors
 anyway, so leaving `theme.name` pointing at whatever was active before would make the command's
 own printed "removing a key falls back to `<base>`" guidance wrong the moment someone acts on it.
+
+**The default theme on a fresh install is `gruvbox-dark`, not `catppuccin-mocha`** —
+`ThemeConfig::default()` (`shiki-config/src/config.rs`) is the single place this is set; the
+`[theme] name = "..."` example in `IDEA.md` was updated alongside it so the docs don't show a
+config value nobody actually gets by default. This only affects a brand-new `config.toml` (or one
+with no `[theme]` table) — anyone who already has `name = "catppuccin-mocha"` written down,
+explicitly or via a prior default, keeps that theme; nothing migrates existing configs.
+
+**The footer's Buy Me a Coffee segment (`status_bar.rs`) is mouse-clickable, not an OSC 8 terminal
+hyperlink.** Embedding a real OSC 8 escape sequence (`\x1b]8;;URL\x1b\\`) directly in a `Span`'s
+text was considered and rejected: ratatui/unicode-width has no concept of ANSI escape sequences,
+so it would count every literal character of the escape sequence (`]`, `8`, `;`, the URL itself)
+as display-width columns, corrupting the footer's layout rather than rendering invisibly the way
+a real terminal-level OSC 8 sequence does. Instead, `status_bar::right_text()` builds the footer's
+right-aligned string *and* returns the char-range the coffee segment occupies within it — a single
+source of truth `render()` and `coffee_hit_at()` both call, so they can't disagree about where the
+clickable area actually is (same reasoning as `git_status_color`/`git_status_suffix` being shared
+between the footer and the drawer). `App::on_mouse` calls `status_bar::coffee_hit_at` the same way
+it already hit-tests the drawer, and on a hit spawns `shiki_core::browser::open_url` (a new
+`shiki-core` module — `xdg-open`/`open`/`cmd /C start` per platform, mirroring how
+`shiki_core::editor::command_for` already handles editor spawns). It's fire-and-forget: a failed
+launch (headless SSH, no GUI) just becomes a status message, never a panic. The status message's
+`RESERVED_RIGHT` budget (footer message truncation) was changed from a hardcoded guess to
+`right_text().chars().count()` while this was being touched — it's strictly more correct and can't
+drift out of sync the way a second hardcoded number could.
 
 **`App.favorite_editor: Option<String>` is resolved once at startup, not per-render.**
 `shiki_core::editor::detect_favorite_editor()` can shell out to `xdg-mime` on Linux when

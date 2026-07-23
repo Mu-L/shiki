@@ -423,7 +423,7 @@ edit_external = "E"
 history = "H"
 
 [theme]
-name = "catppuccin-mocha"
+name = "gruvbox-dark"
 # Every one of a theme's 19 color slots can be overridden individually —
 # accent, bg, fg, selection, border, statusbar, highlight, error, warning,
 # success, inactive, scrollbar, tab_active, tab_inactive, panel_title,

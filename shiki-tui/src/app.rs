@@ -2007,6 +2007,22 @@ impl App {
                 }
                 None => {}
             }
+            return;
+        }
+        let footer = layout::split(self.last_frame_area, self.focus).status_bar;
+        if status_bar::coffee_hit_at(footer, mouse.column, mouse.row) {
+            self.open_coffee_link();
+        }
+    }
+
+    /// Best-effort: a browser failing to launch (no GUI, headless SSH
+    /// session, etc.) shouldn't do anything worse than a status message —
+    /// same "fire and forget, report the failure" spirit as external-editor
+    /// spawns elsewhere in this file.
+    fn open_coffee_link(&mut self) {
+        match shiki_core::browser::open_url(status_bar::COFFEE_URL) {
+            Ok(_) => self.set_status(format!("opening {}…", status_bar::COFFEE_URL)),
+            Err(err) => self.set_status(format!("couldn't open browser: {err}")),
         }
     }
 

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="gruvbox-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shiki (私記) — a TUI note-taking app for people who live in the terminal</title>
+  <meta name="description" content="shiki is a three-pane, Yazi-inspired TUI note-taking app in Rust. Notebooks are independent git repos, every note has real version history, and everything is keyboard-driven and themeable." />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23282828'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23458588' font-family='monospace'%3E%3E_%3C/text%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">shiki (私記)<span class="cursor"></span></div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#themes">Themes</a>
+      <a href="#install">Install</a>
+      <a href="#docs">Docs</a>
+      <a href="#changelog">Changelog</a>
+      <a href="https://github.com/sazardev/shiki">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">Rust · TUI · Git-native</span>
+        <h1>Your notes.<br />Your terminal.<br /><span class="hl">Actually yours.</span></h1>
+        <p class="lead">
+          shiki is a three-pane, Yazi-inspired note-taking app that never leaves the terminal.
+          Every notebook is its own git repository, every note has real version history for
+          free, and every pixel of the UI — including this page — is themeable.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="https://github.com/sazardev/shiki/releases/latest">Download latest release</a>
+          <a class="btn btn-ghost" href="https://github.com/sazardev/shiki">View on GitHub ★</a>
+        </div>
+        <div class="install-hint">or <code>cargo install shiki-cli</code> — see <a href="#install">all install options</a></div>
+      </div>
+      <div>
+        <div class="term-window">
+          <div class="term-titlebar">
+            <span class="term-dot red"></span>
+            <span class="term-dot yellow"></span>
+            <span class="term-dot green"></span>
+            <span class="term-title">shiki — personal/Book recommendations.md</span>
+          </div>
+          <img id="hero-screenshot" src="assets/screenshots/gruvbox-dark.png" alt="shiki TUI screenshot showing the three-pane notebook/notes/preview layout" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="container">
+      <span class="eyebrow">Why shiki</span>
+      <h2>Notes software that respects how you actually work.</h2>
+      <p class="muted" style="max-width: 62ch;">
+        Most note apps bolt sync, versioning, and organization on top as separate systems you
+        have to trust. shiki builds all three on top of something you already trust: git.
+      </p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">⎇</div>
+          <h3>Notebooks are real git repos</h3>
+          <p>Not a database, not a proprietary sync format — each notebook is an independent git
+          repository from the moment you create it. Push it, clone it, inspect it with plain
+          <code>git log</code>, host it anywhere.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">↺</div>
+          <h3>Real per-note version history</h3>
+          <p>Every commit that touched a note is browsable and revertible straight from the TUI —
+          because it's the actual git history, not a bolted-on versioning system that can drift
+          from what's on disk.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⌨</div>
+          <h3>100% keyboard, fully remappable</h3>
+          <p>Yazi-inspired modal navigation (<code>hjkl</code>, visual mode, leader key) with every
+          binding defined in <code>config.toml</code>. Nothing hardcoded except the basics.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⇄</div>
+          <h3>Responsive 3-pane layout</h3>
+          <p>Wide terminals get the full Notebooks / Notes / Preview layout; narrow or square ones
+          stack panels or collapse to a single focused view — no broken rendering at any size.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">✓</div>
+          <h3>Auto-sync, your way</h3>
+          <p>Per-notebook policy for auto-commit and auto-push, robust HTTPS/SSH auth reusing your
+          system's own git credential store, and automatic fallback to the remote's real default
+          branch.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⟳</div>
+          <h3>Self-updating, self-diagnosing</h3>
+          <p>Check for a new release and install it without leaving the TUI. <code>shiki doctor</code>
+          diagnoses your setup — config, git, editor, terminal — even when the config itself is
+          broken.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="themes">
+    <div class="container">
+      <span class="eyebrow">Make it yours</span>
+      <h2>12 built-in themes. Pick one below — this whole page changes with it.</h2>
+      <p class="muted" style="max-width: 62ch;">
+        These are the exact same palettes shipped in shiki itself (down to the hex value) — not a
+        marketing approximation. What you see here is what you get in the terminal.
+      </p>
+
+      <div class="theme-swatches" id="theme-swatches"></div>
+      <p class="theme-note" id="theme-note"></p>
+
+      <div class="term-window" style="margin-top: 24px;">
+        <div class="term-titlebar">
+          <span class="term-dot red"></span>
+          <span class="term-dot yellow"></span>
+          <span class="term-dot green"></span>
+          <span class="term-title" id="theme-screenshot-title">shiki — theme: gruvbox-dark</span>
+        </div>
+        <img id="theme-screenshot" src="assets/screenshots/gruvbox-dark.png" alt="shiki TUI with the selected theme applied" />
+        <div class="term-fallback" id="term-fallback" hidden>
+          <div class="tf-col tf-notebooks">
+            <div class="tf-title">Notebooks</div>
+            <div class="tf-item active">personal</div>
+            <div class="tf-item">work</div>
+          </div>
+          <div class="tf-col tf-notes">
+            <div class="tf-title">Notes [3]</div>
+            <div class="tf-item active">Book recommendations</div>
+            <div class="tf-item">recipe homemade pasta</div>
+            <div class="tf-item">Weekend hiking trip</div>
+          </div>
+          <div class="tf-col tf-preview">
+            <div class="tf-title">Book recommendations</div>
+            <div class="tf-line">Currently reading</div>
+            <div class="tf-line">• The Pragmatic Programmer — Hunt &amp; Thomas</div>
+            <div class="tf-line">• Project Hail Mary — Andy Weir</div>
+            <div class="tf-line">&nbsp;</div>
+            <div class="tf-line">Queue</div>
+            <div class="tf-line">• A Philosophy of Software Design</div>
+          </div>
+        </div>
+      </div>
+      <p class="theme-note" id="screenshot-caption">Live screenshot shown for this theme.</p>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="container">
+      <span class="eyebrow">Get started</span>
+      <h2>Install</h2>
+      <p class="muted">Every tagged release publishes prebuilt binaries for Linux, Windows, and macOS
+      (Intel + Apple Silicon), plus a <code>SHA256SUMS.txt</code>.</p>
+
+      <div class="install-grid">
+        <div class="install-card">
+          <h3>Arch Linux (yay / paru)</h3>
+          <pre>yay -S shiki-bin</pre>
+        </div>
+        <div class="install-card">
+          <h3>Cargo (any platform)</h3>
+          <pre>cargo install shiki-cli</pre>
+        </div>
+        <div class="install-card">
+          <h3>Scoop (Windows)</h3>
+          <pre>scoop bucket add sazardev https://github.com/sazardev/shiki
+scoop install shiki</pre>
+        </div>
+        <div class="install-card">
+          <h3>Prebuilt binary</h3>
+          <pre>Download from the <a href="https://github.com/sazardev/shiki/releases/latest">latest release</a>,
+extract, and put it on your $PATH.</pre>
+        </div>
+      </div>
+      <p class="muted" style="margin-top: 24px; font-size: 0.9rem;">
+        See the <a href="https://github.com/sazardev/shiki#install">full README</a> for every install method and
+        upgrade notes.
+      </p>
+    </div>
+  </section>
+
+  <section id="docs">
+    <div class="container">
+      <span class="eyebrow">Learn more</span>
+      <h2>Documentation</h2>
+      <p class="muted">The source of truth lives in the repo itself, not duplicated here where it'd
+      go stale.</p>
+
+      <div class="docs-grid">
+        <a class="doc-card" href="https://github.com/sazardev/shiki#readme">
+          <h3>README</h3>
+          <p>Full feature list, every install method, quick start, and upgrade notes.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/sazardev/shiki/blob/main/IDEA.md">
+          <h3>IDEA.md — design spec</h3>
+          <p>Complete keybinding tables, config schema, theme list, and the reasoning behind the
+          layout.</p>
+        </a>
+        <a class="doc-card" href="https://github.com/sazardev/shiki/blob/main/CONTRIBUTING.md">
+          <h3>Contributing</h3>
+          <p>Dev setup, coding conventions, and the pull request checklist.</p>
+        </a>
+      </div>
+
+      <div class="keybind-table">
+        <table>
+          <thead>
+            <tr><th>Key</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>hjkl / arrows</td><td>Navigate panels and lists</td></tr>
+            <tr><td>Tab</td><td>Switch focus between panels</td></tr>
+            <tr><td>/</td><td>Fuzzy jump to a note in this notebook</td></tr>
+            <tr><td>leader g</td><td>Global fuzzy search, every notebook</td></tr>
+            <tr><td>a</td><td>New note / new notebook (focus-dependent)</td></tr>
+            <tr><td>v</td><td>Visual mode — multi-select notes/folders</td></tr>
+            <tr><td>d / m / y</td><td>Delete / move / copy selection</td></tr>
+            <tr><td>s / u</td><td>Sync now / force push</td></tr>
+            <tr><td>?</td><td>Searchable keybinding list (command palette)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="changelog">
+    <div class="container">
+      <span class="eyebrow">What's new</span>
+      <h2>Changelog</h2>
+      <p class="muted">Pulled live from <code>CHANGELOG.md</code> on <code>main</code> — always
+      up to date with the repo, never duplicated here by hand.</p>
+
+      <div id="changelog-content">
+        <p class="changelog-loading">Loading changelog…</p>
+      </div>
+      <p class="changelog-more">
+        <a href="https://github.com/sazardev/shiki/blob/main/CHANGELOG.md">Full changelog on GitHub →</a>
+      </p>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/sazardev/shiki">GitHub</a>
+        <a href="https://github.com/sazardev/shiki/issues">Issues</a>
+        <a href="https://github.com/sazardev/shiki/blob/main/LICENSE">MIT License</a>
+        <a class="coffee-link" href="https://buymeacoffee.com/sazarcode">☕ Buy me a coffee</a>
+      </div>
+      <small>shiki (私記) — built by <a href="https://github.com/sazardev">sazardev</a>. Free and open source, forever.</small>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

@@ -378,7 +378,7 @@ impl ThemeOverrides {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            name: "catppuccin-mocha".into(),
+            name: "gruvbox-dark".into(),
             overrides: ThemeOverrides::default(),
         }
     }

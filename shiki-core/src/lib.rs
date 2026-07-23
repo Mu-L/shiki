@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod daily;
 pub mod editor;
 pub mod git;

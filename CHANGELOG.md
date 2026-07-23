@@ -6,6 +6,15 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+### Added
+
+- Footer now shows a clickable "☕ Support" link (`buymeacoffee.com/sazarcode`) — opens in the
+  default browser cross-platform via a new `shiki_core::browser::open_url`.
+
+### Changed
+
+- Fresh installs now default to the `gruvbox-dark` theme instead of `catppuccin-mocha`.
+
 ## [0.8.0] - 2026-07-23
 
 ### Added

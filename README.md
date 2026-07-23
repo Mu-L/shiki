@@ -159,6 +159,13 @@ schema, and theme list are in [IDEA.md](IDEA.md).
 
 See [CLAUDE.md](CLAUDE.md) for the crate layout, build/lint commands, and architecture notes.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup,
+coding conventions, and pull request checklist. This project follows a
+[Code of Conduct](CODE_OF_CONDUCT.md); please report security issues privately per
+[SECURITY.md](SECURITY.md) rather than opening a public issue.
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — free to use, modify, and redistribute.

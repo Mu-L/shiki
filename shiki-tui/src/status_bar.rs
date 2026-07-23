@@ -40,6 +40,48 @@ fn truncate_to(text: &str, max_chars: usize) -> String {
     truncated
 }
 
+/// URL opened by clicking the footer's Buy Me a Coffee segment.
+pub const COFFEE_URL: &str = "https://buymeacoffee.com/sazarcode";
+
+/// Builds the footer's right-aligned text and the char-column range within
+/// it occupied by the coffee segment — factored out so `render` and
+/// `coffee_hit_at` can never disagree about where the clickable area
+/// actually is, the same reasoning `git_status_color`/`git_status_suffix`
+/// being shared between the footer and the drawer was already built on.
+fn right_text() -> (String, std::ops::Range<usize>) {
+    let coffee = format!("{} Support", icons::COFFEE);
+    let prefix = "  ";
+    let suffix = format!(
+        "   {} ? help   v{}  ",
+        icons::KEYBOARD,
+        env!("CARGO_PKG_VERSION")
+    );
+    let text = format!("{prefix}{coffee}{suffix}");
+    let start = prefix.chars().count();
+    let end = start + coffee.chars().count();
+    (text, start..end)
+}
+
+/// Hit-tests a mouse click against the footer's coffee segment, replaying
+/// the same right-alignment math ratatui applies when rendering
+/// `right_text()`'s output into `area` — a plain function of coordinates,
+/// not `&App`, so it's unit-testable the same way `panel_drawer::drawer_hit_at`
+/// is.
+pub fn coffee_hit_at(area: Rect, column: u16, row: u16) -> bool {
+    if row != area.y {
+        return false;
+    }
+    let (text, range) = right_text();
+    let content_width = text.chars().count() as u16;
+    if content_width > area.width {
+        return false; // clipped from the left, same as ratatui would render it
+    }
+    let text_start = area.x + area.width - content_width;
+    let hit_start = text_start + range.start as u16;
+    let hit_end = text_start + range.end as u16;
+    column >= hit_start && column < hit_end
+}
+
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let fg = hex_to_color(&app.theme.fg);
     let muted = hex_to_color(&app.theme.muted);
@@ -141,16 +183,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
 
+    let (right, coffee_range) = right_text();
+
     if let Some(status) = &app.status_message {
         // Truncated to whatever room is actually left, so a long message
         // can't push the right-aligned help/version text out of view or
-        // overlap it — reserves a rough estimate for that right side since
-        // it isn't computed from the same span list.
-        const RESERVED_RIGHT: usize = 24;
+        // overlap it — reserved space is the *actual* right-text length,
+        // not a hardcoded guess, so it can't drift out of sync with it.
         let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         let budget = (area.width as usize)
             .saturating_sub(used)
-            .saturating_sub(RESERVED_RIGHT);
+            .saturating_sub(right.chars().count());
         if budget > 1 {
             spans.push(sep);
             spans.push(Span::styled(truncate_to(status, budget), plain.fg(fg)));
@@ -161,15 +204,58 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 
     // Right-aligned over the same area — no background is painted anywhere
     // on this bar, so this just draws on top of empty space rather than
-    // needing a separately carved-out sub-rect.
-    let right = Paragraph::new(Line::from(Span::styled(
-        format!(
-            "  {} ? help   v{}  ",
-            icons::KEYBOARD,
-            env!("CARGO_PKG_VERSION")
-        ),
-        plain.fg(muted),
-    )))
-    .alignment(Alignment::Right);
-    frame.render_widget(right, area);
+    // needing a separately carved-out sub-rect. The coffee segment gets its
+    // own styled color (accent) so it reads as clickable; everything else
+    // in this line stays muted, same as before.
+    let coffee_text: String = right.chars().take(coffee_range.end).collect();
+    let coffee_text: String = coffee_text.chars().skip(coffee_range.start).collect();
+    let before: String = right.chars().take(coffee_range.start).collect();
+    let after: String = right.chars().skip(coffee_range.end).collect();
+    let right_line = Line::from(vec![
+        Span::styled(before, plain.fg(muted)),
+        Span::styled(coffee_text, plain.fg(accent)),
+        Span::styled(after, plain.fg(muted)),
+    ]);
+    frame.render_widget(Paragraph::new(right_line).alignment(Alignment::Right), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coffee_hit_at_lands_inside_the_coffee_segment() {
+        let (text, range) = right_text();
+        let width = text.chars().count() as u16;
+        let area = Rect::new(0, 5, width, 1);
+        let text_start = area.x; // content exactly fills the area here
+        let mid_col = text_start + (range.start as u16 + range.end as u16) / 2;
+        assert!(coffee_hit_at(area, mid_col, 5));
+    }
+
+    #[test]
+    fn coffee_hit_at_misses_outside_the_coffee_segment() {
+        let (text, _range) = right_text();
+        let width = text.chars().count() as u16;
+        let area = Rect::new(0, 5, width, 1);
+        // The very first column is inside the leading "  " padding, before
+        // the coffee segment starts.
+        assert!(!coffee_hit_at(area, area.x, 5));
+        // Wrong row entirely.
+        assert!(!coffee_hit_at(area, area.x + 3, 6));
+    }
+
+    #[test]
+    fn coffee_hit_at_shifts_with_wider_area_since_alignment_is_right() {
+        let (text, range) = right_text();
+        let width = text.chars().count() as u16;
+        // Extra room on the left — right-aligned text starts further right.
+        let area = Rect::new(0, 0, width + 10, 1);
+        let text_start = area.x + area.width - width;
+        let inside_col = text_start + range.start as u16;
+        assert!(coffee_hit_at(area, inside_col, 0));
+        // The same column that hit when area matched `width` exactly now
+        // falls in the extra left-hand gap, so it should miss.
+        assert!(!coffee_hit_at(area, range.start as u16, 0));
+    }
 }

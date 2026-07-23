@@ -1,0 +1,68 @@
+name: Auto Tag on Publish
+
+# Tags a release automatically when a commit merged to main opts in via
+# "[PUBLISH]" in its message — no separate manual `git tag && git push` step
+# to forget. That manual step is exactly what went missing for v0.7.0: the
+# tag was created locally but never reached origin, so release.yml (which
+# only triggers on a pushed `v*` tag) never ran and crates.io stayed stale.
+#
+# Pushing the tag with the default GITHUB_TOKEN would NOT trigger
+# release.yml — GitHub deliberately suppresses workflow runs caused by the
+# token a workflow already used, to prevent infinite trigger loops. RELEASE_TAG_PAT
+# is a personal access token (Contents: read/write on this repo is enough)
+# so the tag push looks like it came from a real user and release.yml fires
+# normally. Until that secret is added, this workflow still runs and tags
+# correctly, it just can't push — see the explicit check below.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    if: contains(github.event.head_commit.message, '[PUBLISH]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version and check for existing tag
+        id: check
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --tags origin | grep -q "refs/tags/v${version}$"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail clearly if RELEASE_TAG_PAT is missing
+        if: steps.check.outputs.exists == 'false' && env.HAS_PAT == ''
+        env:
+          HAS_PAT: ${{ secrets.RELEASE_TAG_PAT }}
+        run: |
+          echo "::error::RELEASE_TAG_PAT secret is not set. Add a repo-scoped" \
+               "personal access token as a secret named RELEASE_TAG_PAT so this" \
+               "workflow can push the tag as a real user (the default" \
+               "GITHUB_TOKEN can't trigger release.yml)."
+          exit 1
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TAG_PAT }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git tag -a "v${{ steps.check.outputs.version }}" -m "Release v${{ steps.check.outputs.version }}"
+          git push origin "v${{ steps.check.outputs.version }}"
+
+      - name: Already tagged
+        if: steps.check.outputs.exists == 'true'
+        run: echo "Tag v${{ steps.check.outputs.version }} already exists on origin — nothing to do."
