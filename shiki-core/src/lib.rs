@@ -6,6 +6,7 @@ pub mod notebook;
 pub mod search;
 pub mod tags;
 pub mod templates;
+pub mod update;
 pub mod wikilinks;
 
 pub use daily::daily_note_path;
@@ -33,6 +34,8 @@ pub enum Error {
     TemplateNotFound(String),
     #[error("invalid notebook name '{0}': must not be empty, '.', '..', or contain '/' or '\\\\'")]
     InvalidName(String),
+    #[error("update error: {0}")]
+    Update(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

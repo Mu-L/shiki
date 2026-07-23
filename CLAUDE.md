@@ -589,3 +589,57 @@ workflow's `update-packaging-manifests` job keeps it in sync automatically). `pu
 publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that exact dependency order with a
 30s pause between each (crates.io's index needs a moment to make a
 just-published crate resolvable before the next one in the chain can depend on it).
+
+**In-TUI self-update (leader+`U`, `shiki-core/src/update.rs` + `App::open_update_check`/
+`start_update_install`/`poll_update_channel`/`handle_update_key`) is built on the `self_update`
+crate against GitHub Releases, not a hand-rolled downloader.** `self_update` handles the
+cross-platform parts that are easy to get subtly wrong by hand: archive extraction (tar.gz *and*
+zip, since Linux/macOS and Windows releases use different formats), the Windows-safe "replace a
+running executable's file" dance (`self-replace` crate internally), and checksum verification.
+`check_latest`/`install_latest` are configured with `.verify_release_digest(true)` — GitHub computes
+and serves a real sha256 digest per uploaded release asset (confirmed by querying
+`api.github.com/repos/sazardev/shiki/releases/latest` directly and seeing a `digest` field on every
+asset), so this verifies the download against that without shiki needing to fetch/parse
+`SHA256SUMS.txt` itself. `.bin_path_in_archive("shiki-v{{ version }}-{{ target }}/{{ bin }}")` matches
+`release.yml`'s exact archive layout — `{{ version }}`/`{{ target }}`/`{{ bin }}` are `self_update`'s
+own template placeholders, not something shiki implements. `self_update`'s default `reqwest`+`rustls`
+features pull in `aws-lc-rs` (rustls 0.23+'s modern default crypto provider) rather than the older
+`ring` backend — reqwest 0.13 no longer exposes a plain `ring` feature at all, so this wasn't a
+choice; verified via real Windows CI that `aws-lc-sys` still builds fine there (`windows-latest` has
+the cmake it needs).
+
+**`self_update`'s HTTP calls are synchronous/blocking, so both phases run on a plain
+`std::thread::spawn` + `std::sync::mpsc` channel, not async** — `tokio` is a workspace dependency
+but is not actually used anywhere in the codebase (checked: no `tokio::` reference exists outside
+`Cargo.toml`), and `App::run`'s render loop is a synchronous ~100ms poll loop throughout, so pulling
+in an async runtime for just this one feature would be inconsistent with everything else. `App`
+holds `update_rx: Option<mpsc::Receiver<UpdateMsg>>`; `poll_update_channel` (called once per
+`run()` iteration, same spot as `refresh_history_cache`/`expire_status_message`) does a
+non-blocking `try_recv()` and updates `update_state` accordingly — the render loop never blocks on
+the network call, verified by watching the "Installing…" modal keep redrawing during a real
+download rather than freezing.
+
+**A real bug, hit and fixed while building this: `std::env::current_exe()` must be captured
+*before* `install_latest` runs, not after.** `self_replace` (used internally by `self_update`)
+replaces the running binary's file via unlink-then-recreate rather than an atomic rename-over —
+querying `current_exe()` again *after* the replace resolves to the old, now-deleted inode
+(`".../shiki (deleted)"` on Linux) instead of the fresh binary sitting at that same path, so
+spawning it failed with a plain "No such file or directory" that only made sense once the deleted-
+suffix in the path was actually read closely. Fixed by capturing the path once in
+`start_update_install` (`App.relaunch_exe_path`, before the background thread even starts) and
+reusing that same captured value in `relaunch_into_updated_binary` instead of re-querying — the
+path *string* stays valid throughout (only the file's content changes), so capturing it early
+sidesteps the stale-fd issue entirely. Verified live: a full check → confirm → download → verify →
+install → auto-relaunch round trip against the real repo (temporarily faking the installed
+version down to `0.3.0` so the real latest release, `0.4.1`, showed up as "available"), landing on
+the new process actually reporting the new version in the footer, not just the install succeeding.
+
+**The relaunch is genuinely automatic, not "tell the user to restart manually"** — once
+`install_latest` succeeds, `poll_update_channel` sets `App.want_relaunch = true` immediately (no
+keypress required), `run()` renders one "Installed vX.Y.Z — restarting…" frame, then
+`relaunch_into_updated_binary` leaves the alternate screen (same teardown half `suspend_and_edit`
+uses, deliberately without the restore half — this process is exiting, not resuming) and spawns
+the freshly-installed binary as a child process before `should_quit = true` unwinds the loop. The
+child inherits the parent's now-restored-to-normal terminal and does its own completely ordinary
+`enable_raw_mode`/`EnterAlternateScreen` startup — from the user's perspective it just looks like
+shiki restarted itself onto the new version.

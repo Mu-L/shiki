@@ -45,6 +45,8 @@ See [IDEA.md](IDEA.md) for the full design spec (keybinding tables, config schem
   `$VISUAL`/`$EDITOR`/the OS default, toggleable on the fly from the footer.
 - **Logs modal** recording every status message (so errors don't get lost), with one-key clipboard
   copy (OSC 52) for pasting elsewhere.
+- **In-TUI self-update** (leader+`U`) — checks GitHub Releases for a newer version, and on
+  confirmation downloads, verifies, installs, and relaunches into it automatically.
 - **`shiki doctor`** — an environment health check that works even with a broken config.
 - **CLI commands** alongside the TUI (`new`, `list`, `edit`, `show`, `search`, `daily`, `sync`,
   `notebook`, `theme`, `config`, `doctor`) for quick one-off operations without opening the UI.

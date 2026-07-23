@@ -8,6 +8,16 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [0.4.2] - 2026-07-23
 
+### Added
+
+- In-TUI self-update (leader+`U`): checks GitHub Releases for a newer version without downloading
+  anything, shows "Update available: vX.Y.Z → vA.B.C" if one exists, and on `enter` downloads,
+  verifies (against GitHub's own per-asset sha256 digest), and installs it in place of the running
+  binary — then automatically relaunches into it, no manual restart needed. Runs on a background
+  thread so the TUI never freezes on the network call. Verified live end-to-end against the real
+  repo: detects an available update, declines to re-flag when already current, and a full
+  download → verify → install → relaunch round trip that lands on the new version's footer.
+
 ### Security
 
 - `git2` bumped 0.19 → 0.21, closing 3 `cargo audit` "unsound" advisories

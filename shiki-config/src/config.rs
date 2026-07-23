@@ -105,6 +105,12 @@ pub struct GlobalKeybindings {
     /// backward-compatibility reason as `logs`.
     #[serde(default = "default_toggle_favorite_editor_key")]
     pub toggle_favorite_editor: String,
+    /// Opens the update modal: checks GitHub Releases for a newer version,
+    /// and on confirmation downloads + verifies + installs it in place.
+    /// Field-level default for the same backward-compatibility reason as
+    /// `logs`/`toggle_favorite_editor`.
+    #[serde(default = "default_check_update_key")]
+    pub check_update: String,
 }
 
 impl Default for GlobalKeybindings {
@@ -115,6 +121,7 @@ impl Default for GlobalKeybindings {
             tags_panel: "T".into(),
             logs: default_logs_key(),
             toggle_favorite_editor: default_toggle_favorite_editor_key(),
+            check_update: default_check_update_key(),
         }
     }
 }
@@ -125,6 +132,10 @@ fn default_logs_key() -> String {
 
 fn default_toggle_favorite_editor_key() -> String {
     "e".into()
+}
+
+fn default_check_update_key() -> String {
+    "U".into()
 }
 
 /// Active only while the NOTEBOOKS panel has focus.

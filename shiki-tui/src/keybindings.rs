@@ -13,6 +13,7 @@ pub enum Action {
     ToggleTags,
     ShowLogs,
     ToggleFavoriteEditor,
+    CheckForUpdate,
     // Notebooks-focus
     NewNotebook,
     RenameNotebook,
@@ -92,6 +93,11 @@ impl KeyMaps {
             &mut global,
             &cfg.global.toggle_favorite_editor,
             Action::ToggleFavoriteEditor,
+        );
+        bind(
+            &mut global,
+            &cfg.global.check_update,
+            Action::CheckForUpdate,
         );
 
         let mut notebooks = HashMap::new();
@@ -214,6 +220,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::ToggleTags => "tags panel",
         Action::ShowLogs => "view logs",
         Action::ToggleFavoriteEditor => "toggle favorite editor",
+        Action::CheckForUpdate => "check for update",
         Action::NewNotebook => "new notebook",
         Action::RenameNotebook => "rename notebook",
         Action::DeleteNotebook => "delete notebook",
@@ -244,6 +251,7 @@ pub fn action_icon(action: Action) -> char {
         Action::ToggleTags => crate::icons::TAG,
         Action::ShowLogs => crate::icons::LIST,
         Action::ToggleFavoriteEditor => crate::icons::PENCIL,
+        Action::CheckForUpdate => crate::icons::DOWNLOAD,
         Action::NewNotebook | Action::NewNote => crate::icons::NOTE,
         Action::RenameNotebook | Action::RenameNote => crate::icons::PENCIL,
         Action::DeleteNotebook | Action::DeleteNote => crate::icons::WARNING,

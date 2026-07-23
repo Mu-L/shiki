@@ -242,6 +242,55 @@ pub struct App {
     /// every draw tick only actually re-walks history when the selected
     /// note has changed, not on every idle redraw.
     history_count_cache: Option<(std::path::PathBuf, usize)>,
+    pub show_update: bool,
+    pub update_state: Option<UpdateState>,
+    /// Set while a background thread is checking/installing, so `run()`'s
+    /// poll loop (`poll_update_channel`) can pick up the result without
+    /// blocking the render loop on the network call. `self_update`'s HTTP
+    /// calls are synchronous/blocking, and nothing else in this app uses
+    /// async — a plain `std::thread` + channel matches the rest of the
+    /// codebase's synchronous poll-loop style instead of pulling in an
+    /// async runtime for this one feature.
+    update_rx: Option<std::sync::mpsc::Receiver<UpdateMsg>>,
+    /// Set once `install_latest` succeeds — picked up by `run()` right after
+    /// the next draw to spawn the freshly-installed binary and exit this
+    /// process, the same "leave the alternate screen, hand off to a
+    /// subprocess" shape as `want_external_edit`/`suspend_and_edit`, except
+    /// this one doesn't come back (`should_quit` follows immediately after).
+    pub want_relaunch: bool,
+    /// The running binary's path, captured *before* `install_latest` runs.
+    /// `self_replace` (used internally by `self_update`) replaces the file
+    /// via unlink-then-recreate, not an atomic rename-over — so querying
+    /// `std::env::current_exe()` again *after* the replace resolves to the
+    /// old, now-deleted inode (`".../shiki (deleted)"` on Linux) rather than
+    /// the fresh binary at that same path. The path string itself is still
+    /// valid throughout (only the file's *content* changed), so capturing it
+    /// early and reusing it in `relaunch_into_updated_binary` is what
+    /// actually works — hit this exact bug live (`spawn FAILED: No such
+    /// file or directory ... "shiki (deleted)"`) before fixing it this way.
+    relaunch_exe_path: Option<std::path::PathBuf>,
+}
+
+/// State of the update modal (leader+`U`), across its whole lifecycle: a
+/// cheap version check, then — only on explicit confirmation — the real
+/// download+verify+install.
+#[derive(Debug, Clone)]
+pub enum UpdateState {
+    Checking,
+    Available(String),
+    UpToDate,
+    Downloading,
+    /// Installed; `run()` will relaunch into it right after this renders once.
+    Installed(String),
+    Error(String),
+}
+
+/// Sent back from the background thread spawned by `open_update_check`/
+/// `start_update_install` — `poll_update_channel` (called once per `run()`
+/// loop iteration, same as `refresh_history_cache`) applies it to `update_state`.
+enum UpdateMsg {
+    CheckResult(Result<Option<String>, String>),
+    InstallResult(Result<String, String>),
 }
 
 /// One recorded status-bar message, with the time it was set — shown in the
@@ -329,6 +378,11 @@ impl App {
             history_viewing: None,
             pending_revert: None,
             history_count_cache: None,
+            show_update: false,
+            update_state: None,
+            update_rx: None,
+            want_relaunch: false,
+            relaunch_exe_path: None,
         })
     }
 
@@ -763,6 +817,109 @@ impl App {
                 self.set_status(format!("copied {count} log lines to clipboard"));
             }
             _ => {}
+        }
+    }
+
+    /// Opens the update modal and kicks off a background version check
+    /// against GitHub Releases — never blocks the render loop.
+    fn open_update_check(&mut self) {
+        self.show_update = true;
+        self.update_state = Some(UpdateState::Checking);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        std::thread::spawn(move || {
+            let result = shiki_core::update::check_latest(&current).map_err(|e| e.to_string());
+            let _ = tx.send(UpdateMsg::CheckResult(result));
+        });
+        self.update_rx = Some(rx);
+    }
+
+    /// Only reachable once the check reported an available version — starts
+    /// the real download+verify+install on a background thread.
+    fn start_update_install(&mut self) {
+        self.update_state = Some(UpdateState::Downloading);
+        // Captured now, before the replace happens — see the field doc on
+        // `relaunch_exe_path` for why this can't just be re-queried later.
+        self.relaunch_exe_path = std::env::current_exe().ok();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        std::thread::spawn(move || {
+            let result = shiki_core::update::install_latest(&current).map_err(|e| e.to_string());
+            let _ = tx.send(UpdateMsg::InstallResult(result));
+        });
+        self.update_rx = Some(rx);
+    }
+
+    /// Non-blocking: called once per `run()` loop iteration, same as
+    /// `refresh_history_cache`. Applies whatever the background thread has
+    /// sent so far, if anything — `try_recv` never waits.
+    fn poll_update_channel(&mut self) {
+        let Some(rx) = &self.update_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(UpdateMsg::CheckResult(Ok(Some(version)))) => {
+                self.update_state = Some(UpdateState::Available(version));
+                self.update_rx = None;
+            }
+            Ok(UpdateMsg::CheckResult(Ok(None))) => {
+                self.update_state = Some(UpdateState::UpToDate);
+                self.update_rx = None;
+            }
+            Ok(UpdateMsg::CheckResult(Err(e))) => {
+                self.update_state = Some(UpdateState::Error(e));
+                self.update_rx = None;
+            }
+            Ok(UpdateMsg::InstallResult(Ok(version))) => {
+                self.update_state = Some(UpdateState::Installed(version));
+                self.update_rx = None;
+                // Automatic per the feature request — no keypress required:
+                // `run()` checks this right after the next draw, so the
+                // "Installed" frame renders at least once before the swap.
+                self.want_relaunch = true;
+            }
+            Ok(UpdateMsg::InstallResult(Err(e))) => {
+                self.update_state = Some(UpdateState::Error(e));
+                self.update_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.update_state = Some(UpdateState::Error(
+                    "update check thread ended unexpectedly".into(),
+                ));
+                self.update_rx = None;
+            }
+        }
+    }
+
+    fn handle_update_key(&mut self, key: KeyEvent) {
+        match &self.update_state {
+            // Downloading is deliberately not escapable: closing the modal
+            // wouldn't stop the background thread anyway, and re-entering
+            // leader+`U` mid-download would spawn a second overlapping
+            // install — simplest to just make the user wait it out.
+            Some(UpdateState::Downloading) => {}
+            Some(UpdateState::Available(_)) => match key.code {
+                KeyCode::Enter => self.start_update_install(),
+                KeyCode::Esc => {
+                    self.show_update = false;
+                    self.update_state = None;
+                }
+                _ => {}
+            },
+            Some(UpdateState::Installed(_)) => {
+                // Any key dismisses — `run()` picks up `want_relaunch` right
+                // after this same key event regardless, so this mostly just
+                // avoids sitting on a stale "Installed" state if the relaunch
+                // spawn itself somehow fails.
+                self.show_update = false;
+            }
+            _ => {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
+                    self.show_update = false;
+                    self.update_state = None;
+                }
+            }
         }
     }
 
@@ -1499,6 +1656,7 @@ impl App {
             Action::GlobalSearch => self.open_global_search(),
             Action::ToggleTags => self.show_tags = !self.show_tags,
             Action::ShowLogs => self.open_logs(),
+            Action::CheckForUpdate => self.open_update_check(),
 
             Action::NewNotebook => self.start_input(PendingInput::NewNotebook, String::new()),
             Action::RenameNotebook => self.start_rename_notebook(),
@@ -1831,6 +1989,10 @@ impl App {
             self.handle_logs_key(key);
             return;
         }
+        if self.show_update {
+            self.handle_update_key(key);
+            return;
+        }
         if self.show_tree {
             self.handle_tree_key(key);
             return;
@@ -1948,7 +2110,16 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         }
         app.refresh_history_cache();
         app.expire_status_message();
+        app.poll_update_channel();
         terminal.draw(|frame| draw(frame, app))?;
+
+        if app.want_relaunch {
+            if let Some(exe_path) = app.relaunch_exe_path.take() {
+                relaunch_into_updated_binary(&exe_path)?;
+            }
+            app.should_quit = true;
+            continue;
+        }
 
         if let Some((path, editor)) = app.want_external_edit.take() {
             let notebook_name = app.selected_notebook().map(|nb| nb.name.clone());
@@ -1975,6 +2146,22 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
             }
         }
     }
+    Ok(())
+}
+
+/// Leaves the alternate screen (same teardown half as `suspend_and_edit`,
+/// deliberately without the restore half — this process is exiting, not
+/// resuming) and spawns the just-installed binary at the same path
+/// (`install_latest` replaced it in place) so the update feels like a
+/// restart rather than "go run `shiki` again yourself".
+fn relaunch_into_updated_binary(exe_path: &std::path::Path) -> io::Result<()> {
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen
+    )?;
+    let _ = std::process::Command::new(exe_path).spawn();
     Ok(())
 }
 
@@ -2054,6 +2241,10 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
 
     if app.show_history {
         render_history(frame, frame.area(), app);
+    }
+
+    if app.show_update {
+        render_update(frame, frame.area(), app);
     }
 
     if app.show_which_key {
@@ -2141,6 +2332,45 @@ fn render_global_search(frame: &mut ratatui::Frame, frame_area: Rect, app: &App)
         state.select(Some(app.global_search_selected));
     }
     frame.render_stateful_widget(list, list_area, &mut state);
+}
+
+fn render_update(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
+    let popup_area = centered_rect(frame_area, (frame_area.width * 2 / 3).max(50), 7);
+    frame.render_widget(Clear, popup_area);
+
+    let current = env!("CARGO_PKG_VERSION");
+    let (title, body) = match &app.update_state {
+        Some(UpdateState::Checking) => (
+            " Checking for updates ".to_string(),
+            "Checking GitHub Releases…".to_string(),
+        ),
+        Some(UpdateState::Available(version)) => (
+            format!(" {}  Update available ", icons::DOWNLOAD),
+            format!("v{current} \u{2192} v{version}\n\n[enter] Download & install    [esc] Cancel"),
+        ),
+        Some(UpdateState::UpToDate) => (
+            " Up to date ".to_string(),
+            format!("You're on the latest version (v{current}).\n\n[esc] Close"),
+        ),
+        Some(UpdateState::Downloading) => (
+            " Installing ".to_string(),
+            "Downloading, verifying, and installing…".to_string(),
+        ),
+        Some(UpdateState::Installed(version)) => (
+            " Installed ".to_string(),
+            format!("Installed v{version} \u{2014} restarting shiki…"),
+        ),
+        Some(UpdateState::Error(message)) => (
+            " Update failed ".to_string(),
+            format!("{message}\n\n[esc] Close"),
+        ),
+        None => (" Update ".to_string(), String::new()),
+    };
+
+    let paragraph = ratatui::widgets::Paragraph::new(body)
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .block(panel_block(Line::from(title), true, &app.theme));
+    frame.render_widget(paragraph, popup_area);
 }
 
 fn render_logs(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
