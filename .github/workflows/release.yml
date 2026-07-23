@@ -1,0 +1,221 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: shiki
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: zip
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release -p shiki-cli --target ${{ matrix.target }}
+
+      - name: Package (tar.gz)
+        if: matrix.ext == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=dist/shiki-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir -p "$stage"
+          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "$stage/"
+          cp README.md LICENSE CHANGELOG.md "$stage/"
+          tar -C dist -czf "dist/shiki-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" \
+            "shiki-${{ github.ref_name }}-${{ matrix.target }}"
+
+      - name: Package (zip)
+        if: matrix.ext == 'zip'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=dist/shiki-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir -p "$stage"
+          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" "$stage/"
+          cp README.md LICENSE CHANGELOG.md "$stage/"
+          cd dist
+          7z a "shiki-${{ github.ref_name }}-${{ matrix.target }}.zip" \
+            "shiki-${{ github.ref_name }}-${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shiki-${{ matrix.target }}
+          path: dist/shiki-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.ext }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts and generate checksums
+        id: version
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  update-packaging-manifests:
+    name: Update AUR/Scoop manifests from release checksums
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download release checksums
+        run: |
+          set -euo pipefail
+          curl -sSfL -o SHA256SUMS.txt \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SHA256SUMS.txt"
+
+      - name: Update Scoop manifest
+        run: |
+          set -euo pipefail
+          version="${{ needs.release.outputs.version }}"
+          hash=$(grep 'x86_64-pc-windows-msvc.zip' SHA256SUMS.txt | awk '{print $1}')
+          python3 - "$version" "$hash" <<'EOF'
+          import json, sys
+          version, sha256 = sys.argv[1], sys.argv[2]
+          path = "packaging/scoop/shiki.json"
+          with open(path) as f:
+              data = json.load(f)
+          data["version"] = version
+          data["architecture"]["64bit"]["url"] = (
+              f"https://github.com/sazardev/shiki/releases/download/v{version}/"
+              f"shiki-v{version}-x86_64-pc-windows-msvc.zip"
+          )
+          data["architecture"]["64bit"]["hash"] = f"sha256:{sha256}"
+          with open(path, "w") as f:
+              json.dump(data, f, indent=4)
+              f.write("\n")
+          EOF
+
+      - name: Update PKGBUILD
+        run: |
+          set -euo pipefail
+          version="${{ needs.release.outputs.version }}"
+          hash=$(grep 'x86_64-unknown-linux-gnu.tar.gz' SHA256SUMS.txt | awk '{print $1}')
+          sed -i "s/^pkgver=.*/pkgver=${version}/" packaging/aur/PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${hash}')/" packaging/aur/PKGBUILD
+
+      - name: Regenerate .SRCINFO
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/packaging/aur:/pkg" -w /pkg archlinux:base-devel \
+            bash -c "useradd -m builder && chown -R builder /pkg && su builder -c 'makepkg --printsrcinfo' > .SRCINFO"
+
+      - name: Commit updated manifests
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packaging/scoop/shiki.json packaging/aur/PKGBUILD packaging/aur/.SRCINFO
+          if git diff --cached --quiet; then
+            echo "No packaging manifest changes to commit"
+          else
+            git commit -m "packaging: update manifests for ${{ github.ref_name }}"
+            git push origin HEAD:main
+          fi
+
+      - name: Push to AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        if: ${{ env.AUR_SSH_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          rm -rf /tmp/aur-shiki-bin
+          git clone ssh://aur@aur.archlinux.org/shiki-bin.git /tmp/aur-shiki-bin
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO /tmp/aur-shiki-bin/
+          cd /tmp/aur-shiki-bin
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No AUR changes to push"
+          else
+            git commit -m "Update to ${{ github.ref_name }}"
+            git push origin master
+          fi
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check registry token is configured
+        id: check
+        env:
+          TOKEN_SET: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+        run: echo "has_token=${TOKEN_SET}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish crates in dependency order
+        if: steps.check.outputs.has_token == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          for crate in shiki-core shiki-config shiki-tui shiki-cli; do
+            cargo publish -p "$crate"
+            echo "Waiting for $crate to become available on the index..."
+            sleep 30
+          done

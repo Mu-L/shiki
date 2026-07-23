@@ -6,6 +6,31 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-22
+
+### Added
+
+- Automated release packaging: `.github/workflows/ci.yml` runs fmt/clippy/build on a Linux +
+  Windows + macOS matrix on every push/PR; `.github/workflows/release.yml` builds release binaries
+  for all four platform targets on every `v*` tag, publishes them (with checksums) as a GitHub
+  Release, auto-updates the AUR (`packaging/aur/PKGBUILD`, `shiki-bin`) and
+  Scoop (`packaging/scoop/shiki.json`) manifests with the new version/hashes, and (behind
+  `CARGO_REGISTRY_TOKEN`/`AUR_SSH_PRIVATE_KEY` secrets, not yet configured) publishes to crates.io
+  and pushes to the real AUR git repo.
+- Installable via `yay`/`paru` (`shiki-bin`, once published to the AUR — requires a one-time
+  manual AUR account/SSH key setup that only the repo owner can do), `scoop` (direct manifest URL,
+  no bucket needed), a prebuilt binary from GitHub Releases, or `cargo install --path shiki-cli`
+  from source — see the README's expanded Install section.
+
+### Changed
+
+- `git2` now builds with `vendored-libgit2`/`vendored-openssl`, statically linking libgit2/OpenSSL
+  instead of depending on whatever (if anything) is installed on the system — required for
+  reliable Windows builds (no system libgit2 there) and makes Linux/macOS builds portable too.
+- Workspace path-dependencies (`shiki-core`, `shiki-config`, `shiki-tui`) now carry an explicit
+  `version` alongside `path`, required for `cargo package`/`cargo publish` to succeed (previously
+  failed with "dependency does not specify a version").
+
 ## [0.3.0] - 2026-07-22
 
 ### Changed

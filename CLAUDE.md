@@ -514,3 +514,46 @@ inheritance requires each field to be explicitly opted into per-crate; only `ver
 package` warned "manifest has no documentation, homepage or repository") until this was added
 everywhere. `readme = "../README.md"` is a plain (non-inherited) path per crate, since `readme`
 can't sensibly inherit a single value across crates that live in different directories.
+
+**`git2`'s workspace dependency carries `vendored-libgit2`/`vendored-openssl`, not the bare
+crate.** Without these, `git2` links against whatever libgit2/OpenSSL happen to be installed on
+the *build* system — fine on a dev machine with them present, but that's not guaranteed on a
+`windows-latest` GitHub Actions runner (no system libgit2 at all) or on an end user's machine
+installing via `cargo install`. These features compile libgit2/OpenSSL from source and statically
+link them instead, so the resulting binary has no external git/TLS library dependency on any
+platform. Don't remove them to "simplify" the build — that's what makes the release workflow's
+Windows target actually link.
+
+**Workspace path-dependencies (`shiki-core`/`shiki-config`/`shiki-tui` under
+`[workspace.dependencies]` in the root `Cargo.toml`) carry an explicit `version = "0.3.0"`
+alongside `path = "..."`.** `cargo package`/`cargo publish` refuse to package a crate whose
+path-dependencies have no version requirement at all (confirmed via `cargo package -p shiki-cli
+--allow-dirty --no-verify`, which failed with "dependency 'shiki-config' does not specify a
+version" before this was added). Because it's a bare version string (no `=` pin), Cargo treats it
+as a caret requirement (`^0.3.0`) — a patch bump (0.3.0 → 0.3.1) doesn't require touching these
+three lines, only a minor/major bump does, same as any other dependency in this file.
+
+**Release automation lives in `.github/workflows/ci.yml` (fmt/clippy/build on every push/PR,
+matrixed across `ubuntu-latest`/`windows-latest`/`macos-latest` — this is what actually proves the
+Windows/macOS build works, since neither can be verified locally in every dev environment) and
+`.github/workflows/release.yml` (triggered by pushing a `v*` tag).** The release workflow: builds
+`shiki-cli` release binaries for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`,
+`x86_64-apple-darwin`, and `aarch64-apple-darwin`; packages each as `.tar.gz` (Unix) or `.zip`
+(Windows) alongside `README.md`/`LICENSE`/`CHANGELOG.md`; uploads them plus a `SHA256SUMS.txt` to
+a GitHub Release (`softprops/action-gh-release`); then updates and commits
+`packaging/scoop/shiki.json` and `packaging/aur/PKGBUILD`/`.SRCINFO` back to `main` with the new
+version and checksums, so those manifest files always reflect the latest published release even
+between manual reviews. `.SRCINFO` is regenerated via `makepkg --printsrcinfo` inside a throwaway
+`archlinux:base-devel` container (no Arch tooling available on `ubuntu-latest` directly).
+
+**Publishing to the *real* AUR and crates.io are both gated behind secrets that don't exist yet
+(`AUR_SSH_PRIVATE_KEY`, `CARGO_REGISTRY_TOKEN`) — both steps no-op (not fail) until Omar adds
+them.** Neither can be set up by an agent: AUR requires a personal aur.archlinux.org account with
+an SSH key registered to it (the *first* push to a new AUR package must also be done manually once
+to create the package page — `packaging/aur/PKGBUILD` targets `shiki-bin`, so the one-time manual
+step is `git clone ssh://aur@aur.archlinux.org/shiki-bin.git`, add `PKGBUILD`/`.SRCINFO`, commit,
+push — after that the workflow's `update-packaging-manifests` job keeps it in sync automatically);
+crates.io requires an account + a generated API token added as the `CARGO_REGISTRY_TOKEN` repo
+secret. `publish-crates` publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that
+exact dependency order with a 30s pause between each (crates.io's index needs a moment to make a
+just-published crate resolvable before the next one in the chain can depend on it).
