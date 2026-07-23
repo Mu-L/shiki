@@ -207,6 +207,12 @@ pub struct NoteKeybindings {
     /// field-level-default backward-compatibility reasoning as `tree_view`.
     #[serde(default = "default_toggle_dates_key")]
     pub toggle_dates: String,
+    /// Creates an empty subfolder in the current breadcrumb (the same
+    /// depth `new` would create a note at). Field-level default so an
+    /// existing `[keybindings.notes]` table written before this key existed
+    /// still deserializes.
+    #[serde(default = "default_new_folder_key")]
+    pub new_folder: String,
 }
 
 impl Default for NoteKeybindings {
@@ -223,8 +229,13 @@ impl Default for NoteKeybindings {
             sort: "o".into(),
             tree_view: default_tree_view_key(),
             toggle_dates: default_toggle_dates_key(),
+            new_folder: default_new_folder_key(),
         }
     }
+}
+
+fn default_new_folder_key() -> String {
+    "f".into()
 }
 
 fn default_toggle_dates_key() -> String {

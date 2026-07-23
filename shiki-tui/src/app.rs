@@ -109,6 +109,7 @@ impl NoteSort {
 enum PendingInput {
     NewNote,
     NewNotebook,
+    NewFolder,
     RenameNote,
     RenameNotebook,
     Search,
@@ -121,6 +122,7 @@ impl PendingInput {
         match self {
             PendingInput::NewNote => " New note ",
             PendingInput::NewNotebook => " New notebook ",
+            PendingInput::NewFolder => " New folder ",
             PendingInput::RenameNote | PendingInput::RenameNotebook => " Rename ",
             PendingInput::Search => " Jump to note ",
             PendingInput::SetRemote => " Git remote (URL or local path) ",
@@ -1668,6 +1670,7 @@ impl App {
             Action::SetRemote => self.start_set_remote(),
 
             Action::NewNote => self.start_input(PendingInput::NewNote, String::new()),
+            Action::NewFolder => self.start_input(PendingInput::NewFolder, String::new()),
             Action::RenameNote => self.start_rename_note(),
             Action::DeleteNote => self.start_delete_note(),
             Action::JumpSearch => self.start_input(PendingInput::Search, String::new()),
@@ -1736,6 +1739,31 @@ impl App {
                         Err(e) => self.set_status(format!("could not create note: {e}")),
                     },
                     None => self.set_status("create a notebook first".into()),
+                }
+            }
+            Some(PendingInput::NewFolder) => {
+                // Unlike NewNote, an empty name has no sensible default (a
+                // timestamp makes a fine note title but a confusing folder
+                // name) — cancel instead of creating one.
+                if value.is_empty() {
+                    self.set_status("new folder cancelled (name can't be empty)".into());
+                } else {
+                    match self.selected_notebook().cloned() {
+                        Some(nb) => {
+                            match nb.create_folder_in(&self.notes_relative_path(), &value) {
+                                Ok(_) => {
+                                    self.reload_notes();
+                                    if let Some(idx) = self.folders.iter().position(|f| f == &value)
+                                    {
+                                        self.selected_note = idx;
+                                    }
+                                    self.set_status(format!("created folder '{value}'"));
+                                }
+                                Err(e) => self.set_status(format!("could not create folder: {e}")),
+                            }
+                        }
+                        None => self.set_status("create a notebook first".into()),
+                    }
                 }
             }
             Some(PendingInput::NewNotebook) => {

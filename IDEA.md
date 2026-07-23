@@ -233,6 +233,7 @@ sync attempt (manual or automatic) just tries the push again.
 | Key | Action |
 |---|---|
 | `a` | New note (empty title stamps today's date and jumps straight to editing) |
+| `f` | New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first |
 | `r` | Rename note |
 | `d` | Delete note (with confirmation) |
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
@@ -396,6 +397,7 @@ set_remote = "R"
 
 [keybindings.notes]
 new = "a"
+new_folder = "f"
 rename = "r"
 delete = "d"
 edit_inline = "i"

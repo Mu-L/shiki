@@ -25,6 +25,7 @@ pub enum Action {
     PushNotebook,
     // Notes-focus
     NewNote,
+    NewFolder,
     RenameNote,
     DeleteNote,
     JumpSearch,
@@ -124,6 +125,7 @@ impl KeyMaps {
 
         let mut notes = HashMap::new();
         bind(&mut notes, &cfg.notes.new, Action::NewNote);
+        bind(&mut notes, &cfg.notes.new_folder, Action::NewFolder);
         bind(&mut notes, &cfg.notes.rename, Action::RenameNote);
         bind(&mut notes, &cfg.notes.delete, Action::DeleteNote);
         bind(&mut notes, &cfg.notes.edit_inline, Action::EditInline);
@@ -230,6 +232,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::SetRemote => "set git remote",
         Action::PushNotebook => "sync + push now (ignores auto_push)",
         Action::NewNote => "new note",
+        Action::NewFolder => "new folder",
         Action::RenameNote => "rename note",
         Action::DeleteNote => "delete note",
         Action::JumpSearch => "jump to note (fuzzy)",
@@ -253,6 +256,7 @@ pub fn action_icon(action: Action) -> char {
         Action::ToggleFavoriteEditor => crate::icons::PENCIL,
         Action::CheckForUpdate => crate::icons::DOWNLOAD,
         Action::NewNotebook | Action::NewNote => crate::icons::NOTE,
+        Action::NewFolder => crate::icons::NOTEBOOK,
         Action::RenameNotebook | Action::RenameNote => crate::icons::PENCIL,
         Action::DeleteNotebook | Action::DeleteNote => crate::icons::WARNING,
         Action::SyncNotebook

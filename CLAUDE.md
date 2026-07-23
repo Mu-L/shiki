@@ -159,6 +159,19 @@ rather than indexing either `Vec` with it directly. `l`/`→`/`enter` on a folde
 (`navigate_forward`); `h`/`←` ascends one folder level before falling back to `Focus::backward()`
 (`navigate_backward`).
 
+**Folders could only be navigated, not created, until notes-scope `f`
+(`Action::NewFolder` → `Notebook::create_folder_in`) was added.** Notes could already end up at any
+depth because `create_note_in` calls `create_dir_all` as a side effect of writing a file, but there
+was no way to make an *empty* folder up front — the only folders that ever showed up were ones that
+already existed on disk (an imported repo, or one created outside shiki entirely). `create_folder_in`
+mirrors `create_note_in`'s depth handling (`self.path.join(relative).join(name)`, `create_dir_all`)
+but reuses notebook-name validation (`validate_name`) since the folder name becomes a path component
+the same way a notebook name does. `PendingInput::NewFolder`'s submit handler cancels on an empty
+name rather than substituting a default (unlike `NewNote`'s timestamp fallback) — a folder named
+after a timestamp is confusing in a way a note isn't. Deliberately does *not* call `note_changed`
+after creating one: git doesn't track empty directories at all, so the folder isn't a real change
+from sync's perspective until a note actually gets created inside it.
+
 **Selecting a folder (not a note) in NOTES previews its contents in PREVIEW, not a static hint.**
 `panel_preview.rs::folder_preview_lines` calls `nb.list_dir(notes_relative_path().join(folder))`
 fresh on every render (a single non-recursive `read_dir`, cheap enough to redo every frame — no

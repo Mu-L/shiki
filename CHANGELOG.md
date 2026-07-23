@@ -6,6 +6,14 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-23
+
+### Added
+
+- Notes-scope `f` creates a new (empty) subfolder at the current breadcrumb depth — previously
+  folders could only be navigated, never created from the TUI; the only way to get one was to
+  already have it on disk (an imported repo, or made outside shiki entirely).
+
 ## [0.4.2] - 2026-07-23
 
 ### Added

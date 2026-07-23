@@ -100,6 +100,21 @@ impl Notebook {
         self.create_note_in(Path::new(""), title, body)
     }
 
+    /// Creates an empty subfolder in `relative` (a path within this
+    /// notebook; `""` for the notebook root) — same name validation as
+    /// notebooks themselves (`validate_name`), since this becomes a path
+    /// component the same way. Notes can already be created at any depth
+    /// (`create_note_in` calls `create_dir_all` as a side effect), but
+    /// there was previously no way to make an *empty* folder up front from
+    /// the TUI — only folders that already existed on disk (e.g. from an
+    /// imported repo) were navigable, not creatable.
+    pub fn create_folder_in(&self, relative: &Path, name: &str) -> Result<PathBuf> {
+        validate_name(name)?;
+        let dir = self.path.join(relative).join(name);
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
     pub fn note_path(&self, slug: &str) -> PathBuf {
         self.path.join(format!("{slug}.md"))
     }
