@@ -21,10 +21,13 @@ cargo fmt --all                      # format (run after editing, before checkin
 cargo run -p shiki-cli -- <args>     # run the binary, e.g. `-- new "titulo"`, `-- daily`, no args launches the TUI
 ```
 
-There is no test suite yet (`cargo test --workspace` currently runs nothing). When adding
-tests, put them as `#[cfg(test)]` modules in the relevant `shiki-core`/`shiki-config` file —
-those two crates are plain logic with no TUI/terminal dependency, so they're the easiest to
-unit test.
+Almost no automated tests yet — `panel_drawer::tests` (`shiki-tui/src/panel_drawer.rs`) are the
+first, covering `drawer_hit_at`'s mouse coordinate math (a plain function of numbers, not `&App`,
+specifically so it's unit-testable without constructing a full app). When adding tests for
+`shiki-core`/`shiki-config` logic, put them as `#[cfg(test)]` modules in the relevant file — those
+two crates have no TUI/terminal dependency, so they're the easiest to unit test. For `shiki-tui`,
+prefer designing the function to not need `&App` in the first place (as `drawer_hit_at` does) over
+constructing a full `App` in a test.
 
 To exercise the CLI without touching the real user config/data, override XDG dirs (used via
 `directories::ProjectDirs::from("", "", "shiki")` in `shiki-config`):
@@ -58,6 +61,56 @@ pulled in) — a diverged branch after a `pull` can genuinely show both ahead *a
 verified by pushing a divergent commit from a second clone and pulling: `main +0 ↑1 ↓1`. Don't
 collapse this back to a single dirty/clean marker; the counts were added specifically because a
 bare marker didn't say how much was pending.
+
+**The notebook drawer (`leader+b`, `Action::ToggleDrawer` → `App::toggle_drawer`) is a true
+toggle, unlike `open_logs`/`open_tree`/most other modals.** Those are one-directional (opened by
+their action, only closed via `Esc` inside their own key handler); the drawer's leader binding
+opens *and* closes it, since it was asked for as something to "abrir o descolapsar" with the same
+key. It's also the first overlay in this codebase that's **left-anchored** rather than
+center-flexed: every other popup (`centered_rect`, used by the theme picker/logs/tree/history/
+tags/confirm) sits in the middle of the screen, but `App::drawer_area` builds a fixed-width
+(`DRAWER_WIDTH`) `Rect` pinned to `x: 0` instead, so it reads as a persistent sidebar rather than a
+dialog — deliberately not using `centered_rect` for this one. `App::drawer_statuses: Vec<(String,
+GitStatus)>` (every notebook, not just the selected one — contrast with `git_status`, which is
+just the selected notebook) is only populated while `show_drawer` is true (`refresh_drawer_statuses`,
+called from `toggle_drawer` and again from `refresh_git_status`/`apply_git_op_result` whenever it's
+open), since computing it for every notebook on every draw tick would be pure waste when nothing's
+showing it — same "compute once, not per draw" discipline as `history_count_cache`/
+`note_preview_cache`/`folder_preview_cache`.
+
+**`render::git_status_color`/`git_status_suffix` are shared by the footer and the drawer** — pulled
+out of `status_bar.rs` specifically so the same notebook can't show a different color/count in the
+footer than in the drawer because one of the two was hand-edited and the other wasn't. The color
+priority (dirty outranks ahead/behind, which outranks clean) was already the footer's rule before
+this was extracted; the drawer just reuses it per-row instead of only for the selected notebook.
+
+**NOTES rows are colored by `App.note_statuses: HashMap<PathBuf, shiki_core::git::FileGitStatus>`**
+(new→`theme.success`, modified/renamed→`theme.warning`, deleted→`theme.error`, absent from the map
+at all→plain `theme.fg`) — `shiki_core::git::file_statuses(path)` is the same `repo.statuses(None)`
+walk `diff_summary`/`git_status_color` already do, just bucketed per path instead of into one
+summary string or one aggregate count. Refreshed in lockstep with `git_status` (same
+`refresh_git_status` call sites — `reload_notes`/`refresh_notes_preserve_selection`), so it needed
+no new invalidation logic of its own.
+
+**Mouse hit-testing functions take plain coordinates/counts, not `&App`, specifically so they're
+unit-testable without constructing a full `App`.** `panel_drawer::drawer_hit_at(notebook_count:
+usize, area: Rect, column: u16, row: u16)` is the pattern to copy for any future clickable
+panel — contrast with the pre-existing `App::global_search_hit_at`, which *does* take `&self` and
+is consequently untested. `panel_drawer::tests` (in the same file) caught a real off-by-one in the
+button row's coordinate math this way — the button text is the *first* row of the reserved
+`Length(BUTTON_ROWS)` area (a `Paragraph` top-aligns, it doesn't center), not the row after it —
+before the test existed, the hit-test math and the actual rendered position disagreed by one row.
+`App::on_mouse` dispatches a click the same way the equivalent keypress would (`jump_to_drawer_notebook`
+for a `DrawerHit::Notebook`, the same `PendingInput::NewNotebook` prompt for either button) rather
+than duplicating logic — click and key are just two ways to reach the same handler.
+
+**The footer's spinner (`SPINNER_FRAMES`, `status_bar.rs`) replaces the git-status segment
+entirely while `App.sync_in_flight` is `Some`, rather than sitting next to it.** The point is
+making it obvious *something's* happening during a slow network call, not showing two
+git-status-shaped things at once that are about to disagree the moment the real result comes back.
+`App.spinner_frame` advances once per `run()` iteration only while something's in flight (`if
+app.sync_in_flight.is_some() { ... }`, right next to `poll_sync_channel`) — it's never reset to 0
+when idle, since nobody's watching for an exact starting frame, just that it's moving.
 
 **Notebook-scoped git actions (`Action::SyncNotebook`/`PullNotebook`/`PullAllNotebooks`/
 `SetRemote`/`PushNotebook`) resolve regardless of which panel has focus, not only when NOTEBOOKS
@@ -446,38 +499,59 @@ straight off the global `[git]` config.** `Config::sync_for(notebook_name) -> Re
 (`NotebookGitOverride`, every field `Option<_>`) on top of the global `[git]` defaults — a
 notebook connected to a private work repo can have `auto_push = true` while a scratch notebook
 with no remote stays untouched, without a global setting forcing one policy on every notebook.
-`App::run_sync` (shared by manual `s` and the automatic trigger below) is the only thing that
-should read `sync.auto_push`; don't reintroduce a direct `self.config.git.auto_push` read in
-notebook-specific code.
+Every sync/push call site resolves `sync.auto_push` on the main thread and passes the plain `bool`
+into `App::run_sync_blocking` (see below); don't reintroduce a direct `self.config.git.auto_push`
+read in notebook-specific code.
 
-**`App::run_sync`'s commit message names the actual files, not a bare count.**
+**`sync`/`push`/`pull`/`pull all` all run on a background thread now, not synchronously on the
+render loop** — `App::spawn_git_op(label, op)` (mirrors the self-updater's existing
+`std::thread`+`mpsc` pattern, see `open_update_check`/`poll_update_channel` below) spawns `op` and
+sends its `GitOpResult` back over `sync_rx`, polled once per `run()` iteration
+(`poll_sync_channel`) exactly where `refresh_history_cache`/`poll_update_channel` already are.
+Only one operation runs at a time, globally (`App.sync_in_flight: Option<String>`, the label shown
+by the footer's spinner) — a second request while one's in flight is reported ("a sync is already
+running…") and dropped rather than queued, same simplicity level the self-updater already has.
+`GitOpKind` (`Sync`/`Pull`/`PullAll`) tells `apply_git_op_result` what to refresh once the result
+arrives: `Sync`/`Pull` only touch `git_status`/`reload_notes` if the notebook they were about is
+*still* the selected one by the time the background thread finishes — a real correctness need this
+introduced, not just carried over, since the selection can change while the operation is in
+flight, which was never possible in the old synchronous version. The drawer's `drawer_statuses`
+(if open) is refreshed unconditionally regardless of what's selected, since it shows every
+notebook. Known, accepted tradeoff: a note create/edit/delete can race a few hundred ms against a
+background commit's working-tree scan; worst case it's picked up by the *next* sync instead of
+this one — no data loss, consistent with the "nothing lost, just retried" philosophy the failed-push
+handling below already has. Not worth a blocking guard around note edits during an in-flight sync.
+
+**`App::run_sync_blocking`'s commit message names the actual files, not a bare count.**
 `shiki_core::git::diff_summary(path)` buckets `repo.statuses(None)` into added/updated/renamed/
 deleted, and for each bucket names the files directly when there are ≤3 (`"added (First note.md)"`),
 falling back to a count only once a bucket gets big (`"12 updated"`) so the message doesn't become
-unreadable; `run_sync` prefixes the joined result with `config.git.commit_prefix`. `run_sync` also
-takes a `force_push: bool` and reports every step explicitly (`"committed: …"` or `"no changes to
-commit"`, then `"pushed and confirmed by remote"` or the specific error) joined with `"; "` — a
-terse "pushed" previously gave no way to tell whether anything had actually changed or whether the
-push was real.
+unreadable; the caller prefixes the joined result with `config.git.commit_prefix`.
+`run_sync_blocking` takes only owned data (`&Path`/`&str`), no `&self`/`&App` — it runs inside the
+closure passed to `spawn_git_op`, on a background thread, so it can't borrow from the `App` that
+spawned it. It also takes a `force_push: bool` and reports every step explicitly (`"committed: …"`
+or `"no changes to commit"`, then `"pushed and confirmed by remote"` or the specific error) joined
+with `"; "` — a terse "pushed" previously gave no way to tell whether anything had actually
+changed or whether the push was real.
 
 **`u` (`Action::PushNotebook` → `App::push_notebook`) commits (same as `s`) and always pushes,
-regardless of the resolved `auto_push` policy** — it's `run_sync(nb, force_push: true)`, the
+regardless of the resolved `auto_push` policy** — `run_sync_blocking(force_push: true)`, the
 explicit "sync right now" override, not a push-only action. It used to skip the commit step
 entirely, which meant repeatedly pressing `u` on a notebook with uncommitted notes kept reporting
 "pushed" while the dirty count in the footer never moved, since nothing had actually been committed
 — confusing, since "pushed" sounds like something happened. Manual `s` and the automatic
-every-N-changes trigger (`App::note_changed`) both call `run_sync(nb, force_push: false)` instead,
-so they still respect the resolved policy.
+every-N-changes trigger (`App::note_changed`) both use `force_push: false` instead, so they still
+respect the resolved policy.
 
 **`App::note_changed(notebook_name)` drives `auto_sync`'s every-N-changes trigger** — called after
 every note create/edit (both `save_and_exit_edit` and the external-edit finalize in `run()`)/
 rename/delete/move (bumps both the source and destination notebook for a move). It's a no-op
 unless `Config::sync_for` says `auto_sync` is on for that notebook; when the per-notebook
 `pending_changes: HashMap<String, u32>` counter (not persisted — resets to empty on relaunch)
-reaches `auto_sync_every`, it calls `run_sync` and zeroes the counter. A failed push inside
-`run_sync` (no internet, auth, rejected by the remote, etc.) is reported in the status/log like any
-other error and never panics or blocks — the commit already succeeded locally regardless, so the
-next sync attempt (manual `s`/`u`, or the next automatic trigger) just retries the push with
+reaches `auto_sync_every`, it resets the counter and calls `spawn_git_op` the same as manual `s`.
+A failed push (no internet, auth, rejected by the remote, etc.) is reported in the status/log like
+any other error and never panics or blocks — the commit already succeeded locally regardless, so
+the next sync attempt (manual `s`/`u`, or the next automatic trigger) just retries the push with
 nothing lost.
 
 **`git::push` actually verifies the push landed instead of trusting `Remote::push`'s `Ok(())` at

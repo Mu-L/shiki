@@ -6,6 +6,33 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-23
+
+### Added
+
+- Notebook drawer (`leader+b`): a collapsible left-side sidebar listing every notebook's git
+  status in color (dirty count, ahead/behind), separate from the always-visible NOTEBOOKS panel —
+  `j`/`k`/`Enter` or a mouse click jumps to a notebook, `n`/`i` (or clicking the minimal "New"/
+  "Import" buttons at the bottom) open the same new-notebook prompt that already detects a pasted
+  git URL and clones instead of creating a plain notebook.
+- Per-note coloring in NOTES: each note's title is tinted by its actual git status (new → green,
+  modified/renamed → the warning color, deleted → the error color) instead of only being visible
+  as an aggregate count in the footer — `shiki_core::git::file_statuses`.
+- A spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) in the footer while a sync/push/pull is running in the background,
+  replacing the git-status segment for the duration — visible feedback that something's actually
+  happening on a slow network call instead of the UI just looking idle.
+- First unit tests in `shiki-tui` (`panel_drawer::tests`), covering the drawer's mouse
+  hit-testing math — caught a real off-by-one in the button row's coordinates before it shipped.
+
+### Changed
+
+- `sync`/`push`/`pull`/`pull all` now run on a background thread (the same `std::thread` + `mpsc`
+  pattern already used by the in-TUI self-updater) instead of blocking the render loop for the
+  duration of the git/network call. Only one operation runs at a time; a second request while one
+  is in flight is reported and dropped rather than queued. Verified live against a real local
+  bare-repo remote (successful push) and an unreachable one (commit succeeds, push fails cleanly,
+  state refreshes correctly) — the UI never freezes in either case.
+
 ## [0.5.1] - 2026-07-23
 
 ### Added

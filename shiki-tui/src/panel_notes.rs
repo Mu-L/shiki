@@ -7,6 +7,7 @@ use ratatui::Frame;
 use crate::app::{App, Focus};
 use crate::icons;
 use crate::render::{hex_to_color, panel_block, render_scrollbar};
+use shiki_core::git::FileGitStatus;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let focused = app.focus == Focus::Notes;
@@ -28,9 +29,21 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 )
             })
             .chain(app.notes.iter().map(|note| {
+                // Colored by the same-priority scheme as the drawer/footer's
+                // per-notebook status, just per-file: at a glance, which
+                // notes are new/changed without opening the history modal
+                // or reading the footer's aggregate `{n} changes` count.
+                let title_color = match app.note_statuses.get(&note.path) {
+                    Some(FileGitStatus::New) => hex_to_color(&app.theme.success),
+                    Some(FileGitStatus::Modified) | Some(FileGitStatus::Renamed) => {
+                        hex_to_color(&app.theme.warning)
+                    }
+                    Some(FileGitStatus::Deleted) => hex_to_color(&app.theme.error),
+                    None => fg,
+                };
                 let mut spans = vec![ratatui::text::Span::styled(
                     format!("{}  {}", icons::NOTE, note.frontmatter.title),
-                    Style::default().fg(fg),
+                    Style::default().fg(title_color),
                 )];
                 if app.show_dates {
                     spans.push(ratatui::text::Span::styled(

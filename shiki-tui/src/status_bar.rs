@@ -19,6 +19,11 @@ fn mode_label(mode: Mode) -> Option<&'static str> {
     }
 }
 
+/// Frames for the sync-in-progress spinner — advanced once per `run()`
+/// iteration (`App::spinner_frame`) while `App::sync_in_flight` is set, so
+/// it animates at the same ~10Hz cadence as the render loop itself.
+const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 /// Shortens `text` to at most `max_chars`, marking the cut with `…` — for
 /// fitting the status message into whatever footer space is actually left
 /// on narrow/small terminals instead of overflowing into the right-aligned
@@ -86,27 +91,25 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
 
-    if app.git_status.is_repo {
+    // While a sync/push/pull is running in the background (`spawn_git_op`),
+    // this replaces the normal git-status segment rather than sitting next
+    // to it — the point is to make it obvious *something's* happening
+    // instead of the UI just looking idle for however long the network
+    // call takes, not to duplicate information that's about to be stale
+    // the moment the result comes back anyway.
+    if let Some(label) = &app.sync_in_flight {
+        spans.push(sep.clone());
+        let frame = SPINNER_FRAMES[app.spinner_frame % SPINNER_FRAMES.len()];
+        spans.push(Span::styled(
+            format!("{frame} syncing '{label}'…"),
+            plain.fg(accent),
+        ));
+    } else if app.git_status.is_repo {
         spans.push(sep.clone());
         let gs = &app.git_status;
         let branch = gs.branch.as_deref().unwrap_or("?");
-        let mut extras = String::new();
-        if gs.dirty_count > 0 {
-            extras.push_str(&format!(" +{}", gs.dirty_count));
-        }
-        if gs.ahead > 0 {
-            extras.push_str(&format!(" {}{}", icons::UPLOAD, gs.ahead));
-        }
-        if gs.behind > 0 {
-            extras.push_str(&format!(" {}{}", icons::DOWNLOAD, gs.behind));
-        }
-        let color = if gs.dirty_count > 0 {
-            hex_to_color(&app.theme.warning)
-        } else if gs.ahead > 0 || gs.behind > 0 {
-            accent
-        } else {
-            hex_to_color(&app.theme.success)
-        };
+        let extras = crate::render::git_status_suffix(gs);
+        let color = crate::render::git_status_color(&app.theme, gs);
         spans.push(Span::styled(
             format!("{} {branch}{extras}", icons::GIT),
             plain.fg(color),

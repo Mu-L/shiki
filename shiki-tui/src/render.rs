@@ -7,6 +7,39 @@ use ratatui::widgets::{
 use ratatui::Frame;
 use shiki_config::Theme;
 
+/// The color a `GitStatus` gets in the footer and the notebook drawer —
+/// dirty (uncommitted changes) outranks ahead/behind, which outranks fully
+/// clean, same one-color-per-notebook priority both places already agreed
+/// on before this was pulled out into a shared helper: dirty is more
+/// urgent than "just needs a push/pull", and clean is the good case.
+pub fn git_status_color(theme: &Theme, gs: &shiki_core::git::GitStatus) -> Color {
+    if gs.dirty_count > 0 {
+        hex_to_color(&theme.warning)
+    } else if gs.ahead > 0 || gs.behind > 0 {
+        hex_to_color(&theme.accent)
+    } else {
+        hex_to_color(&theme.success)
+    }
+}
+
+/// The `" +{dirty} {UPLOAD}{ahead} {DOWNLOAD}{behind}"` suffix describing a
+/// `GitStatus` — empty when there's nothing to report. Shared by the footer
+/// and the notebook drawer so the same notebook never shows different
+/// numbers in two places because one of them drifted from the other.
+pub fn git_status_suffix(gs: &shiki_core::git::GitStatus) -> String {
+    let mut extras = String::new();
+    if gs.dirty_count > 0 {
+        extras.push_str(&format!(" +{}", gs.dirty_count));
+    }
+    if gs.ahead > 0 {
+        extras.push_str(&format!(" {}{}", crate::icons::UPLOAD, gs.ahead));
+    }
+    if gs.behind > 0 {
+        extras.push_str(&format!(" {}{}", crate::icons::DOWNLOAD, gs.behind));
+    }
+    extras
+}
+
 /// Converts a theme color slot to `ratatui::Color`. Accepts `#rrggbb` hex
 /// (every built-in palette), the terminal's native ANSI names, or `"reset"`
 /// to inherit whatever the terminal's own default color is — that's what

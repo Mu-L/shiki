@@ -1,9 +1,51 @@
 use std::cell::Cell;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use git2::{Cred, CredentialType, IndexAddOption, RemoteCallbacks, Repository, Signature};
 
 use crate::{Error, Result};
+
+/// Per-file git status, for coloring individual rows in the NOTES list —
+/// coarser aggregates (`GitStatus::dirty_count`, `diff_summary`) already
+/// exist for the footer/commit-message use cases, this is the same
+/// `repo.statuses(None)` walk bucketed per path instead of into one summary
+/// string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileGitStatus {
+    New,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+/// Maps every changed file in the notebook at `path` to its status, keyed by
+/// *absolute* path (`path.join(relative)`) so it matches `Note::path`
+/// directly — no relative-vs-absolute conversion needed at the call site.
+pub fn file_statuses(path: &Path) -> Result<HashMap<PathBuf, FileGitStatus>> {
+    let repo = Repository::open(path)?;
+    let statuses = repo.statuses(None)?;
+    let mut map = HashMap::new();
+    for entry in statuses.iter() {
+        let s = entry.status();
+        let Some(relative) = entry.path().ok() else {
+            continue;
+        };
+        let status = if s.intersects(git2::Status::WT_NEW | git2::Status::INDEX_NEW) {
+            FileGitStatus::New
+        } else if s.intersects(git2::Status::WT_DELETED | git2::Status::INDEX_DELETED) {
+            FileGitStatus::Deleted
+        } else if s.intersects(git2::Status::WT_RENAMED | git2::Status::INDEX_RENAMED) {
+            FileGitStatus::Renamed
+        } else if s.intersects(git2::Status::WT_MODIFIED | git2::Status::INDEX_MODIFIED) {
+            FileGitStatus::Modified
+        } else {
+            continue;
+        };
+        map.insert(path.join(relative), status);
+    }
+    Ok(map)
+}
 
 /// Builds a credentials callback that actually works for more than SSH.
 ///

@@ -111,6 +111,12 @@ pub struct GlobalKeybindings {
     /// `logs`/`toggle_favorite_editor`.
     #[serde(default = "default_check_update_key")]
     pub check_update: String,
+    /// Toggles the notebook drawer: a left-side sidebar listing every
+    /// notebook's git status in color (dirty/ahead/behind), separate from
+    /// the always-visible NOTEBOOKS panel. Field-level default for the same
+    /// backward-compatibility reason as `logs`/`toggle_favorite_editor`.
+    #[serde(default = "default_drawer_key")]
+    pub drawer: String,
 }
 
 impl Default for GlobalKeybindings {
@@ -122,12 +128,17 @@ impl Default for GlobalKeybindings {
             logs: default_logs_key(),
             toggle_favorite_editor: default_toggle_favorite_editor_key(),
             check_update: default_check_update_key(),
+            drawer: default_drawer_key(),
         }
     }
 }
 
 fn default_logs_key() -> String {
     "l".into()
+}
+
+fn default_drawer_key() -> String {
+    "b".into()
 }
 
 fn default_toggle_favorite_editor_key() -> String {

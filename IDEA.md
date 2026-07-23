@@ -203,6 +203,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `g` | Search all notes (title + body, every notebook) — modal, Enter/click to jump |
 | `T` | Tags panel |
 | `l` | Logs — scrollback of every status-bar message (including errors that already scrolled past); `j`/`k` scroll, `y`/`c` copies the whole log to the clipboard (OSC 52), `Esc`/`q` closes |
+| `b` | Notebook drawer — left-side sidebar, every notebook's git status in color (dirty/ahead/behind); `j`/`k` or click a row to jump to it, `n`/click "New" to create a notebook, `i`/click "Import" to clone from a pasted URL, `Esc`/`b` again closes |
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
 
@@ -385,6 +386,7 @@ tags_panel = "T"
 logs = "l"
 toggle_favorite_editor = "e"
 check_update = "U"
+drawer = "b"
 
 [keybindings.notebooks]
 new = "a"

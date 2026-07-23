@@ -20,7 +20,8 @@ use crate::input::InputBox;
 use crate::keybindings::{action_label, Action, KeyMaps};
 use crate::render::{hex_to_color, panel_block};
 use crate::{
-    confirm, layout, panel_notebooks, panel_notes, panel_preview, panel_tags, status_bar, which,
+    confirm, layout, panel_drawer, panel_notebooks, panel_notes, panel_preview, panel_tags,
+    status_bar, which,
 };
 
 /// How many rows/lines `PageUp`/`PageDown` move by, across every scrollable
@@ -167,6 +168,19 @@ pub struct App {
     /// Branch/dirty/ahead-behind for the selected notebook — refreshed
     /// whenever the notebook, folder, or notes change (`refresh_git_status`).
     pub git_status: shiki_core::git::GitStatus,
+    /// Per-file git status for the selected notebook, keyed by absolute
+    /// path (matches `Note::path` directly) — refreshed in lockstep with
+    /// `git_status` by the same `refresh_git_status` call sites, drives
+    /// the NOTES list's per-row coloring.
+    pub note_statuses:
+        std::collections::HashMap<std::path::PathBuf, shiki_core::git::FileGitStatus>,
+    /// `(notebook name, GitStatus)` for *every* notebook, not just the
+    /// selected one — only populated while the drawer (`leader+b`) is open,
+    /// since computing it for every notebook on every draw tick would be
+    /// pure waste when nothing's showing it.
+    pub drawer_statuses: Vec<(String, shiki_core::git::GitStatus)>,
+    pub show_drawer: bool,
+    pub drawer_selected: usize,
     pub input: InputBox,
     pub confirm: Option<confirm::ConfirmDialog>,
     pub editor: Option<InlineEditor<'static>>,
@@ -288,6 +302,42 @@ pub struct App {
     /// actually works — hit this exact bug live (`spawn FAILED: No such
     /// file or directory ... "shiki (deleted)"`) before fixing it this way.
     relaunch_exe_path: Option<std::path::PathBuf>,
+    /// Set while a background thread is running a sync/push/pull, so
+    /// `run()`'s poll loop (`poll_sync_channel`) can pick up the result
+    /// without blocking the render loop on the network call — same
+    /// `std::thread` + `mpsc` shape as `update_rx` above, applied to the
+    /// normal git operations instead of the self-updater. Holds the label
+    /// shown by the footer's spinner (e.g. the notebook's name) while
+    /// something's running; `None` means idle.
+    pub sync_in_flight: Option<String>,
+    sync_rx: Option<std::sync::mpsc::Receiver<GitOpResult>>,
+    /// Advanced once per `run()` iteration while `sync_in_flight` (or the
+    /// self-updater's own in-flight state) is set — indexes into a small
+    /// Braille frame set for the footer's spinner. Not reset when idle:
+    /// picking back up from wherever it left off is fine, nobody's
+    /// watching for an exact starting frame.
+    pub spinner_frame: usize,
+}
+
+/// One in-flight git operation's eventual result, sent back over
+/// `App::sync_rx` from the background thread `spawn_git_op` starts. `kind`
+/// tells `apply_git_op_result` which follow-up state to refresh (which
+/// notebook's `GitStatus`, whether to `reload_notes`, …) — the actual git
+/// work already ran on the background thread by the time this exists, this
+/// is purely "what should the main thread do with the result."
+struct GitOpResult {
+    kind: GitOpKind,
+    message: String,
+}
+
+enum GitOpKind {
+    /// Commit (+ maybe push) for one notebook — manual `s`/`u`, or the
+    /// automatic every-N-changes trigger.
+    Sync { notebook: String },
+    /// Pull for one notebook — manual `p`.
+    Pull { notebook: String },
+    /// Pull for every notebook that has a remote — manual `P`.
+    PullAll,
 }
 
 /// State of the update modal (leader+`U`), across its whole lifecycle: a
@@ -335,6 +385,10 @@ impl App {
             .first()
             .map(|nb| shiki_core::git::status(&nb.path, &config.git.remote))
             .unwrap_or_default();
+        let note_statuses = notebooks
+            .first()
+            .and_then(|nb| shiki_core::git::file_statuses(&nb.path).ok())
+            .unwrap_or_default();
         let available_themes = shiki_config::themes::all();
         let theme_index = available_themes
             .iter()
@@ -359,6 +413,10 @@ impl App {
             status_message: None,
             status_message_set_at: None,
             git_status,
+            note_statuses,
+            drawer_statuses: Vec::new(),
+            show_drawer: false,
+            drawer_selected: 0,
             input: InputBox::default(),
             confirm: None,
             editor: None,
@@ -404,6 +462,9 @@ impl App {
             update_rx: None,
             want_relaunch: false,
             relaunch_exe_path: None,
+            sync_in_flight: None,
+            sync_rx: None,
+            spinner_frame: 0,
         })
     }
 
@@ -622,6 +683,33 @@ impl App {
             .selected_notebook()
             .map(|nb| shiki_core::git::status(&nb.path, &self.config.git.remote))
             .unwrap_or_default();
+        self.note_statuses = self
+            .selected_notebook()
+            .and_then(|nb| shiki_core::git::file_statuses(&nb.path).ok())
+            .unwrap_or_default();
+        if self.show_drawer {
+            self.refresh_drawer_statuses();
+        }
+    }
+
+    /// Populates `drawer_statuses` for every notebook, not just the
+    /// selected one — called when the drawer opens and again whenever
+    /// `refresh_git_status` runs while it's open, since any sync/push/pull
+    /// can change another notebook's status too (e.g. `pull_all_notebooks`).
+    /// `shiki_core::git::status` is local-only (no network), cheap enough
+    /// to redo for every notebook on these discrete events rather than
+    /// needing its own per-notebook cache.
+    fn refresh_drawer_statuses(&mut self) {
+        self.drawer_statuses = self
+            .notebooks
+            .iter()
+            .map(|nb| {
+                (
+                    nb.name.clone(),
+                    shiki_core::git::status(&nb.path, &self.config.git.remote),
+                )
+            })
+            .collect();
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -810,6 +898,63 @@ impl App {
     fn open_logs(&mut self) {
         self.logs_selected = self.log_history.len().saturating_sub(1);
         self.show_logs = true;
+    }
+
+    /// Unlike `open_logs`/`open_tree` (one-directional, closed via `Esc`
+    /// inside their own key handler), the drawer is a true toggle — pressing
+    /// its leader binding again collapses it, matching how it was asked for
+    /// ("abrir o descolapsar" with the same key).
+    fn toggle_drawer(&mut self) {
+        self.show_drawer = !self.show_drawer;
+        if self.show_drawer {
+            self.drawer_selected = self
+                .selected_notebook
+                .min(self.notebooks.len().saturating_sub(1));
+            self.refresh_drawer_statuses();
+        }
+    }
+
+    fn handle_drawer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.show_drawer = false,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !self.drawer_statuses.is_empty() {
+                    self.drawer_selected = (self.drawer_selected + 1) % self.drawer_statuses.len();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if !self.drawer_statuses.is_empty() {
+                    self.drawer_selected = self
+                        .drawer_selected
+                        .checked_sub(1)
+                        .unwrap_or(self.drawer_statuses.len() - 1);
+                }
+            }
+            KeyCode::Enter => self.jump_to_drawer_notebook(),
+            // Both open the same `PendingInput::NewNotebook` prompt — it
+            // already detects a pasted git URL and clones instead of
+            // creating a plain notebook (`looks_like_git_url`), so "import"
+            // isn't separate logic, just a second entry point into it.
+            KeyCode::Char('n') | KeyCode::Char('i') => {
+                self.show_drawer = false;
+                self.start_input(PendingInput::NewNotebook, String::new());
+            }
+            _ => {}
+        }
+    }
+
+    /// Jumps to whichever notebook is selected in the drawer — same
+    /// `notes_path.clear()` + `reload_notes()` pair `move_selection` already
+    /// uses when switching `selected_notebook` via `j`/`k` in NOTEBOOKS.
+    fn jump_to_drawer_notebook(&mut self) {
+        if let Some((name, _)) = self.drawer_statuses.get(self.drawer_selected) {
+            if let Some(idx) = self.notebooks.iter().position(|nb| &nb.name == name) {
+                self.selected_notebook = idx;
+                self.notes_path.clear();
+                self.reload_notes();
+            }
+        }
+        self.show_drawer = false;
     }
 
     fn handle_logs_key(&mut self, key: KeyEvent) {
@@ -1468,14 +1613,37 @@ impl App {
     }
 
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
-        if !self.show_global_search {
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
             return;
         }
-        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+        if self.show_global_search {
             if let Some(index) = self.global_search_hit_at(mouse.column, mouse.row) {
                 if let Some(hit) = self.global_search_results.get(index).copied() {
                     self.jump_to_global_hit(hit.index);
                 }
+            }
+            return;
+        }
+        if self.show_drawer {
+            let area = drawer_area(self.last_frame_area);
+            let hit = panel_drawer::drawer_hit_at(
+                self.drawer_statuses.len(),
+                area,
+                mouse.column,
+                mouse.row,
+            );
+            match hit {
+                Some(panel_drawer::DrawerHit::Notebook(index)) => {
+                    self.drawer_selected = index;
+                    self.jump_to_drawer_notebook();
+                }
+                Some(
+                    panel_drawer::DrawerHit::NewButton | panel_drawer::DrawerHit::ImportButton,
+                ) => {
+                    self.show_drawer = false;
+                    self.start_input(PendingInput::NewNotebook, String::new());
+                }
+                None => {}
             }
         }
     }
@@ -1567,48 +1735,58 @@ impl App {
             self.set_status("no notebook selected".into());
             return;
         };
-        let message = self.run_sync(&nb, false);
-        self.pending_changes.insert(nb.name.clone(), 0);
-        self.set_status(message);
-        self.refresh_git_status();
+        let auto_push = self.config.sync_for(&nb.name).auto_push;
+        let commit_prefix = self.config.git.commit_prefix.clone();
+        let remote = self.config.git.remote.clone();
+        let (nb_name, nb_path) = (nb.name.clone(), nb.path.clone());
+        self.spawn_git_op(nb_name.clone(), move || {
+            let message =
+                Self::run_sync_blocking(&nb_path, &commit_prefix, false, auto_push, &remote);
+            GitOpResult {
+                kind: GitOpKind::Sync { notebook: nb_name },
+                message,
+            }
+        });
     }
 
     /// Commits (message auto-built from the diff, naming the actual files
     /// when there are only a few, e.g. "shiki: added (First note.md)") and
-    /// pushes if `force_push` is set or this notebook's resolved policy
-    /// (`Config::sync_for` — global `[git]`, or its `[notebooks.<name>]`
-    /// override) has `auto_push` on. Shared by manual `s` (`force_push:
-    /// false` — respects the configured policy), manual `u` (`force_push:
-    /// true` — always pushes right now regardless of policy), and the
-    /// automatic every-N-changes trigger (`note_changed`, `force_push:
-    /// false`). Every step is reported explicitly (commit outcome, then push
-    /// outcome including remote-side verification) rather than a terse
-    /// "done" — push failures (no internet, auth, rejected by the remote,
-    /// etc.) are surfaced, never panic: the commit already succeeded either
-    /// way, so nothing pending is lost, and the next attempt just retries
-    /// the push.
-    fn run_sync(&mut self, nb: &Notebook, force_push: bool) -> String {
-        let sync = self.config.sync_for(&nb.name);
+    /// pushes if `force_push` is set or `auto_push` is on. Shared by manual
+    /// `s` (`force_push: false` — respects the configured policy), manual
+    /// `u` (`force_push: true` — always pushes right now regardless of
+    /// policy), and the automatic every-N-changes trigger (`note_changed`,
+    /// `force_push: false`). Every step is reported explicitly (commit
+    /// outcome, then push outcome including remote-side verification)
+    /// rather than a terse "done" — push failures (no internet, auth,
+    /// rejected by the remote, etc.) are surfaced, never panic: the commit
+    /// already succeeded either way, so nothing pending is lost, and the
+    /// next attempt just retries the push.
+    ///
+    /// Takes only owned data, no `&self`/`&App` — this runs on a background
+    /// thread (`spawn_git_op`), so it can't borrow from the `App` that
+    /// spawned it. Each call site resolves `Config::sync_for`'s
+    /// `auto_push` on the main thread first and passes the plain `bool`.
+    fn run_sync_blocking(
+        nb_path: &std::path::Path,
+        commit_prefix: &str,
+        force_push: bool,
+        auto_push: bool,
+        remote: &str,
+    ) -> String {
         let summary =
-            shiki_core::git::diff_summary(&nb.path).unwrap_or_else(|_| "changes".to_string());
-        let message = format!("{}{summary}", self.config.git.commit_prefix);
+            shiki_core::git::diff_summary(nb_path).unwrap_or_else(|_| "changes".to_string());
+        let message = format!("{commit_prefix}{summary}");
         let mut parts = Vec::new();
-        match shiki_core::git::commit_all(&nb.path, &message) {
-            Ok(true) => {
-                parts.push(format!("committed: {summary}"));
-                // A new commit may have changed the currently-previewed
-                // note's revision count — force the footer's cache to
-                // recompute instead of showing a stale number.
-                self.history_count_cache = None;
-            }
+        match shiki_core::git::commit_all(nb_path, &message) {
+            Ok(true) => parts.push(format!("committed: {summary}")),
             Ok(false) => parts.push("no changes to commit".to_string()),
             Err(e) => parts.push(format!("commit error: {e}")),
         }
-        if force_push || sync.auto_push {
-            if shiki_core::git::remote_url(&nb.path).is_none() {
+        if force_push || auto_push {
+            if shiki_core::git::remote_url(nb_path).is_none() {
                 parts.push("no remote configured (press R, then s)".to_string());
             } else {
-                match shiki_core::git::push(&nb.path, &self.config.git.remote) {
+                match shiki_core::git::push(nb_path, remote) {
                     Ok(()) => parts.push("pushed and confirmed by remote".to_string()),
                     Err(e) => parts.push(format!("push error: {e}")),
                 }
@@ -1626,10 +1804,18 @@ impl App {
             self.set_status("no notebook selected".into());
             return;
         };
-        let message = self.run_sync(&nb, true);
-        self.pending_changes.insert(nb.name.clone(), 0);
-        self.set_status(format!("'{}': {message}", nb.name));
-        self.refresh_git_status();
+        let commit_prefix = self.config.git.commit_prefix.clone();
+        let remote = self.config.git.remote.clone();
+        let (nb_name, nb_path) = (nb.name.clone(), nb.path.clone());
+        self.spawn_git_op(nb_name.clone(), move || {
+            let message = Self::run_sync_blocking(&nb_path, &commit_prefix, true, false, &remote);
+            GitOpResult {
+                kind: GitOpKind::Sync {
+                    notebook: nb_name.clone(),
+                },
+                message: format!("'{nb_name}': {message}"),
+            }
+        });
     }
 
     /// Call after any note create/edit/rename/delete/move: bumps
@@ -1661,11 +1847,20 @@ impl App {
         else {
             return;
         };
-        let message = self.run_sync(&nb, false);
-        self.set_status(format!("auto-sync '{notebook_name}': {message}"));
-        if self.selected_notebook().map(|n| n.name.as_str()) == Some(notebook_name) {
-            self.refresh_git_status();
-        }
+        let commit_prefix = self.config.git.commit_prefix.clone();
+        let remote = self.config.git.remote.clone();
+        let auto_push = sync.auto_push;
+        let (nb_name, nb_path) = (nb.name.clone(), nb.path.clone());
+        self.spawn_git_op(nb_name.clone(), move || {
+            let message =
+                Self::run_sync_blocking(&nb_path, &commit_prefix, false, auto_push, &remote);
+            GitOpResult {
+                kind: GitOpKind::Sync {
+                    notebook: nb_name.clone(),
+                },
+                message: format!("auto-sync '{nb_name}': {message}"),
+            }
+        });
     }
 
     fn pull_notebook(&mut self) {
@@ -1685,35 +1880,117 @@ impl App {
             ));
             return;
         }
-        match shiki_core::git::pull(&nb.path, &self.config.git.remote, &self.config.git.branch) {
-            Ok(branch) => {
-                let note = if branch == self.config.git.branch {
-                    format!("pulled '{}'", nb.name)
-                } else {
-                    format!(
-                        "pulled '{}' (remote's default branch is '{branch}', not '{}')",
-                        nb.name, self.config.git.branch
-                    )
-                };
-                self.set_status(note);
-                self.reload_notes();
+        let remote = self.config.git.remote.clone();
+        let configured_branch = self.config.git.branch.clone();
+        let (nb_name, nb_path) = (nb.name.clone(), nb.path.clone());
+        self.spawn_git_op(nb_name.clone(), move || {
+            let message = match shiki_core::git::pull(&nb_path, &remote, &configured_branch) {
+                Ok(actual_branch) if actual_branch == configured_branch => {
+                    format!("pulled '{nb_name}'")
+                }
+                Ok(actual_branch) => format!(
+                    "pulled '{nb_name}' (remote's default branch is '{actual_branch}', not '{configured_branch}')"
+                ),
+                Err(e) => format!("pull error ('{nb_name}'): {e}"),
+            };
+            GitOpResult {
+                kind: GitOpKind::Pull { notebook: nb_name },
+                message,
             }
-            Err(e) => self.set_status(format!("pull error ('{}'): {e}", nb.name)),
-        }
+        });
     }
 
     fn pull_all_notebooks(&mut self) {
         let remote = self.config.git.remote.clone();
         let branch = self.config.git.branch.clone();
-        let (mut ok, mut failed) = (0u32, 0u32);
-        for nb in self.notebooks.clone() {
-            match shiki_core::git::pull(&nb.path, &remote, &branch) {
-                Ok(_) => ok += 1,
-                Err(_) => failed += 1,
+        let notebooks = self.notebooks.clone();
+        self.spawn_git_op("all notebooks".to_string(), move || {
+            let (mut ok, mut failed) = (0u32, 0u32);
+            for nb in notebooks {
+                match shiki_core::git::pull(&nb.path, &remote, &branch) {
+                    Ok(_) => ok += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            GitOpResult {
+                kind: GitOpKind::PullAll,
+                message: format!("pull all: {ok} ok, {failed} failed"),
+            }
+        });
+    }
+
+    /// Spawns `op` on a background thread and sends its result back over
+    /// `sync_rx`, so the caller (any of the git actions above) never blocks
+    /// the render loop on a network call — same `std::thread` + `mpsc`
+    /// shape as the self-updater's `open_update_check`. Only one operation
+    /// runs at a time, globally (same simplicity level the self-updater
+    /// already has, not per-notebook concurrent tracking) — a second
+    /// request while one's in flight is reported and dropped rather than
+    /// queued, since the first one will pick up anything pending anyway.
+    fn spawn_git_op(&mut self, label: String, op: impl FnOnce() -> GitOpResult + Send + 'static) {
+        if self.sync_in_flight.is_some() {
+            self.set_status("a sync is already running, try again in a moment".into());
+            return;
+        }
+        self.sync_in_flight = Some(label);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(op());
+        });
+        self.sync_rx = Some(rx);
+    }
+
+    /// Non-blocking: called once per `run()` loop iteration, same spot and
+    /// pattern as `poll_update_channel`.
+    fn poll_sync_channel(&mut self) {
+        let Some(rx) = &self.sync_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.sync_in_flight = None;
+                self.sync_rx = None;
+                self.apply_git_op_result(result);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.sync_in_flight = None;
+                self.sync_rx = None;
             }
         }
-        self.set_status(format!("pull all: {ok} ok, {failed} failed"));
-        self.reload_notes();
+    }
+
+    /// What each call site's synchronous code used to do immediately after
+    /// `run_sync`/`pull` returned — now deferred until the result actually
+    /// arrives over `sync_rx`. The "still selected?" check on `Sync`/`Pull`
+    /// is a real correctness addition, not just carried over: the operation
+    /// runs in the background now, so the user could have switched to a
+    /// different notebook while it was in flight, and this must not stomp
+    /// on `git_status`/`notes` for whatever's selected *now* with a result
+    /// about a notebook that isn't selected anymore.
+    fn apply_git_op_result(&mut self, result: GitOpResult) {
+        self.set_status(result.message);
+        match result.kind {
+            GitOpKind::Sync { notebook } => {
+                self.pending_changes.insert(notebook.clone(), 0);
+                // A new commit may have changed the currently-previewed
+                // note's revision count — force the footer's cache to
+                // recompute instead of showing a stale number.
+                self.history_count_cache = None;
+                if self.selected_notebook().map(|n| n.name.as_str()) == Some(notebook.as_str()) {
+                    self.refresh_git_status();
+                }
+            }
+            GitOpKind::Pull { notebook } => {
+                if self.selected_notebook().map(|n| n.name.as_str()) == Some(notebook.as_str()) {
+                    self.reload_notes();
+                }
+            }
+            GitOpKind::PullAll => self.reload_notes(),
+        }
+        if self.show_drawer {
+            self.refresh_drawer_statuses();
+        }
     }
 
     fn create_daily_note(&mut self) {
@@ -1787,6 +2064,7 @@ impl App {
             Action::ToggleTags => self.show_tags = !self.show_tags,
             Action::ShowLogs => self.open_logs(),
             Action::CheckForUpdate => self.open_update_check(),
+            Action::ToggleDrawer => self.toggle_drawer(),
 
             Action::NewNotebook => self.start_input(PendingInput::NewNotebook, String::new()),
             Action::RenameNotebook => self.start_rename_notebook(),
@@ -2157,6 +2435,10 @@ impl App {
             self.handle_history_key(key);
             return;
         }
+        if self.show_drawer {
+            self.handle_drawer_key(key);
+            return;
+        }
         match self.mode {
             Mode::Insert => self.handle_insert_key(key),
             Mode::Edit => self.handle_edit_key(key),
@@ -2243,6 +2525,25 @@ fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
     area
 }
 
+/// Fixed width of the notebook drawer (`leader+b`) — narrow enough to leave
+/// most of the screen for the 3-column layout underneath, wide enough for a
+/// notebook name plus `↑3 ↓2 +5` worth of status.
+const DRAWER_WIDTH: u16 = 30;
+
+/// The notebook drawer's rect — left-anchored, not center-flexed like every
+/// other popup here, since it's meant to read as a persistent sidebar
+/// rather than a centered dialog. Excludes the bottom status-bar row so it
+/// never paints over it. Shared by rendering and mouse hit-testing, same
+/// reason `global_search_popup_area` is.
+fn drawer_area(frame_area: Rect) -> Rect {
+    Rect {
+        x: frame_area.x,
+        y: frame_area.y,
+        width: DRAWER_WIDTH.min(frame_area.width),
+        height: frame_area.height.saturating_sub(1),
+    }
+}
+
 /// The global search modal's outer popup rect — shared by rendering and by
 /// mouse hit-testing so they always agree on where things are.
 fn global_search_popup_area(frame_area: Rect) -> Rect {
@@ -2269,6 +2570,10 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         app.refresh_note_preview_cache();
         app.expire_status_message();
         app.poll_update_channel();
+        app.poll_sync_channel();
+        if app.sync_in_flight.is_some() {
+            app.spinner_frame = app.spinner_frame.wrapping_add(1);
+        }
         terminal.draw(|frame| draw(frame, app))?;
 
         if app.want_relaunch {
@@ -2379,6 +2684,12 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         let popup_area = centered_rect(frame.area(), 40, (tags.len() as u16 + 2).max(3));
         frame.render_widget(Clear, popup_area);
         panel_tags::render(frame, popup_area, &tags, true, &app.theme);
+    }
+
+    if app.show_drawer {
+        let drawer_rect = drawer_area(frame.area());
+        frame.render_widget(Clear, drawer_rect);
+        panel_drawer::render(frame, drawer_rect, app);
     }
 
     if app.show_theme_picker {
