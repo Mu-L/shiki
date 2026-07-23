@@ -115,10 +115,20 @@ enum PendingInput {
     RenameNotebook,
     Search,
     SetRemote,
-    MoveNote,
+    /// Move or copy — one or more items (`App.pending_batch` always holds
+    /// the actual list, even for a single item, so there's exactly one
+    /// apply path regardless of how many things are selected). Which of
+    /// the two this is comes from `pending_batch`'s `BatchOp`, not a
+    /// separate variant here.
+    MoveOrCopy,
 }
 
 impl PendingInput {
+    /// Falls back to this when `App.pending_input_title` is `None` — every
+    /// variant except `MoveOrCopy` always has a plain static title;
+    /// `MoveOrCopy`'s title depends on the op (move/copy) and how many
+    /// items/what they're named, so it's always computed and set
+    /// explicitly by whatever starts that particular input instead.
     fn title(self) -> &'static str {
         match self {
             PendingInput::NewNote => " New note ",
@@ -127,14 +137,33 @@ impl PendingInput {
             PendingInput::RenameNote | PendingInput::RenameNotebook => " Rename ",
             PendingInput::Search => " Jump to note ",
             PendingInput::SetRemote => " Git remote (URL or local path) ",
-            PendingInput::MoveNote => " Move to notebook ",
+            PendingInput::MoveOrCopy => " Move/copy to ",
         }
     }
+}
+
+/// One note or folder captured by absolute path at the moment a move/copy/
+/// delete was initiated — capturing eagerly (rather than re-deriving from
+/// `selected_note()`/`selected_folder()` at confirm time) means a
+/// background sync's `reload_notes` completing while the prompt/confirm
+/// dialog is open can't shift the underlying list out from under an
+/// in-flight action.
+#[derive(Debug, Clone)]
+enum SelectedEntry {
+    Note(std::path::PathBuf),
+    Folder(std::path::PathBuf),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BatchOp {
+    Move,
+    Copy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeleteTarget {
     Note,
+    Folder,
     Notebook,
 }
 
@@ -153,6 +182,13 @@ pub struct App {
     /// into `notes` alone — use `selected_note()`/`selected_folder()` rather
     /// than indexing `notes`/`folders` with this directly.
     pub selected_note: usize,
+    /// The other end of the selection range while `mode == Mode::Visual` —
+    /// set to `selected_note` when entering; the actual selected range is
+    /// always `min(visual_anchor, selected_note)..=max(...)` over the same
+    /// combined folders++notes list, so ordinary `j`/`k` movement (already
+    /// moving `selected_note`) is all that's needed to extend/shrink it.
+    /// Meaningless outside `Mode::Visual`.
+    visual_anchor: usize,
     notes_path: Vec<String>,
     pub mode: Mode,
     pub focus: Focus,
@@ -239,7 +275,19 @@ pub struct App {
     theme_picker_index: usize,
     note_sort: NoteSort,
     pending_input: Option<PendingInput>,
+    /// Overrides `PendingInput::title()`'s static text when set — only
+    /// `PendingInput::MoveOrCopy` ever needs this (see its doc comment).
+    pending_input_title: Option<String>,
     pending_delete: Option<(DeleteTarget, std::path::PathBuf)>,
+    /// The items a move/copy is about to apply to, captured up front —
+    /// populated whether it's a single note/folder or a whole Visual-mode
+    /// selection, so `confirm_input`'s `MoveOrCopy` arm has exactly one
+    /// apply path regardless of count.
+    pending_batch: Option<(BatchOp, Vec<SelectedEntry>)>,
+    /// `Mode::Visual`'s `d` — same eager-capture reasoning as
+    /// `pending_batch`, staged behind the same `confirm` dialog
+    /// `pending_delete` already uses for a single note/notebook/folder.
+    pending_batch_delete: Option<Vec<SelectedEntry>>,
     global_search_pool: Vec<(Notebook, Note)>,
     global_search_input: InputBox,
     global_search_results: Vec<SearchHit>,
@@ -471,6 +519,7 @@ impl App {
             folders,
             notes,
             selected_note: 0,
+            visual_anchor: 0,
             notes_path: Vec::new(),
             mode: Mode::Normal,
             focus: Focus::Notebooks,
@@ -508,7 +557,10 @@ impl App {
             theme_picker_index: theme_index,
             note_sort: NoteSort::default(),
             pending_input: None,
+            pending_input_title: None,
             pending_delete: None,
+            pending_batch: None,
+            pending_batch_delete: None,
             global_search_pool: Vec::new(),
             global_search_input: InputBox::default(),
             global_search_results: Vec::new(),
@@ -638,6 +690,72 @@ impl App {
 
     fn combined_len(&self) -> usize {
         self.folders.len() + self.notes.len()
+    }
+
+    /// `v` in NOTES: anchors a `Mode::Visual` selection at whatever's
+    /// currently selected. Pressing it again (already in Visual mode) is
+    /// the cancel — same toggle shape as the drawer's leader binding.
+    fn toggle_visual(&mut self) {
+        if self.mode == Mode::Visual {
+            self.mode = Mode::Normal;
+            return;
+        }
+        if self.focus != Focus::Notes {
+            self.set_status("select mode only works in NOTES".into());
+            return;
+        }
+        if self.combined_len() == 0 {
+            self.set_status("nothing to select".into());
+            return;
+        }
+        self.visual_anchor = self.selected_note;
+        self.mode = Mode::Visual;
+    }
+
+    /// The selected range over the combined folders++notes list — ordinary
+    /// `j`/`k` (already moving `selected_note`) is all `Mode::Visual` needs
+    /// to extend/shrink this, `visual_anchor` just stays where it was set.
+    fn visual_range(&self) -> std::ops::RangeInclusive<usize> {
+        self.visual_anchor.min(self.selected_note)..=self.visual_anchor.max(self.selected_note)
+    }
+
+    /// How many rows are currently in the visual selection — for the
+    /// footer's `"VISUAL (n selected)"` label (`status_bar.rs`) and
+    /// `panel_notes.rs`'s range highlighting. `0` outside `Mode::Visual`.
+    pub(crate) fn visual_selection_count(&self) -> usize {
+        if self.mode != Mode::Visual {
+            return 0;
+        }
+        self.visual_range().count()
+    }
+
+    /// Whether row `idx` (an index into the combined folders++notes list)
+    /// falls inside the current visual selection — used by
+    /// `panel_notes.rs` to tint every selected row, not just the one under
+    /// the cursor.
+    pub(crate) fn is_visually_selected(&self, idx: usize) -> bool {
+        self.mode == Mode::Visual && self.visual_range().contains(&idx)
+    }
+
+    /// Every note/folder currently inside `visual_range`, as absolute
+    /// paths — the eager capture `pending_batch`/`pending_batch_delete`
+    /// both rely on (see their doc comments for why).
+    fn visual_selected_entries(&self) -> Vec<SelectedEntry> {
+        let Some(nb) = self.selected_notebook() else {
+            return Vec::new();
+        };
+        let relative = self.notes_relative_path();
+        self.visual_range()
+            .filter_map(|idx| {
+                if let Some(name) = self.folders.get(idx) {
+                    Some(SelectedEntry::Folder(nb.path.join(&relative).join(name)))
+                } else {
+                    self.notes
+                        .get(idx - self.folders.len())
+                        .map(|n| SelectedEntry::Note(n.path.clone()))
+                }
+            })
+            .collect()
     }
 
     /// Where the Notes panel currently is within the selected notebook —
@@ -1900,10 +2018,39 @@ impl App {
         }
     }
 
+    /// Handles either a note or a folder selection — folders never had a
+    /// delete path at all before (`Notebook::delete_folder_at` didn't
+    /// exist), so selecting one and pressing `d` used to silently no-op —
+    /// and, in `Mode::Visual`, the whole selected range at once instead of
+    /// just the one item under the cursor.
     fn start_delete_note(&mut self) {
+        if self.mode == Mode::Visual {
+            let entries = self.visual_selected_entries();
+            if entries.is_empty() {
+                self.set_status("nothing selected".into());
+                return;
+            }
+            let (notes, folders) = entries.iter().fold((0, 0), |(n, f), e| match e {
+                SelectedEntry::Note(_) => (n + 1, f),
+                SelectedEntry::Folder(_) => (n, f + 1),
+            });
+            let message = format!(
+                "Delete {notes} note(s) and {folders} folder(s) (and everything inside them)? This can't be undone."
+            );
+            self.pending_batch_delete = Some(entries);
+            self.confirm = Some(confirm::ConfirmDialog::new(message));
+            return;
+        }
         if let Some(note) = self.selected_note() {
             let message = format!("Delete note '{}'?", note.file_stem());
             self.pending_delete = Some((DeleteTarget::Note, note.path.clone()));
+            self.confirm = Some(confirm::ConfirmDialog::new(message));
+        } else if let (Some(folder), Some(nb)) = (self.selected_folder(), self.selected_notebook())
+        {
+            let path = nb.path.join(self.notes_relative_path()).join(folder);
+            let message =
+                format!("Delete folder '{folder}' and everything inside it? This can't be undone.");
+            self.pending_delete = Some((DeleteTarget::Folder, path));
             self.confirm = Some(confirm::ConfirmDialog::new(message));
         }
     }
@@ -1920,45 +2067,140 @@ impl App {
         }
     }
 
-    fn start_move_note(&mut self) {
-        if self.selected_note().is_some() {
-            self.start_input(PendingInput::MoveNote, String::new());
-        } else {
-            self.set_status("no note selected".into());
+    /// Starts a move or copy — in `Mode::Visual`, for every item in the
+    /// selected range; otherwise for whichever single note/folder is
+    /// currently selected. Both branches populate the same `pending_batch`
+    /// shape (a `Vec` either way, just one entry long in the single-item
+    /// case), so `apply_pending_batch` has exactly one code path regardless
+    /// of how many things are being acted on.
+    fn start_move_or_copy(&mut self, op: BatchOp) {
+        if self.selected_notebook().is_none() {
+            self.set_status("no notebook selected".into());
+            return;
         }
+        let verb = if op == BatchOp::Copy { "Copy" } else { "Move" };
+        let (entries, label) = if self.mode == Mode::Visual {
+            let entries = self.visual_selected_entries();
+            if entries.is_empty() {
+                self.set_status("nothing selected".into());
+                return;
+            }
+            let label = format!("{} items", entries.len());
+            (entries, label)
+        } else if let Some(note) = self.selected_note() {
+            (
+                vec![SelectedEntry::Note(note.path.clone())],
+                format!("'{}'", note.frontmatter.title),
+            )
+        } else if let Some(folder) = self.selected_folder() {
+            let nb = self.selected_notebook().unwrap();
+            let path = nb.path.join(self.notes_relative_path()).join(folder);
+            (vec![SelectedEntry::Folder(path)], format!("'{folder}'"))
+        } else {
+            self.set_status("nothing selected".into());
+            return;
+        };
+        self.pending_input_title = Some(format!(" {verb} {label} to "));
+        self.pending_batch = Some((op, entries));
+        let prefill = self.current_address();
+        self.start_input(PendingInput::MoveOrCopy, prefill);
     }
 
-    fn move_selected_note_to(&mut self, target_name: &str) {
+    /// `"{notebook}/{breadcrumb}"` — the default move/copy target, editable
+    /// down to just the notebook name (root) or out to a different
+    /// notebook entirely by replacing the first segment. Always joined
+    /// with a literal `/`, not `PathBuf`'s `Display` (which uses `\` on
+    /// Windows) — the parser (`parse_move_target`) only ever splits on `/`.
+    fn current_address(&self) -> String {
+        let Some(nb) = self.selected_notebook() else {
+            return String::new();
+        };
+        let mut segments = vec![nb.name.clone()];
+        segments.extend(self.notes_path.iter().cloned());
+        segments.join("/")
+    }
+
+    /// First segment is always a notebook name — it must already exist
+    /// (never auto-created; a notebook is a new git repo, so creating one
+    /// from a typo would be surprising). Everything after it is the
+    /// destination folder within that notebook, auto-created as needed
+    /// (same as `create_note_in`/`create_folder_in` already do) — not
+    /// checked for existence up front, since creating it is always fine.
+    fn parse_move_target(&self, value: &str) -> Result<(Notebook, std::path::PathBuf), String> {
+        let mut parts = value.split('/').filter(|s| !s.is_empty());
+        let notebook_name = parts.next().ok_or_else(|| "empty target".to_string())?;
+        let dest_notebook = self
+            .store
+            .get(notebook_name)
+            .map_err(|_| format!("notebook '{notebook_name}' not found"))?;
+        let rest: std::path::PathBuf = parts.collect();
+        Ok((dest_notebook, rest))
+    }
+
+    /// Applies whichever `pending_batch` is waiting (move or copy, one item
+    /// or many) to the parsed target — the single code path for both the
+    /// single-selection case (`start_move_or_copy`) and `Mode::Visual`'s
+    /// batch case, since both populate the exact same shape.
+    fn apply_pending_batch(&mut self, target: &str) {
+        let Some((op, entries)) = self.pending_batch.take() else {
+            return;
+        };
         let Some(source_nb) = self.selected_notebook().cloned() else {
             return;
         };
-        let Some(note) = self.selected_note().cloned() else {
-            return;
-        };
-        if target_name == source_nb.name {
-            self.set_status("already in that notebook".into());
-            return;
-        }
-        match self.store.get(target_name) {
-            Ok(target_nb) => {
-                let mut moved = note.clone();
-                moved.frontmatter.notebook = target_nb.name.clone();
-                moved.path = target_nb.note_path(&note.file_stem());
-                match moved.save() {
-                    Ok(()) => {
-                        let _ = source_nb.delete_note_at(&note.path);
-                        self.reload_notes();
-                        self.note_changed(&source_nb.name);
-                        self.note_changed(target_name);
-                        self.set_status(format!(
-                            "moved '{}' to '{target_name}'",
-                            note.frontmatter.title
-                        ));
-                    }
-                    Err(e) => self.set_status(format!("could not move note: {e}")),
-                }
+        let (dest_notebook, dest_relative) = match self.parse_move_target(target) {
+            Ok(v) => v,
+            Err(e) => {
+                self.set_status(e);
+                return;
             }
-            Err(_) => self.set_status(format!("notebook '{target_name}' not found")),
+        };
+        let verb = if op == BatchOp::Copy {
+            "copied"
+        } else {
+            "moved"
+        };
+        let (mut ok, mut failed) = (0u32, 0u32);
+        for entry in &entries {
+            let result = match (entry, op) {
+                (SelectedEntry::Note(path), BatchOp::Move) => source_nb
+                    .move_note_to(path, &dest_notebook, &dest_relative)
+                    .map(|_| ()),
+                (SelectedEntry::Note(path), BatchOp::Copy) => source_nb
+                    .copy_note_to(path, &dest_notebook, &dest_relative)
+                    .map(|_| ()),
+                (SelectedEntry::Folder(path), BatchOp::Move) => path
+                    .strip_prefix(&source_nb.path)
+                    .map_err(|_| shiki_core::Error::NoteNotFound(path.display().to_string()))
+                    .and_then(|relative| {
+                        source_nb.move_folder_to(relative, &dest_notebook, &dest_relative)
+                    }),
+                (SelectedEntry::Folder(path), BatchOp::Copy) => path
+                    .strip_prefix(&source_nb.path)
+                    .map_err(|_| shiki_core::Error::NoteNotFound(path.display().to_string()))
+                    .and_then(|relative| {
+                        source_nb.copy_folder_to(relative, &dest_notebook, &dest_relative)
+                    }),
+            };
+            match result {
+                Ok(()) => ok += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        self.reload_notes();
+        self.note_changed(&source_nb.name);
+        self.note_changed(&dest_notebook.name);
+        let count = entries.len();
+        if failed == 0 {
+            self.set_status(format!(
+                "{verb} {count} item{} to '{}'",
+                if count == 1 { "" } else { "s" },
+                target
+            ));
+        } else {
+            self.set_status(format!(
+                "{verb} {ok} item(s) to '{target}', {failed} failed (already exists there?)"
+            ));
         }
     }
 
@@ -2325,7 +2567,7 @@ impl App {
             Action::DeleteNote => self.start_delete_note(),
             Action::JumpSearch => self.start_input(PendingInput::Search, String::new()),
             Action::DailyNote => self.create_daily_note(),
-            Action::MoveNote => self.start_move_note(),
+            Action::MoveNote => self.start_move_or_copy(BatchOp::Move),
             Action::SortNotes => self.cycle_sort(),
             Action::ToggleTreeView => self.open_tree(),
             Action::ToggleDates => {
@@ -2337,6 +2579,14 @@ impl App {
             }
             Action::ShowHistory => self.open_history(),
             Action::ToggleFavoriteEditor => self.toggle_favorite_editor(),
+            Action::ToggleVisual => self.toggle_visual(),
+            Action::CopyEntries => {
+                if self.mode == Mode::Visual {
+                    self.start_move_or_copy(BatchOp::Copy);
+                } else {
+                    self.set_status("select items first with v".into());
+                }
+            }
 
             Action::EditInline => {
                 if self.config.general.use_favorite_editor {
@@ -2538,15 +2788,17 @@ impl App {
                     }
                 }
             }
-            Some(PendingInput::MoveNote) => {
+            Some(PendingInput::MoveOrCopy) => {
                 if value.is_empty() {
-                    self.set_status("move cancelled (empty)".into());
+                    self.set_status("move/copy cancelled (empty)".into());
+                    self.pending_batch = None;
                 } else {
-                    self.move_selected_note_to(&value);
+                    self.apply_pending_batch(&value);
                 }
             }
             None => {}
         }
+        self.pending_input_title = None;
         self.mode = Mode::Normal;
     }
 
@@ -2576,27 +2828,78 @@ impl App {
                             self.reload_notebooks();
                             self.set_status(format!("notebook '{name}' deleted"));
                         }
+                        DeleteTarget::Folder => {
+                            let name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            if let Some(nb) = self.selected_notebook().cloned() {
+                                if let Ok(relative) = path.strip_prefix(&nb.path) {
+                                    let _ = nb.delete_folder_at(relative);
+                                }
+                                self.note_changed(&nb.name);
+                            }
+                            self.reload_notes();
+                            self.set_status(format!("deleted folder '{name}'"));
+                        }
                     }
                 } else if let Some((note_path, commit_id)) = self.pending_revert.take() {
                     self.perform_revert(&note_path, &commit_id);
                 } else if self.pending_clear_logs {
                     self.pending_clear_logs = false;
                     self.clear_logs();
+                } else if let Some(entries) = self.pending_batch_delete.take() {
+                    self.apply_batch_delete(entries);
                 }
             }
             _ => {
                 self.pending_delete = None;
                 self.pending_revert = None;
                 self.pending_clear_logs = false;
+                self.pending_batch_delete = None;
             }
         }
         self.confirm = None;
+    }
+
+    /// `Mode::Visual`'s `d`, once confirmed — deletes every captured entry
+    /// (best-effort: one failure doesn't stop the rest) and always exits
+    /// back to `Mode::Normal` afterward, since the selected range no longer
+    /// means anything once its contents are gone.
+    fn apply_batch_delete(&mut self, entries: Vec<SelectedEntry>) {
+        let Some(nb) = self.selected_notebook().cloned() else {
+            return;
+        };
+        let (mut ok, mut failed) = (0u32, 0u32);
+        for entry in &entries {
+            let result = match entry {
+                SelectedEntry::Note(path) => nb.delete_note_at(path),
+                SelectedEntry::Folder(path) => path
+                    .strip_prefix(&nb.path)
+                    .map_err(|_| shiki_core::Error::NoteNotFound(path.display().to_string()))
+                    .and_then(|relative| nb.delete_folder_at(relative)),
+            };
+            match result {
+                Ok(()) => ok += 1,
+                Err(_) => failed += 1,
+            }
+        }
+        self.note_changed(&nb.name);
+        self.reload_notes();
+        self.mode = Mode::Normal;
+        if failed == 0 {
+            self.set_status(format!("deleted {ok} item(s)"));
+        } else {
+            self.set_status(format!("deleted {ok} item(s), {failed} failed"));
+        }
     }
 
     fn handle_insert_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 self.pending_input = None;
+                self.pending_input_title = None;
+                self.pending_batch = None;
                 self.mode = Mode::Normal;
             }
             KeyCode::Enter => self.confirm_input(),
@@ -2636,11 +2939,19 @@ impl App {
             KeyCode::PageUp => self.move_selection(-PAGE_STEP),
             KeyCode::Home => self.jump_to_start(),
             KeyCode::End => self.jump_to_end(),
+            KeyCode::Esc if self.mode == Mode::Visual => self.mode = Mode::Normal,
             // Yazi-style: right/l/enter opens (a folder, or one level deeper
-            // panel-wise), left/h backs out (up a folder, then a panel).
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => self.navigate_forward(),
-            KeyCode::Char('h') | KeyCode::Left => self.navigate_backward(),
-            KeyCode::Tab => self.focus = self.focus.next(),
+            // panel-wise), left/h backs out (up a folder, then a panel) —
+            // suspended while `Mode::Visual` is selecting: entering/leaving
+            // a folder reloads the underlying list and would strand
+            // `visual_anchor` pointing at a completely different one.
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter if self.mode != Mode::Visual => {
+                self.navigate_forward()
+            }
+            KeyCode::Char('h') | KeyCode::Left if self.mode != Mode::Visual => {
+                self.navigate_backward()
+            }
+            KeyCode::Tab if self.mode != Mode::Visual => self.focus = self.focus.next(),
             KeyCode::Char('?') => self.open_which_key(),
             code if self.keymaps.is_quit(code) => self.should_quit = true,
             code if self.keymaps.is_leader(code) => self.leader_pending = true,
@@ -2944,12 +3255,12 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     if let Some(kind) = app.pending_input {
         let popup_area = centered_rect(frame.area(), (frame.area().width / 2).max(30), 3);
         frame.render_widget(Clear, popup_area);
-        app.input.render(
-            frame,
-            popup_area,
-            kind.title(),
-            hex_to_color(&app.theme.accent),
-        );
+        let title = app
+            .pending_input_title
+            .as_deref()
+            .unwrap_or_else(|| kind.title());
+        app.input
+            .render(frame, popup_area, title, hex_to_color(&app.theme.accent));
     }
 
     if app.show_tags {

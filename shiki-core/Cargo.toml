@@ -24,3 +24,6 @@ uuid.workspace = true
 tracing.workspace = true
 notify.workspace = true
 self_update.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

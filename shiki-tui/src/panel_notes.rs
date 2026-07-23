@@ -14,6 +14,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let fg = hex_to_color(&app.theme.fg);
     let muted = hex_to_color(&app.theme.muted);
     let total = app.folders.len() + app.notes.len();
+    // A softer tint than the cursor's own `highlight_style` (below) —
+    // every row in a `Mode::Visual` range gets this on its own `ListItem`,
+    // so the whole selection reads as a band while the actual cursor row
+    // still stands out more, via `highlight_style` overriding this for
+    // whichever one row `ListState::select` points at.
+    let visual_bg = hex_to_color(&app.theme.selection);
 
     let items: Vec<ListItem> = if total == 0 {
         vec![ListItem::new("  no notes yet — press `a` to create one")
@@ -21,14 +27,18 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         app.folders
             .iter()
-            .map(|name| {
-                ListItem::new(format!("{}  {name}/", icons::NOTEBOOK)).style(
-                    Style::default()
-                        .fg(hex_to_color(&app.theme.accent))
-                        .add_modifier(Modifier::BOLD),
-                )
+            .enumerate()
+            .map(|(idx, name)| {
+                let mut style = Style::default()
+                    .fg(hex_to_color(&app.theme.accent))
+                    .add_modifier(Modifier::BOLD);
+                if app.is_visually_selected(idx) {
+                    style = style.bg(visual_bg);
+                }
+                ListItem::new(format!("{}  {name}/", icons::NOTEBOOK)).style(style)
             })
-            .chain(app.notes.iter().map(|note| {
+            .chain(app.notes.iter().enumerate().map(|(note_idx, note)| {
+                let idx = app.folders.len() + note_idx;
                 // Colored by the same-priority scheme as the drawer/footer's
                 // per-notebook status, just per-file: at a glance, which
                 // notes are new/changed without opening the history modal
@@ -51,7 +61,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                         Style::default().fg(muted),
                     ));
                 }
-                ListItem::new(Line::from(spans))
+                let item = ListItem::new(Line::from(spans));
+                if app.is_visually_selected(idx) {
+                    item.style(Style::default().bg(visual_bg))
+                } else {
+                    item
+                }
             }))
             .collect()
     };

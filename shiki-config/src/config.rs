@@ -224,6 +224,16 @@ pub struct NoteKeybindings {
     /// still deserializes.
     #[serde(default = "default_new_folder_key")]
     pub new_folder: String,
+    /// Enters `Mode::Visual` (vi-style multi-select), anchored at whatever's
+    /// selected — `move`/`delete` then act on the whole range instead of
+    /// just one item. Field-level default for the same backward-compat
+    /// reason as `tree_view`/`toggle_dates`/`new_folder`.
+    #[serde(default = "default_visual_key")]
+    pub visual: String,
+    /// `Mode::Visual`-only: copies every selected note/folder to a prompted
+    /// target instead of moving them. Same field-level-default reasoning.
+    #[serde(default = "default_copy_entries_key")]
+    pub copy_entries: String,
 }
 
 impl Default for NoteKeybindings {
@@ -241,8 +251,18 @@ impl Default for NoteKeybindings {
             tree_view: default_tree_view_key(),
             toggle_dates: default_toggle_dates_key(),
             new_folder: default_new_folder_key(),
+            visual: default_visual_key(),
+            copy_entries: default_copy_entries_key(),
         }
     }
+}
+
+fn default_visual_key() -> String {
+    "v".into()
+}
+
+fn default_copy_entries_key() -> String {
+    "y".into()
 }
 
 fn default_new_folder_key() -> String {

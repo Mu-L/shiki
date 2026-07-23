@@ -234,6 +234,55 @@ after a timestamp is confusing in a way a note isn't. Deliberately does *not* ca
 after creating one: git doesn't track empty directories at all, so the folder isn't a real change
 from sync's perspective until a note actually gets created inside it.
 
+**Folders can now be deleted and moved/copied — `d`/`m`/`y` all broadened from "notes only" to
+"whichever's selected, note or folder."** `Notebook::delete_folder_at` (`shiki-core/src/notebook.rs`)
+is a plain `remove_dir_all`; it didn't exist at all before, so selecting a folder and pressing `d`
+used to silently no-op (`App::start_delete_note`'s guard was `selected_note().is_some()`, which is
+`None` for a folder). `DeleteTarget` gained a `Folder` variant reusing the exact same
+`pending_delete`/`confirm` mechanism note/notebook delete already had — no new confirmation
+plumbing needed.
+
+**`m` (move) is no longer "move a note to a different notebook's root" — it's "move a note or
+folder to `notebook/path/within/it`, any depth, any notebook."** The prompt is always prefilled
+with `"{current_notebook}/{breadcrumb}"` (`App::current_address`) — editing the trailing segments
+targets a different folder in the *same* notebook (auto-created via `create_dir_all`, same as
+`create_note_in`/`create_folder_in` already do); replacing the first segment targets a different
+notebook entirely. The first segment must already exist — `App::parse_move_target` errors clearly
+rather than creating a notebook from a typo, since a notebook is a new git repo, not just a
+directory. `Notebook::copy_note_to`/`move_note_to`/`copy_folder_to`/`move_folder_to`
+(`shiki-core/src/notebook.rs`) are the actual primitives: copying rewrites `frontmatter.notebook`
+only when the destination is genuinely a different notebook (a plain filesystem copy would
+otherwise leave a stale `notebook:` field in the copy's own YAML), and `copy_folder_to` recurses
+via `list_dir` so every note at *any* depth inside gets that same rewrite, not just top-level
+ones — empty subfolders are preserved too, since it walks `list_dir`'s own folder list rather than
+inferring structure from where notes happen to be. All four error rather than silently overwriting
+if something already exists at the destination (`Error::DestinationExists`). `move_*` is just
+`copy_*` followed by removing the source — copy is the one primitive doing real work.
+
+**`Mode::Visual` existed as a dead enum variant for a while before this — it was already routed to
+`handle_normal_key` and the footer's `mode_label` already had a `"VISUAL"` arm, but nothing ever
+set `self.mode = Mode::Visual`.** It's real now: `v` (`Action::ToggleVisual`) anchors
+`App.visual_anchor` at whatever's currently selected; `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` keep
+moving `selected_note` exactly as they already did, with no special-casing needed there, since the
+selected range is always computed as `min(visual_anchor, selected_note)..=max(...)`
+(`App::visual_range`) over the same combined folders++notes list `selected_note()`/
+`selected_folder()` already index into. `l`/`h`/`Enter`/`Tab` (navigate into a folder, switch
+panels) are explicitly disabled while `Mode::Visual` is active (guarded in `handle_normal_key`'s
+match arms) — entering/leaving a folder reloads the underlying list out from under
+`visual_anchor`, stranding it at an index that means something completely different afterward;
+better to just not allow it than to handle the fallout. `d`/`m` (already-bound actions) check
+`self.mode == Mode::Visual` first and, if so, act on every item in `visual_range` instead of just
+the one under the cursor; `y` (`Action::CopyEntries`) is Visual-mode-only, since there was no
+single-item duplicate being asked for, only the batch one. Every batch entry is captured as an
+absolute path *up front*, in `App.pending_batch`/`pending_batch_delete`
+(`enum SelectedEntry { Note(PathBuf), Folder(PathBuf) }`) the moment `d`/`m`/`y` is pressed, rather
+than re-deriving the selection from indices at confirm time — a background sync's `reload_notes`
+completing while the confirm dialog or move/copy prompt is still open (now genuinely possible
+since sync runs on a background thread, see below) can't shift the list out from under an
+in-flight batch action this way. The single-item case (`start_move_or_copy` with `Mode::Normal`)
+populates the exact same `pending_batch` shape with one entry, so `apply_pending_batch` has exactly
+one code path regardless of count — there's no separate single-vs-batch move implementation.
+
 **Selecting a folder (not a note) in NOTES previews its contents in PREVIEW, not a static hint.**
 `panel_preview.rs::folder_preview_lines` calls `nb.list_dir(notes_relative_path().join(folder))`
 fresh on every render (a single non-recursive `read_dir`, cheap enough to redo every frame — no

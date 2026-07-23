@@ -236,15 +236,17 @@ sync attempt (manual or automatic) just tries the push again.
 | `a` | New note (empty title stamps today's date and jumps straight to editing) |
 | `f` | New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first |
 | `r` | Rename note |
-| `d` | Delete note (with confirmation) |
+| `d` | Delete the selected note *or* folder (with confirmation) — a folder deletes everything inside it too. In `v` select mode, deletes every selected item at once |
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
 | `/` | Fuzzy-jump to a note by title anywhere in the current notebook (any folder depth) |
 | `t` | New/open today's daily note |
-| `m` | Move the note to another notebook |
+| `m` | Move the selected note *or* folder — prompts for a `notebook/path/within/it` target, prefilled with the current one; edit the trailing segments to move within the same notebook (missing folders are created), or replace the first segment to move to a different (existing) notebook. In `v` select mode, moves every selected item at once |
 | `o` | Cycle sort order (filename / title A-Z / date newest-first) |
 | `T` | Tree view — every folder and note in the notebook, fully expanded, in one scrollable overview; `j`/`k` move, `enter`/`l` jumps straight to the selected note, `esc`/`q` closes |
 | `D` | Toggle each note's date next to its title in the list (off by default) |
+| `v` | Select mode (`Mode::Visual`) — anchors a multi-select range at the current item; `j`/`k` extend/shrink it, `v`/`Esc` cancels. `d`/`m` (above) act on the whole range instead of one item |
+| `y` | Select-mode only: copies every selected note/folder to a prompted target (same `notebook/path` syntax as `m`), leaving the originals in place |
 
 #### `[keybindings.preview]` — active while PREVIEW is focused
 
@@ -412,6 +414,8 @@ move_to_notebook = "m"
 sort = "o"
 tree_view = "T"
 toggle_dates = "D"
+visual = "v"
+copy_entries = "y"
 
 [keybindings.preview]
 edit_inline = "i"

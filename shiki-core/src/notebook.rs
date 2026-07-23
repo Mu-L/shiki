@@ -142,6 +142,112 @@ impl Notebook {
         }
         Ok(note)
     }
+
+    /// Deletes the folder at `relative` (within this notebook) and
+    /// everything inside it — recursive, no confirmation of its own; the
+    /// caller (`App`) gates this behind a confirm dialog, same as
+    /// note/notebook delete.
+    pub fn delete_folder_at(&self, relative: &Path) -> Result<()> {
+        let dir = self.path.join(relative);
+        if !dir.is_dir() {
+            return Err(Error::NoteNotFound(dir.display().to_string()));
+        }
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    /// Copies the note at `path` into `dest_notebook` at `dest_relative` (a
+    /// directory within it — created if missing), preserving its filename.
+    /// Rewrites `frontmatter.notebook` only when `dest_notebook` is
+    /// actually a different notebook than `self` — a plain filesystem copy
+    /// would otherwise leave a stale `notebook:` field in the copy's own
+    /// YAML frontmatter. Errors rather than silently overwriting if a note
+    /// already exists at the destination.
+    pub fn copy_note_to(
+        &self,
+        path: &Path,
+        dest_notebook: &Notebook,
+        dest_relative: &Path,
+    ) -> Result<Note> {
+        let mut copy = Note::from_file(path)?;
+        let dest_dir = dest_notebook.path.join(dest_relative);
+        std::fs::create_dir_all(&dest_dir)?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| Error::NoteNotFound(path.display().to_string()))?;
+        let dest_path = dest_dir.join(file_name);
+        if dest_path.exists() {
+            return Err(Error::DestinationExists(dest_path.display().to_string()));
+        }
+        copy.path = dest_path;
+        if dest_notebook.name != self.name {
+            copy.frontmatter.notebook = dest_notebook.name.clone();
+        }
+        copy.save()?;
+        Ok(copy)
+    }
+
+    /// Same as `copy_note_to`, then removes the original file — the actual
+    /// "move," generalized from what was previously only reachable as
+    /// "move to a different notebook's root" in the TUI.
+    pub fn move_note_to(
+        &self,
+        path: &Path,
+        dest_notebook: &Notebook,
+        dest_relative: &Path,
+    ) -> Result<Note> {
+        let copy = self.copy_note_to(path, dest_notebook, dest_relative)?;
+        std::fs::remove_file(path)?;
+        Ok(copy)
+    }
+
+    /// Recursively copies the folder at `relative` (within this notebook —
+    /// itself and everything inside it, at any depth) into `dest_notebook`
+    /// at `dest_relative`, preserving the folder's own name. Every note
+    /// inside gets the same cross-notebook frontmatter rewrite
+    /// `copy_note_to` does for a single note — not just top-level ones —
+    /// and empty subfolders are preserved too, not only ones that happen to
+    /// contain a note (recurses via `list_dir`'s own folder list, not by
+    /// walking notes and inferring folders from their paths). Errors if a
+    /// folder already exists at the destination.
+    pub fn copy_folder_to(
+        &self,
+        relative: &Path,
+        dest_notebook: &Notebook,
+        dest_relative: &Path,
+    ) -> Result<()> {
+        let source_dir = self.path.join(relative);
+        let folder_name = source_dir
+            .file_name()
+            .ok_or_else(|| Error::NoteNotFound(source_dir.display().to_string()))?;
+        let dest_relative = dest_relative.join(folder_name);
+        let dest_dir = dest_notebook.path.join(&dest_relative);
+        if dest_dir.exists() {
+            return Err(Error::DestinationExists(dest_dir.display().to_string()));
+        }
+        std::fs::create_dir_all(&dest_dir)?;
+        let (folders, notes) = self.list_dir(relative)?;
+        for note in &notes {
+            self.copy_note_to(&note.path, dest_notebook, &dest_relative)?;
+        }
+        for folder in folders {
+            self.copy_folder_to(&relative.join(&folder), dest_notebook, &dest_relative)?;
+        }
+        Ok(())
+    }
+
+    /// Same as `copy_folder_to`, then removes the original directory (and
+    /// everything inside it) — the actual "move."
+    pub fn move_folder_to(
+        &self,
+        relative: &Path,
+        dest_notebook: &Notebook,
+        dest_relative: &Path,
+    ) -> Result<()> {
+        self.copy_folder_to(relative, dest_notebook, dest_relative)?;
+        std::fs::remove_dir_all(self.path.join(relative))?;
+        Ok(())
+    }
 }
 
 /// Manages the collection of notebooks under the data directory (`~/.local/share/shiki/`).
@@ -251,4 +357,124 @@ impl NotebookStore {
 pub fn ensure_dir(path: &Path) -> Result<()> {
     std::fs::create_dir_all(path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plain `Notebook` at a fresh directory under a shared tempdir — no
+    /// git init, since none of these operations (copy/move/delete) touch
+    /// git at all, only the filesystem.
+    fn test_notebook(root: &Path, name: &str) -> Notebook {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        Notebook::new(name, path)
+    }
+
+    #[test]
+    fn move_note_to_rewrites_frontmatter_across_notebooks_and_removes_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        let b = test_notebook(tmp.path(), "b");
+        let note = a.create_note("Grocery list", "milk, eggs").unwrap();
+
+        let moved = a.move_note_to(&note.path, &b, Path::new("")).unwrap();
+
+        assert_eq!(moved.frontmatter.notebook, "b");
+        assert!(
+            !note.path.exists(),
+            "source note should be gone after a move"
+        );
+        assert!(moved.path.exists());
+        assert_eq!(Note::from_file(&moved.path).unwrap().body, "milk, eggs");
+    }
+
+    #[test]
+    fn copy_note_to_same_notebook_keeps_frontmatter_and_leaves_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        a.create_folder_in(Path::new(""), "archive").unwrap();
+        let note = a.create_note("Idea", "body").unwrap();
+
+        let copy = a
+            .copy_note_to(&note.path, &a, Path::new("archive"))
+            .unwrap();
+
+        assert_eq!(copy.frontmatter.notebook, "a");
+        assert!(note.path.exists(), "copy must not remove the source");
+        assert!(copy.path.exists());
+    }
+
+    #[test]
+    fn copy_note_to_errors_when_destination_already_has_that_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        let b = test_notebook(tmp.path(), "b");
+        let note = a.create_note("Dup", "one").unwrap();
+        // Something already sitting at the destination filename in b.
+        b.create_note_in(Path::new(""), "Dup", "two").unwrap();
+
+        let result = a.copy_note_to(&note.path, &b, Path::new(""));
+        assert!(matches!(result, Err(Error::DestinationExists(_))));
+    }
+
+    #[test]
+    fn copy_folder_to_preserves_nested_structure_and_rewrites_every_note() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        let b = test_notebook(tmp.path(), "b");
+        a.create_note_in(Path::new("projects/web"), "Todo", "ship it")
+            .unwrap();
+        a.create_folder_in(Path::new("projects"), "empty-subfolder")
+            .unwrap();
+
+        a.copy_folder_to(Path::new("projects"), &b, Path::new(""))
+            .unwrap();
+
+        let nested = Note::from_file(&b.path.join("projects/web/todo.md")).unwrap();
+        assert_eq!(nested.frontmatter.notebook, "b");
+        assert_eq!(nested.body, "ship it");
+        assert!(b.path.join("projects/empty-subfolder").is_dir());
+        // Source is untouched by a copy.
+        assert!(a.path.join("projects/web/todo.md").exists());
+    }
+
+    #[test]
+    fn move_folder_to_removes_the_source_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        let b = test_notebook(tmp.path(), "b");
+        a.create_note_in(Path::new("projects"), "Todo", "x")
+            .unwrap();
+
+        a.move_folder_to(Path::new("projects"), &b, Path::new(""))
+            .unwrap();
+
+        assert!(!a.path.join("projects").exists());
+        assert!(b.path.join("projects/todo.md").exists());
+    }
+
+    #[test]
+    fn copy_folder_to_errors_when_destination_folder_already_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        let b = test_notebook(tmp.path(), "b");
+        a.create_folder_in(Path::new(""), "projects").unwrap();
+        b.create_folder_in(Path::new(""), "projects").unwrap();
+
+        let result = a.copy_folder_to(Path::new("projects"), &b, Path::new(""));
+        assert!(matches!(result, Err(Error::DestinationExists(_))));
+    }
+
+    #[test]
+    fn delete_folder_at_removes_the_directory_and_its_contents() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = test_notebook(tmp.path(), "a");
+        a.create_note_in(Path::new("scratch"), "Temp", "x").unwrap();
+
+        a.delete_folder_at(Path::new("scratch")).unwrap();
+
+        assert!(!a.path.join("scratch").exists());
+    }
 }

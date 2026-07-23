@@ -50,8 +50,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans = Vec::new();
 
     if let Some(label) = mode_label(app.mode) {
+        let count = app.visual_selection_count();
+        let text = if count > 0 {
+            format!("{label} ({count} selected) ")
+        } else {
+            format!("{label} ")
+        };
         spans.push(Span::styled(
-            format!("{label} "),
+            text,
             plain.fg(accent).add_modifier(Modifier::BOLD),
         ));
         spans.push(sep.clone());

@@ -6,6 +6,28 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-23
+
+### Added
+
+- Notes-scope `v` enters real multi-select (`Mode::Visual` — declared long ago but never wired
+  up): `j`/`k` extend a selection range, shown highlighted in the list and as `VISUAL (n
+  selected)` in the footer. `d`/`m` then act on every selected item at once (delete, move);
+  `y` copies the whole selection to a prompted target, leaving the originals in place.
+- `d` (delete) and `m` (move) now work on folders, not just notes — a folder delete removes
+  everything inside it (with confirmation); previously selecting a folder and pressing either key
+  silently did nothing.
+- `m`'s prompt is now `notebook/path/within/it`, prefilled with the current location — edit the
+  trailing segments to move within the same notebook (missing folders are created automatically),
+  or replace the first segment to move to a different notebook entirely. The target notebook must
+  already exist (errors clearly otherwise — a notebook is a new git repo, so one is never silently
+  created from a typo).
+- 4 new `shiki-core` primitives backing all of the above: `copy_note_to`/`move_note_to` (rewriting
+  a note's `frontmatter.notebook` when it actually crosses notebooks) and
+  `copy_folder_to`/`move_folder_to` (recursive, preserving nested structure and empty subfolders),
+  plus `delete_folder_at`. All error rather than silently overwriting if the destination already
+  has something there. 7 new unit tests.
+
 ## [0.7.0] - 2026-07-23
 
 ### Added

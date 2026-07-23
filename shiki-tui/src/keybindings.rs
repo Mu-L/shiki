@@ -35,6 +35,14 @@ pub enum Action {
     SortNotes,
     ToggleTreeView,
     ToggleDates,
+    /// Enters `Mode::Visual` (vi-style multi-select), anchored at whatever's
+    /// currently selected — `j`/`k` extend the range, `Esc` cancels.
+    ToggleVisual,
+    /// `Mode::Visual`-only: copies every selected note/folder to a prompted
+    /// target, leaving the originals in place. A no-op outside Visual mode
+    /// (nothing to copy without a selection) — there's no single-item
+    /// duplicate shortcut, only the batch one.
+    CopyEntries,
     // Notes- and Preview-focus
     EditInline,
     EditExternal,
@@ -138,6 +146,8 @@ impl KeyMaps {
         bind(&mut notes, &cfg.notes.sort, Action::SortNotes);
         bind(&mut notes, &cfg.notes.tree_view, Action::ToggleTreeView);
         bind(&mut notes, &cfg.notes.toggle_dates, Action::ToggleDates);
+        bind(&mut notes, &cfg.notes.visual, Action::ToggleVisual);
+        bind(&mut notes, &cfg.notes.copy_entries, Action::CopyEntries);
 
         let mut preview = HashMap::new();
         bind(&mut preview, &cfg.preview.edit_inline, Action::EditInline);
@@ -244,6 +254,8 @@ pub fn action_label(action: Action) -> &'static str {
         Action::SortNotes => "cycle sort order",
         Action::ToggleTreeView => "notebook tree (all notes)",
         Action::ToggleDates => "toggle note dates in list",
+        Action::ToggleVisual => "select mode (multi-select)",
+        Action::CopyEntries => "copy selection to… (visual mode)",
         Action::EditInline => "edit (insert mode)",
         Action::EditExternal => "edit externally ($EDITOR)",
         Action::ShowHistory => "note history (view/revert)",
@@ -274,5 +286,7 @@ pub fn action_icon(action: Action) -> char {
         Action::SortNotes => crate::icons::COLUMNS,
         Action::ToggleTreeView => crate::icons::TREE,
         Action::ToggleDates | Action::ShowHistory => crate::icons::HISTORY,
+        Action::ToggleVisual => crate::icons::CHECK,
+        Action::CopyEntries => crate::icons::CLIPBOARD,
     }
 }

@@ -36,6 +36,11 @@ pub enum Error {
     InvalidName(String),
     #[error("update error: {0}")]
     Update(String),
+    /// A move/copy target that already has something at that path — moves
+    /// and copies error here rather than silently overwriting whatever's
+    /// already there.
+    #[error("already exists: {0}")]
+    DestinationExists(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
