@@ -73,9 +73,14 @@ Download the archive for your platform from the
 [latest release](https://github.com/sazardev/shiki/releases/latest), extract it, and put the
 `shiki`/`shiki.exe` binary on your `$PATH`.
 
-**From source with `cargo` (any platform with a Rust toolchain):**
+**With `cargo`, from [crates.io](https://crates.io/crates/shiki-cli) (any platform with a Rust
+toolchain):**
 
-Not published to crates.io yet — install straight from a clone:
+```sh
+cargo install shiki-cli
+```
+
+Or straight from a clone, if you want to build from a specific branch/commit instead:
 
 ```sh
 git clone https://github.com/sazardev/shiki
@@ -83,10 +88,10 @@ cd shiki
 cargo install --path shiki-cli
 ```
 
-This builds the `shiki` binary in release mode and installs it to `~/.cargo/bin` (make sure
-that's on your `$PATH` — `cargo install` will tell you if it isn't). libgit2/OpenSSL are vendored
-and built from source (`git2`'s `vendored-libgit2`/`vendored-openssl` features), so there's no
-system libgit2/OpenSSL dependency to install separately on any platform.
+Either way this builds the `shiki` binary in release mode and installs it to `~/.cargo/bin` (make
+sure that's on your `$PATH` — `cargo install` will tell you if it isn't). libgit2/OpenSSL are
+vendored and built from source (`git2`'s `vendored-libgit2`/`vendored-openssl` features), so
+there's no system libgit2/OpenSSL dependency to install separately on any platform.
 
 **Prerequisites (source/cargo install only — prebuilt binaries/AUR/Scoop don't need a Rust
 toolchain):**

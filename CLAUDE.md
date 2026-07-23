@@ -515,14 +515,36 @@ package` warned "manifest has no documentation, homepage or repository") until t
 everywhere. `readme = "../README.md"` is a plain (non-inherited) path per crate, since `readme`
 can't sensibly inherit a single value across crates that live in different directories.
 
-**`git2`'s workspace dependency carries `vendored-libgit2`/`vendored-openssl`, not the bare
-crate.** Without these, `git2` links against whatever libgit2/OpenSSL happen to be installed on
-the *build* system — fine on a dev machine with them present, but that's not guaranteed on a
-`windows-latest` GitHub Actions runner (no system libgit2 at all) or on an end user's machine
-installing via `cargo install`. These features compile libgit2/OpenSSL from source and statically
-link them instead, so the resulting binary has no external git/TLS library dependency on any
-platform. Don't remove them to "simplify" the build — that's what makes the release workflow's
-Windows target actually link.
+**`git2`'s workspace dependency carries `ssh`/`https`/`vendored-libgit2`/`vendored-openssl`, not
+the bare crate.** `vendored-libgit2`/`vendored-openssl`: without these, `git2` links against
+whatever libgit2/OpenSSL happen to be installed on the *build* system — fine on a dev machine with
+them present, but that's not guaranteed on a `windows-latest` GitHub Actions runner (no system
+libgit2 at all) or on an end user's machine installing via `cargo install`. These features compile
+libgit2/OpenSSL from source and statically link them instead, so the resulting binary has no
+external git/TLS library dependency on any platform. Don't remove them to "simplify" the build —
+that's what makes the release workflow's Windows target actually link. `ssh`/`https`: as of git2
+0.21 (bumped from 0.19 to close 3 RUSTSEC "unsound" advisories, see below), `default-features`
+became empty — git2 0.19 used to default to `["ssh", "https", "ssh_key_from_memory"]`, so losing
+these silently would have dropped SSH remote support and `Cred::credential_helper` (now gated
+behind git2's own `cred` feature, which `ssh`/`https` each pull in) entirely, breaking
+`build_callbacks`'s credential-helper fallback with no compile error pointing at why. Don't drop
+`ssh`/`https` thinking `vendored-libgit2`/`vendored-openssl` alone are enough post-0.21.
+
+**git2 was bumped 0.19 → 0.21 specifically to close `cargo audit` advisories, not for new
+features.** `cargo audit` flagged 3 "unsound" (potential UB) advisories against git2 0.19
+(`Remote::list()`, `Signature` from a buffer-created `BlameHunk`, dereferencing `Buf`) — none of
+which shiki's code actually calls, but staying on 0.19 meant they'd show up in every future audit
+regardless. The bump is a breaking change: `Commit::summary()` went from `Option<&str>` to
+`Result<Option<&str>, Error>` (`git.rs`'s `file_history` now does
+`commit.summary().ok().flatten().unwrap_or("")`), and `Reference::shorthand()`/`::name()` and
+`Remote::url()` went from `Option<&str>` to `Result<&str, Error>` (every call site converts via
+`.ok()` where the existing code already treated absence as "silently skip/default", and via
+`.map_err(...)` in `push()` where the old code turned `None` into a real `Error::Git` — same
+observable behavior, just adapted to the new `Result` shape). Verified live: a full push → real
+remote commit → pull-into-a-fresh-notebook → note-history round trip against a local bare repo,
+confirming branch resolution, remote URL detection, and commit-summary display all still work
+correctly post-bump. `cargo audit` after the bump: down to 4 warnings, all transitive (via
+`syntect`/`ratatui`, not fixable from shiki's own `Cargo.toml`).
 
 **Workspace path-dependencies (`shiki-core`/`shiki-config`/`shiki-tui` under
 `[workspace.dependencies]` in the root `Cargo.toml`) carry an explicit `version = "0.3.0"`
@@ -546,14 +568,24 @@ version and checksums, so those manifest files always reflect the latest publish
 between manual reviews. `.SRCINFO` is regenerated via `makepkg --printsrcinfo` inside a throwaway
 `archlinux:base-devel` container (no Arch tooling available on `ubuntu-latest` directly).
 
-**Publishing to the *real* AUR and crates.io are both gated behind secrets that don't exist yet
-(`AUR_SSH_PRIVATE_KEY`, `CARGO_REGISTRY_TOKEN`) — both steps no-op (not fail) until Omar adds
-them.** Neither can be set up by an agent: AUR requires a personal aur.archlinux.org account with
-an SSH key registered to it (the *first* push to a new AUR package must also be done manually once
-to create the package page — `packaging/aur/PKGBUILD` targets `shiki-bin`, so the one-time manual
-step is `git clone ssh://aur@aur.archlinux.org/shiki-bin.git`, add `PKGBUILD`/`.SRCINFO`, commit,
-push — after that the workflow's `update-packaging-manifests` job keeps it in sync automatically);
-crates.io requires an account + a generated API token added as the `CARGO_REGISTRY_TOKEN` repo
-secret. `publish-crates` publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that
-exact dependency order with a 30s pause between each (crates.io's index needs a moment to make a
+**crates.io publishing is live as of v0.4.1** — `CARGO_REGISTRY_TOKEN` is configured as a repo
+secret, so `publish-crates` actually runs on every tag now rather than no-op'ing. The very first
+attempt (on `v0.4.1`) failed with "A verified email address is required to publish crates to
+crates.io" — a crates.io *account* requirement, not a workflow bug — fixed by Omar verifying his
+email at crates.io/settings/profile, then re-run via `gh run rerun <run-id> --failed` (no new tag
+needed, since the failure happened before any crate actually uploaded — `set -euo pipefail` in the
+publish loop means a failed `cargo publish` for one crate stops the whole step, so there's never a
+partially-published state to clean up). Verified end-to-end: all four crates show up via the
+crates.io API (`max_version` = `0.4.1`, `yanked: false`), and `cargo install shiki-cli` with no
+`--git`/`--path` genuinely resolves and installs from the registry.
+
+**Publishing to the *real* AUR is still gated behind a secret that doesn't exist yet
+(`AUR_SSH_PRIVATE_KEY`) — that step no-ops (not fails) until Omar adds it.** This one can't be set
+up by an agent: AUR requires a personal aur.archlinux.org account with an SSH key registered to it
+(the *first* push to a new AUR package must also be done manually once to create the package page
+— `packaging/aur/PKGBUILD` targets `shiki-bin`, so the one-time manual step is `git clone
+ssh://aur@aur.archlinux.org/shiki-bin.git`, add `PKGBUILD`/`.SRCINFO`, commit, push — after that the
+workflow's `update-packaging-manifests` job keeps it in sync automatically). `publish-crates`
+publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that exact dependency order with a
+30s pause between each (crates.io's index needs a moment to make a
 just-published crate resolvable before the next one in the chain can depend on it).

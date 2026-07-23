@@ -198,7 +198,7 @@ pub fn push(path: &Path, remote: &str) -> Result<()> {
     let branch = repo
         .head()?
         .shorthand()
-        .ok_or_else(|| Error::Git(git2::Error::from_str("HEAD is not on a branch")))?
+        .map_err(|_| Error::Git(git2::Error::from_str("HEAD is not on a branch")))?
         .to_string();
     let mut remote_ref = repo.find_remote(remote)?;
 
@@ -251,7 +251,7 @@ pub fn pull(path: &Path, remote: &str, branch: &str) -> Result<String> {
     let prefix = format!("refs/remotes/{remote}/");
     let mut available = Vec::new();
     for reference in repo.references_glob(&format!("{prefix}*"))?.flatten() {
-        if let Some(name) = reference.name() {
+        if let Ok(name) = reference.name() {
             if let Some(b) = name.strip_prefix(&prefix) {
                 available.push(b.to_string());
             }
@@ -330,7 +330,7 @@ pub fn set_remote(path: &Path, url: &str) -> Result<()> {
 pub fn remote_url(path: &Path) -> Option<String> {
     let repo = Repository::open(path).ok()?;
     let remote = repo.find_remote("origin").ok()?;
-    remote.url().map(String::from)
+    remote.url().ok().map(String::from)
 }
 
 /// One commit that changed a specific file — the note's real version
@@ -390,7 +390,7 @@ pub fn file_history(repo_path: &Path, file_relative: &Path) -> Result<Vec<FileRe
         revisions.push(FileRevision {
             commit_id: oid.to_string(),
             date,
-            message: commit.summary().unwrap_or("").to_string(),
+            message: commit.summary().ok().flatten().unwrap_or("").to_string(),
         });
     }
     Ok(revisions)
@@ -432,7 +432,7 @@ pub fn status(path: &Path, remote: &str) -> GitStatus {
     let branch = repo
         .head()
         .ok()
-        .and_then(|h| h.shorthand().map(str::to_string));
+        .and_then(|h| h.shorthand().ok().map(str::to_string));
     let (ahead, behind) = branch
         .as_deref()
         .and_then(|b| {

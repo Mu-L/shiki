@@ -6,6 +6,23 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-23
+
+### Security
+
+- `git2` bumped 0.19 → 0.21, closing 3 `cargo audit` "unsound" advisories
+  (`Remote::list()`/`BlameHunk` signature/`Buf` dereference UB) — shiki's code never called any of
+  the affected APIs, but they showed up in every audit regardless while pinned to 0.19.
+  `Commit::summary()`/`Reference::shorthand()`/`Reference::name()`/`Remote::url()` all changed from
+  `Option`-returning to `Result`-returning between these versions; every call site in `git.rs` was
+  updated to match. `ssh`/`https` are now explicit features (git2 0.21's `default-features` became
+  empty, whereas 0.19 defaulted to them) — without this, SSH remotes and `Cred::credential_helper`
+  would've silently stopped working. Verified live: full push → remote commit → pull-into-fresh-
+  notebook → note-history round trip against a local bare repo. `cargo audit` is down to 4
+  warnings, all transitive via `syntect`/`ratatui` and not fixable from shiki's own `Cargo.toml`.
+- `.github/workflows/ci.yml` now declares `permissions: contents: read` explicitly instead of
+  inheriting the repo's default token permissions — it only builds/lints, never needs write access.
+
 ## [0.4.1] - 2026-07-23
 
 ### Added
