@@ -203,8 +203,43 @@ async function loadChangelog() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Live "latest version" — fetched from the GitHub Releases API on every page
+// load rather than hardcoded, so a new tagged release shows up here with no
+// site redeploy at all (the same reasoning as the live changelog fetch
+// above). `.github/workflows/release.yml`'s `update-screenshots` job is what
+// keeps the *screenshots* themselves current after each release; this is
+// the lightweight text-only counterpart for the version number itself.
+// ---------------------------------------------------------------------------
+
+const LATEST_RELEASE_URL = "https://api.github.com/repos/sazardev/shiki/releases/latest";
+
+async function loadLatestVersion() {
+  try {
+    const res = await fetch(LATEST_RELEASE_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const tag = data.tag_name; // e.g. "v0.8.1"
+    if (!tag) return;
+
+    const downloadBtn = document.getElementById("download-btn");
+    if (downloadBtn) downloadBtn.textContent = `Download ${tag}`;
+
+    const pill = document.getElementById("version-pill");
+    if (pill) {
+      pill.textContent = `latest: ${tag}`;
+      pill.hidden = false;
+    }
+  } catch (err) {
+    // Silent failure — the buttons already have sensible static fallback
+    // text/links (GitHub's own "latest" redirect), so a failed fetch here
+    // (offline, GitHub API rate limit) degrades gracefully with no broken UI.
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   buildSwatches();
   initTheme();
   loadChangelog();
+  loadLatestVersion();
 });

@@ -188,6 +188,34 @@ line pair with the *next* bullet's own backtick, wrapping unrelated plain text i
 box. Fixed by accumulating a bullet's full raw text across all its continuation lines first and
 running it through the inline-formatting regexes only once, at the end.
 
+**The site's screenshots and version number both update automatically on every release, through
+two different mechanisms with two different reasons.** The "latest version" shown next to the
+download button and in the nav pill is fetched client-side from the GitHub Releases API
+(`docs/js/main.js::loadLatestVersion`) on every page load — there's nothing to regenerate or
+commit for that one, it's live by construction, same as the changelog fetch above. The
+*screenshots* can't work that way (they're real captured images, not text), so
+`.github/workflows/release.yml`'s `update-screenshots` job (`needs: release`, so it only runs
+after a tag actually produces a real GitHub Release) installs `xterm`/`imagemagick`/`xdotool`/
+`xvfb` plus a JetBrainsMono Nerd Font on a fresh `ubuntu-latest` runner, runs
+`scripts/screenshots.sh` against that release's own code, copies the 5 real-screenshot themes'
+`wide-01-notebooks.png` into `docs/assets/screenshots/`, and commits straight to `main` if
+anything changed.
+
+**Both this job and the pre-existing `update-packaging-manifests` job push to `main` using
+`secrets.RELEASE_TAG_PAT`, not the default `GITHUB_TOKEN`** — `update-packaging-manifests` used to
+push with the default token and that worked fine, until branch protection on `main` (added this
+same session — "Require a pull request before merging") started requiring one for every push.
+`GITHUB_TOKEN`/`github-actions[bot]` isn't a repo admin, so `enforce_admins: false`'s bypass
+doesn't extend to it — only a push authenticated as an actual admin (which `RELEASE_TAG_PAT`,
+Omar's own personal access token, is) legitimately bypasses that requirement, the same way a
+human admin pushing directly would. Both jobs' `actions/checkout` fall back to `github.token` when
+the secret isn't set (so checkout itself never fails), and both fail loudly with an explicit
+`::error::` right at the push step instead of failing confusingly deep inside `git push` — the
+same "fail loud, not silent" convention `auto-tag.yml` already established for this exact
+not-yet-provisioned-secret situation. Don't revert either job to pushing with the default token;
+it will appear to work today (a clean run rebuilds the same content and finds nothing to commit)
+and only break the next time there's an actual diff to push.
+
 ## Architecture
 
 Cargo workspace, four crates with a strict one-way dependency chain:
