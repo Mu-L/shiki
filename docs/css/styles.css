@@ -363,9 +363,16 @@ code, .code {
   border-bottom: 1px solid var(--border);
 }
 
+.hero .container {
+  max-width: 1280px;
+}
+
 .hero-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  /* Screenshot column deliberately wider than the text column — the first
+     thing a visitor should register is "this is a real, detailed terminal
+     app", not a wall of marketing copy. */
+  grid-template-columns: 0.85fr 1.35fr;
   gap: 56px;
   align-items: center;
 }
@@ -616,7 +623,42 @@ code, .code {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px;
+  padding: 12px 56px 12px 12px;
+}
+
+.code-block {
+  position: relative;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--statusbar);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.copy-btn.copied {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.copy-btn-inline {
+  position: static;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 /* ==========================================================================

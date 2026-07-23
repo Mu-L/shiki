@@ -228,6 +228,36 @@ not-yet-provisioned-secret situation. Don't revert either job to pushing with th
 it will appear to work today (a clean run rebuilds the same content and finds nothing to commit)
 and only break the next time there's an actual diff to push.
 
+**The Themes section comes right after the hero, not after Features** — Omar's own request, so a
+visitor sees the live theme-switching effect within one scroll instead of after reading through
+the whole feature list first. The hero's own screenshot got proportionally bigger at the same
+time (`.hero-grid`'s columns went from `1.1fr 1fr` to `0.85fr 1.35fr`, plus a wider `.hero
+.container` — 1280px instead of the site-wide 1100px), since a bigger, more legible screenshot is
+the thing that actually sells "this is a real, detailed terminal app" fastest.
+
+**The hero's download button is a smart, direct-download link, not a static link to the
+`/releases/latest` page.** `docs/js/main.js::loadLatestRelease` does one fetch to the GitHub
+Releases API (shared with the version-pill logic — one call feeds both, see below), detects the
+visitor's OS from `navigator.userAgent`/`navigator.platform`, and rewrites the button's `href`
+straight to that platform's actual release asset (`browser_download_url`) — clicking it downloads
+the file immediately instead of landing on a page where the visitor still has to pick the right
+one by hand. Genuinely detecting Apple Silicon vs. Intel from the main thread isn't reliable
+(Safari/Chrome running under Rosetta both still report "Intel" in `navigator.userAgent`), so every
+Mac visitor defaults to the `aarch64-apple-darwin` asset — the actual default for any Mac sold
+since late 2020; an Intel Mac visitor still has the explicit x86_64 pick in the Install section
+below. A failed fetch/detection leaves the button on its static HTML fallback (the
+`/releases/latest` page) rather than breaking it — verified live: the button correctly read
+"Download for Linux" and its `href` resolved to the real
+`.../releases/download/v0.8.0/shiki-v0.8.0-x86_64-unknown-linux-gnu.tar.gz` asset URL when tested
+in a Linux-reporting browser.
+
+**Every install command has a one-click Copy button** (`.copy-btn` in `docs/js/main.js`) — reads
+the adjacent `<pre>` (Install section cards, via a shared `.code-block` wrapper) or the preceding
+`<code>` (the hero's inline `cargo install shiki-cli` hint) and writes it to the clipboard,
+flipping the button to "Copied!" for 1.5s. A failed `navigator.clipboard.writeText` (insecure
+context, denied permission) fails silently — the command text itself is still fully visible and
+selectable by hand either way, so nothing is actually broken by a Clipboard API failure.
+
 ## Architecture
 
 Cargo workspace, four crates with a strict one-way dependency chain:

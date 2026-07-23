@@ -206,17 +206,47 @@ async function loadChangelog() {
 }
 
 // ---------------------------------------------------------------------------
-// Live "latest version" — fetched from the GitHub Releases API on every page
-// load rather than hardcoded, so a new tagged release shows up here with no
-// site redeploy at all (the same reasoning as the live changelog fetch
-// above). `.github/workflows/release.yml`'s `update-screenshots` job is what
-// keeps the *screenshots* themselves current after each release; this is
-// the lightweight text-only counterpart for the version number itself.
+// Live "latest version" + smart download — fetched from the GitHub Releases
+// API on every page load rather than hardcoded, so a new tagged release
+// shows up here with no site redeploy at all (the same reasoning as the
+// live changelog fetch above). `.github/workflows/release.yml`'s
+// `update-screenshots` job is what keeps the *screenshots* themselves
+// current after each release; this is the text/link counterpart for the
+// version number and the download button's target.
+//
+// One fetch drives both the version pill and the download button, rather
+// than two separate calls that could race and stomp on each other's DOM
+// writes (and to stay under GitHub's unauthenticated API rate limit).
 // ---------------------------------------------------------------------------
 
 const LATEST_RELEASE_URL = "https://api.github.com/repos/sazardev/shiki/releases/latest";
 
-async function loadLatestVersion() {
+// Substrings matched against each release asset's filename (the same
+// `{target}` triple release.yml's build matrix names them with). Detecting
+// genuine Apple Silicon vs. Intel from the main thread isn't reliable —
+// Safari/Chrome under Rosetta both still report "Intel" — so every Mac
+// visitor defaults to Apple Silicon (what's shipped since late 2020); an
+// Intel Mac visitor still has the explicit "Intel" pick in the Install
+// section below.
+const PLATFORM_ASSETS = {
+  windows: { match: "x86_64-pc-windows-msvc", label: "Download for Windows" },
+  linux: { match: "x86_64-unknown-linux-gnu", label: "Download for Linux" },
+  macArm: { match: "aarch64-apple-darwin", label: "Download for macOS (Apple Silicon)" },
+};
+
+function detectPlatformKey() {
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  if (/Win/i.test(ua) || /Win/i.test(platform)) return "windows";
+  if (/Mac/i.test(ua) || /Mac|iPhone|iPad/i.test(platform)) return "macArm";
+  if (/Linux|X11/i.test(ua) || /Linux/i.test(platform)) return "linux";
+  return null;
+}
+
+async function loadLatestRelease() {
+  const downloadBtn = document.getElementById("download-btn");
+  const pill = document.getElementById("version-pill");
+
   try {
     const res = await fetch(LATEST_RELEASE_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -224,24 +254,62 @@ async function loadLatestVersion() {
     const tag = data.tag_name; // e.g. "v0.8.1"
     if (!tag) return;
 
-    const downloadBtn = document.getElementById("download-btn");
-    if (downloadBtn) downloadBtn.textContent = `Download ${tag}`;
-
-    const pill = document.getElementById("version-pill");
     if (pill) {
       pill.textContent = `latest: ${tag}`;
       pill.hidden = false;
     }
+
+    if (!downloadBtn) return;
+    downloadBtn.textContent = `Download ${tag}`;
+
+    const platformKey = detectPlatformKey();
+    const target = platformKey ? PLATFORM_ASSETS[platformKey] : null;
+    const asset = target
+      ? (data.assets || []).find((a) => a.name.includes(target.match))
+      : null;
+    if (asset) {
+      // A direct link to the actual binary archive — clicking this
+      // downloads the file immediately, unlike the static fallback (a link
+      // to the /releases/latest *page*, which still requires picking the
+      // right asset by hand).
+      downloadBtn.href = asset.browser_download_url;
+      downloadBtn.textContent = target.label;
+    }
   } catch (err) {
-    // Silent failure — the buttons already have sensible static fallback
-    // text/links (GitHub's own "latest" redirect), so a failed fetch here
-    // (offline, GitHub API rate limit) degrades gracefully with no broken UI.
+    // Silent failure — the button already has a sensible static fallback
+    // (GitHub's own "latest" redirect page), so an offline visitor or a
+    // GitHub API rate limit just means one less convenience, not a dead
+    // button.
   }
+}
+
+function initCopyButtons() {
+  document.querySelectorAll(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const block = btn.closest(".code-block");
+      const source = block ? block.querySelector("pre") : btn.previousElementSibling;
+      const text = source ? source.textContent.trim() : "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (err) {
+        return; // Clipboard API blocked (insecure context, permissions) — command text is still visible/selectable by hand.
+      }
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1500);
+    });
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   buildSwatches();
   initTheme();
   loadChangelog();
-  loadLatestVersion();
+  loadLatestRelease();
+  initCopyButtons();
 });
