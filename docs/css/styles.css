@@ -438,6 +438,18 @@ code, .code {
   background: var(--bg);
 }
 
+/* `.term-window img`'s own `display: block` above is more specific than the
+   browser's default `[hidden] { display: none }` UA rule, so without this,
+   toggling `img.hidden = true` in main.js did nothing visually — the real
+   screenshot from the last theme that had one stayed on screen, stacked
+   above #term-fallback, instead of being replaced by it. This is why
+   switching to a theme with no captured screenshot appeared to "not change
+   anything": the stale image was still there, just no longer the theme
+   actually selected. */
+.term-window img[hidden] {
+  display: none;
+}
+
 /* CSS-only fallback mockup, shown instead of a real screenshot for the 7
    palettes that don't have one captured yet (screenshots/scripts/screenshot.sh
    only ran for gruvbox-dark, catppuccin-mocha, tokyo-night-storm, nord, and
