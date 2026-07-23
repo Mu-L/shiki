@@ -2,23 +2,25 @@
 // order, same names) — "dot" colors are each theme's own `accent` value
 // (docs/css/styles.css has the full palette per theme; this file only
 // needs enough to build/label the swatches and know which ones have a real
-// screenshot). `screenshot: true` themes have a captured PNG in
-// docs/assets/screenshots/<id>.png (via scripts/screenshots.sh); the rest
-// fall back to the CSS-only #term-fallback mockup so a wrong-theme's
-// screenshot is never shown mislabeled as another theme.
+// screenshot). All 12 now have a captured PNG in docs/assets/screenshots/
+// (scripts/screenshots.sh's THEMES array covers every one) — `screenshot`
+// stays a per-theme flag rather than being assumed true for everyone so a
+// future theme added to shiki-config without a matching screenshot yet
+// degrades to the CSS-only #term-fallback mockup instead of silently
+// showing another theme's image under the wrong name.
 const THEMES = [
   { id: "catppuccin-mocha", label: "Catppuccin Mocha", dot: "#89b4fa", screenshot: true },
-  { id: "catppuccin-macchiato", label: "Catppuccin Macchiato", dot: "#8aadf4", screenshot: false },
-  { id: "catppuccin-frappe", label: "Catppuccin Frappé", dot: "#8caaee", screenshot: false },
-  { id: "catppuccin-latte", label: "Catppuccin Latte", dot: "#1e66f5", screenshot: false },
+  { id: "catppuccin-macchiato", label: "Catppuccin Macchiato", dot: "#8aadf4", screenshot: true },
+  { id: "catppuccin-frappe", label: "Catppuccin Frappé", dot: "#8caaee", screenshot: true },
+  { id: "catppuccin-latte", label: "Catppuccin Latte", dot: "#1e66f5", screenshot: true },
   { id: "tokyo-night-storm", label: "Tokyo Night Storm", dot: "#7aa2f7", screenshot: true },
-  { id: "tokyo-night", label: "Tokyo Night", dot: "#7aa2f7", screenshot: false },
-  { id: "tokyo-night-moon", label: "Tokyo Night Moon", dot: "#82aaff", screenshot: false },
+  { id: "tokyo-night", label: "Tokyo Night", dot: "#7aa2f7", screenshot: true },
+  { id: "tokyo-night-moon", label: "Tokyo Night Moon", dot: "#82aaff", screenshot: true },
   { id: "gruvbox-dark", label: "Gruvbox Dark", dot: "#458588", screenshot: true },
-  { id: "gruvbox-light", label: "Gruvbox Light", dot: "#458588", screenshot: false },
+  { id: "gruvbox-light", label: "Gruvbox Light", dot: "#458588", screenshot: true },
   { id: "nord", label: "Nord", dot: "#88c0d0", screenshot: true },
   { id: "solarized-dark", label: "Solarized Dark", dot: "#268bd2", screenshot: true },
-  { id: "solarized-light", label: "Solarized Light", dot: "#268bd2", screenshot: false },
+  { id: "solarized-light", label: "Solarized Light", dot: "#268bd2", screenshot: true },
 ];
 
 const STORAGE_KEY = "shiki-site-theme";

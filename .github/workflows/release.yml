@@ -249,7 +249,12 @@ jobs:
           HAS_PAT: ${{ secrets.RELEASE_TAG_PAT }}
         run: |
           set -euo pipefail
-          for theme in catppuccin-mocha tokyo-night-storm gruvbox-dark nord solarized-dark; do
+          for theme in \
+            catppuccin-mocha catppuccin-macchiato catppuccin-frappe catppuccin-latte \
+            tokyo-night-storm tokyo-night tokyo-night-moon \
+            gruvbox-dark gruvbox-light \
+            nord \
+            solarized-dark solarized-light; do
             cp "screenshots/$theme/wide-01-notebooks.png" "docs/assets/screenshots/$theme.png"
           done
           git config user.name "github-actions[bot]"

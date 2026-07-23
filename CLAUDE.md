@@ -163,16 +163,28 @@ there, or a new theme is added to `themes/mod.rs::all()`, update both `styles.cs
 `THEMES` array in `docs/js/main.js` (which drives the swatch buttons) so the site doesn't silently
 drift out of sync with the app it's advertising.
 
-**The theme switcher only swaps in a real screenshot for the 5 themes that actually have one
-captured** (`docs/assets/screenshots/*.png`, via `scripts/screenshots.sh` — gruvbox-dark,
-catppuccin-mocha, tokyo-night-storm, nord, solarized-dark). Showing one theme's real screenshot
-while claiming it's another would be actively misleading; the other 7 themes fall back to
-`#term-fallback`, a small CSS-only mockup of the three-pane layout that recolors correctly via the
-same CSS variables (verified live: switching to `catppuccin-latte`, which has no screenshot,
-correctly swaps to the light-mode CSS mockup instead of showing gruvbox-dark's screenshot with
-wrong colors). Note `/screenshots` at the repo root is gitignored (regenerable marketing output,
-not source) but `docs/assets/screenshots/` is a different, non-ignored path — the `.gitignore`
-rule is root-anchored (`/screenshots`), so copies living under `docs/` are unaffected.
+**All 12 themes have a real captured screenshot** (`docs/assets/screenshots/*.png`, via
+`scripts/screenshots.sh`'s `THEMES` array — originally only 5 were captured; extended to all 12
+after Omar pointed out that showing a CSS-only mockup for the other 7 wasn't what "capture every
+theme" meant). `#term-fallback`, a small CSS-only mockup of the three-pane layout, still exists as
+a genuine fallback (not dead code) for any theme `shiki-config` adds in the future before a
+screenshot's been captured for it — `docs/js/main.js`'s per-theme `screenshot` flag controls this,
+it's not assumed `true` for every entry. Note `/screenshots` at the repo root is gitignored
+(regenerable marketing output, not source) but `docs/assets/screenshots/` is a different,
+non-ignored path — the `.gitignore` rule is root-anchored (`/screenshots`), so copies living under
+`docs/` are unaffected.
+
+**A real, hard-to-spot bug lived in `docs/css/styles.css` for a while: the theme screenshot never
+actually hid.** `.term-window img { display: block; ... }` is *more specific* than the browser's
+own default `[hidden] { display: none }` rule, so `main.js` setting `img.hidden = true` did nothing
+visually — whatever real screenshot was shown last stayed on screen, stacked above
+`#term-fallback`, regardless of which theme was actually selected next. This is exactly why a
+theme without a captured screenshot used to appear to "not change anything" when clicked: the
+image was still the *previous* theme's, just silently wrong rather than absent. Fixed with an
+explicit `.term-window img[hidden] { display: none; }` override. If you add another conditionally-
+hidden element anywhere on this site, don't assume the bare `hidden` attribute alone is enough
+once *any* CSS rule targets that element with equal-or-higher specificity — verify it actually
+disappears, the way this one silently didn't.
 
 **The changelog section fetches `CHANGELOG.md` live from `raw.githubusercontent.com/.../main/...`
 at page load rather than duplicating its content into the HTML by hand** — verified live serving

@@ -61,7 +61,14 @@ Xvfb "$XVFB_DISPLAY" -screen 0 1920x1080x24 >"$WORK/xvfb.log" 2>&1 &
 sleep 1
 export DISPLAY="$XVFB_DISPLAY"
 
-THEMES=(catppuccin-mocha tokyo-night-storm gruvbox-dark nord solarized-dark default)
+THEMES=(
+  catppuccin-mocha catppuccin-macchiato catppuccin-frappe catppuccin-latte
+  tokyo-night-storm tokyo-night tokyo-night-moon
+  gruvbox-dark gruvbox-light
+  nord
+  solarized-dark solarized-light
+  default
+)
 
 # xterm reserves a small `internalBorder` margin around the text grid that
 # the running program never draws into — it's filled with xterm's own `-bg`
