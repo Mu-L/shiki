@@ -6,6 +6,17 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-22
+
+### Changed
+
+- Footer status messages now clear themselves after 2 seconds instead of sitting there until the
+  next action happens to overwrite them, and are truncated to whatever footer space is actually
+  left instead of overflowing. Nothing is lost either way — every message is still recorded in
+  full in the logs modal (leader+`l`) regardless of how briefly or how much of it the footer shows.
+- A bit more padding around the right-aligned `? help  vX.Y.Z` in the footer, so it doesn't sit
+  flush against the terminal edge or the rest of the footer content.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added

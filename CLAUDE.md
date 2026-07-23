@@ -459,6 +459,20 @@ over SSH/tmux with clipboard passthrough enabled — no native clipboard crate n
 new status/error message anywhere, call `self.set_status(...)` — a raw `self.status_message =
 Some(...)` assignment would skip the log history.
 
+**The footer's status message clears itself after `STATUS_MESSAGE_TIMEOUT` (2s), independent of
+`log_history`.** `set_status` also stamps `status_message_set_at: Instant`; `App::expire_status_
+message`, called once per `run()` loop iteration (alongside `refresh_history_cache`), clears
+`status_message` once that long has elapsed. This only shortens how long a message sits in the
+footer pushing other segments around — `log_history` (and thus the logs modal) is untouched, since
+`set_status` still records the full message there regardless of how quickly the footer clears it.
+Before this, a message stayed until the *next* action happened to overwrite it, which could be
+indefinitely if nothing else triggered a status update. **The status message is also truncated to
+whatever footer width is actually left** (`status_bar.rs::truncate_to`, using a `RESERVED_RIGHT`
+budget for the right-aligned help/version text) rather than being allowed to overflow — the
+underlying stored string (in both `status_message` and `log_history`) is never touched, only the
+rendered `Span`, so the full text is still there in the logs modal even when the footer only shows
+a `…`-truncated prefix of it.
+
 **`Notebook::list_notes` skips `.md` files that don't parse as a shiki note** (no `---` frontmatter)
 instead of failing the whole listing — an imported/pre-existing repo commonly has plain markdown
 files alongside shiki-formatted ones, and one bad file used to blank out the entire notebook's note

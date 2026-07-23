@@ -19,6 +19,22 @@ fn mode_label(mode: Mode) -> Option<&'static str> {
     }
 }
 
+/// Shortens `text` to at most `max_chars`, marking the cut with `…` — for
+/// fitting the status message into whatever footer space is actually left
+/// on narrow/small terminals instead of overflowing into the right-aligned
+/// help/version text.
+fn truncate_to(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    if max_chars <= 1 {
+        return "…".to_string();
+    }
+    let mut truncated: String = text.chars().take(max_chars - 1).collect();
+    truncated.push('…');
+    truncated
+}
+
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let fg = hex_to_color(&app.theme.fg);
     let muted = hex_to_color(&app.theme.muted);
@@ -117,8 +133,19 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     if let Some(status) = &app.status_message {
-        spans.push(sep);
-        spans.push(Span::styled(status.clone(), plain.fg(fg)));
+        // Truncated to whatever room is actually left, so a long message
+        // can't push the right-aligned help/version text out of view or
+        // overlap it — reserves a rough estimate for that right side since
+        // it isn't computed from the same span list.
+        const RESERVED_RIGHT: usize = 24;
+        let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let budget = (area.width as usize)
+            .saturating_sub(used)
+            .saturating_sub(RESERVED_RIGHT);
+        if budget > 1 {
+            spans.push(sep);
+            spans.push(Span::styled(truncate_to(status, budget), plain.fg(fg)));
+        }
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -128,7 +155,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     // needing a separately carved-out sub-rect.
     let right = Paragraph::new(Line::from(Span::styled(
         format!(
-            "{} ? help  v{} ",
+            "  {} ? help   v{}  ",
             icons::KEYBOARD,
             env!("CARGO_PKG_VERSION")
         ),

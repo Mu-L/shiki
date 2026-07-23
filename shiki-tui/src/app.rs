@@ -29,6 +29,12 @@ use crate::{
 /// from most of this code without threading the render area through).
 const PAGE_STEP: isize = 10;
 
+/// How long a status-bar message stays visible before clearing itself —
+/// it's always still in `log_history` (leader+`l`) regardless, so nothing
+/// is lost by clearing the footer quickly instead of leaving it there until
+/// the next action happens to overwrite it.
+const STATUS_MESSAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Normal,
@@ -151,6 +157,11 @@ pub struct App {
     pub show_which_key: bool,
     pub show_tags: bool,
     pub status_message: Option<String>,
+    /// When `status_message` was last set — the footer only shows it for
+    /// `STATUS_MESSAGE_TIMEOUT`, after which `expire_status_message` (called
+    /// once per `run()` loop iteration) clears it. It's always still in
+    /// `log_history` regardless (leader+`l`), so nothing is actually lost.
+    status_message_set_at: Option<std::time::Instant>,
     /// Branch/dirty/ahead-behind for the selected notebook — refreshed
     /// whenever the notebook, folder, or notes change (`refresh_git_status`).
     pub git_status: shiki_core::git::GitStatus,
@@ -278,6 +289,7 @@ impl App {
             show_which_key: false,
             show_tags: false,
             status_message: None,
+            status_message_set_at: None,
             git_status,
             input: InputBox::default(),
             confirm: None,
@@ -321,8 +333,8 @@ impl App {
     }
 
     /// Sets the status-bar message and records it in `log_history`, so an
-    /// error isn't lost the instant the next action overwrites the status
-    /// bar — see the logs modal (leader+`l`).
+    /// error isn't lost once the footer clears it — see the logs modal
+    /// (leader+`l`) for the permanent record.
     fn set_status(&mut self, message: String) {
         self.log_history.push(LogEntry {
             at: chrono::Local::now(),
@@ -332,6 +344,21 @@ impl App {
             self.log_history.remove(0);
         }
         self.status_message = Some(message);
+        self.status_message_set_at = Some(std::time::Instant::now());
+    }
+
+    /// Clears the footer's status message once it's been showing for
+    /// `STATUS_MESSAGE_TIMEOUT` — called once per `run()` loop iteration.
+    /// It stays in `log_history` regardless, so this only shortens how long
+    /// it sits in the footer pushing other segments around, not how long
+    /// it's actually retrievable.
+    fn expire_status_message(&mut self) {
+        if let Some(set_at) = self.status_message_set_at {
+            if set_at.elapsed() >= STATUS_MESSAGE_TIMEOUT {
+                self.status_message = None;
+                self.status_message_set_at = None;
+            }
+        }
     }
 
     pub fn selected_notebook(&self) -> Option<&Notebook> {
@@ -1920,6 +1947,7 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
             app.last_frame_area = Rect::new(0, 0, size.width, size.height);
         }
         app.refresh_history_cache();
+        app.expire_status_message();
         terminal.draw(|frame| draw(frame, app))?;
 
         if let Some((path, editor)) = app.want_external_edit.take() {
