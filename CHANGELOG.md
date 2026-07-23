@@ -6,6 +6,16 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-23
+
+### Added
+
+- `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` are now published to
+  [crates.io](https://crates.io/crates/shiki-cli) — `CARGO_REGISTRY_TOKEN` is configured, so
+  `cargo install shiki-cli` works directly, no `--git`/`--path` needed. This is the release that
+  verifies the `publish-crates` job actually publishes for real (previous tags skipped it since the
+  secret wasn't set yet).
+
 ## [0.4.0] - 2026-07-22
 
 ### Added
