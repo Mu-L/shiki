@@ -13,7 +13,7 @@
 ![Rust](https://img.shields.io/badge/Rust-2021-CE422B?logo=rust&logoColor=white)
 ![ratatui](https://img.shields.io/badge/ratatui-0.29-blue?logo=rust&logoColor=white)
 ![tokio](https://img.shields.io/badge/tokio-1.x-blue?logo=rust&logoColor=white)
-![git2](https://img.shields.io/badge/git2-0.19-orange?logo=git&logoColor=white)
+![git2](https://img.shields.io/badge/git2-0.21-orange?logo=git&logoColor=white)
 ![clap](https://img.shields.io/badge/clap-4.x-blue?logo=rust&logoColor=white)
 
 See [IDEA.md](IDEA.md) for the full design spec (keybinding tables, config schema, theme list) and
@@ -108,11 +108,28 @@ Run `shiki doctor` after installing (see below) to check all of this in one shot
 
 ## Update
 
+The easiest way, regardless of how you installed: inside the TUI, press leader+`U`. It checks
+GitHub Releases in the background, shows "update available" if there's a newer version, and on
+confirmation downloads, verifies, installs, and relaunches into it automatically — no terminal
+needed.
+
+From the command line instead:
+
 ```sh
-cd shiki
+cargo install shiki-cli   # from crates.io — auto-upgrades if a newer version is published
+```
+
+```sh
+cd shiki                              # from a source clone
 git pull
 cargo install --path shiki-cli --force
 ```
+
+If you installed via `yay`/`paru` or Scoop, prefer their own update command (`yay -Syu`/
+`scoop update shiki`) instead of leader+`U` — the package manager owns that file and needs to stay
+in sync with what's actually on disk. AUR installs in particular install to `/usr/bin`, which
+leader+`U` can't write to without root anyway, so it fails with a permission error there rather
+than silently doing something surprising.
 
 ## Verify
 
