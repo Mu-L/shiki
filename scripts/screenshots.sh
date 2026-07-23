@@ -63,6 +63,24 @@ export DISPLAY="$XVFB_DISPLAY"
 
 THEMES=(catppuccin-mocha tokyo-night-storm gruvbox-dark nord solarized-dark default)
 
+# xterm reserves a small `internalBorder` margin around the text grid that
+# the running program never draws into — it's filled with xterm's own `-bg`
+# resource, which defaults to white. Without setting `-bg` explicitly, every
+# capture showed a thin white border around an otherwise fully-themed
+# screenshot, no matter what theme shiki itself was rendering. Extracted
+# straight from each theme's own Rust source rather than hardcoded here
+# twice, so it can't drift if a theme's palette changes. "default" (the
+# terminal-inheriting theme) has no fixed hex — falls back to plain black,
+# a reasonable generic terminal background for that one capture.
+theme_bg() {
+  local theme="$1" hex
+  hex="$(awk -v name="\"$theme\"" '
+    $0 ~ ("name: " name) { found=1; next }
+    found { if (match($0, /#[0-9a-fA-F]{6}/)) print substr($0, RSTART, RLENGTH); exit }
+  ' "$ROOT"/shiki-config/src/themes/*.rs 2>/dev/null)"
+  echo "${hex:-#000000}"
+}
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -192,7 +210,14 @@ capture() {
   # previous capture (still closing down) matching a shared title could
   # otherwise be picked up instead of this run's actual window.
   local title="shiki-ss-$theme-$size_dir"
-  LANG=C.utf8 LC_ALL=C.utf8 xterm -u8 -fa "$NERD_FONT" -fs 13 \
+  local bg
+  bg="$(theme_bg "$theme")"
+  # `-xrm` zeroes out xterm's own internal/outer border entirely (rather
+  # than just recoloring it to match) — the cleanest fix, since it removes
+  # the artifact instead of masking it; `-bg` is still set as a safety net
+  # for any edge pixel the border removal doesn't reach.
+  LANG=C.utf8 LC_ALL=C.utf8 xterm -u8 -fa "$NERD_FONT" -fs 13 -bg "$bg" \
+    -xrm "XTerm*internalBorder: 0" -xrm "XTerm*borderWidth: 0" \
     -geometry "${cols}x${rows}" -title "$title" \
     -e env XDG_CONFIG_HOME="$cfg_dir" XDG_DATA_HOME="$DATA/.." LANG=C.utf8 LC_ALL=C.utf8 "$BIN" \
     >/dev/null 2>&1 &
