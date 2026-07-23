@@ -300,6 +300,38 @@ The cache is explicitly invalidated (`history_count_cache = None`) after any com
 *same* path without the path itself changing — path-based cache invalidation alone would miss
 both of those and show a stale number.
 
+**PREVIEW's note view and folder-peek follow the exact same cache-per-draw-tick pattern as
+`history_count_cache` above — `App::note_preview_cache`/`folder_preview_cache`, refreshed by
+`refresh_note_preview_cache`/`refresh_folder_preview_cache` right next to `refresh_history_cache`
+in `run()`.** Before this, `panel_preview.rs` called `markdown_to_lines`/re-`list_dir`'d and
+re-`format!`'d every row unconditionally on every single draw — cheap for a normal note or folder,
+but a real, *measured* cost that scales with content size at ~10Hz: caught live via
+`scripts/benchmark.sh`'s aggressive scenarios, a 300,000-line note cost double-digit idle CPU
+purely from being reformatted every ~100ms regardless of whether anything had changed, and a
+100,000-note folder selected-but-not-entered cost the same from re-listing and re-parsing every
+note's frontmatter every redraw. Both caches key on `(path, [fg, accent, muted, link])` rather than
+path alone — the theme picker live-previews by mutating `self.theme` while browsing, and a
+color-blind cache would keep showing the old theme's colors until the note/folder selection
+happened to change too. `refresh_notes_preserve_selection`/`reload_notes` clear both caches
+unconditionally (same as `history_count_cache` does after a revert) since either can cover a case
+where the *same* selected path's content changed underneath it (external edit, inline edit save,
+revert) without the path itself changing.
+
+**Both caches store the already-*formatted* `Vec<Line<'static>>`, not just the raw listing/body —
+an earlier version of `folder_preview_cache` only cached `Notebook::list_dir`'s raw output and
+still rebuilt every row's `Line`/`Span` (with a `format!` call each) on every draw, which was
+enough to show up as ~16% idle CPU at the 100,000-note benchmark scenario despite the "expensive"
+I/O already being cached.** `panel_preview.rs`'s `render` then hands the cached lines to
+`Paragraph::new` via `render::borrow_lines`, which rebuilds the small `Line`/`Span` *wrapper*
+structs but points each span's text at the cache's own `Cow::Borrowed` bytes instead of cloning
+them — a plain `.to_vec()` would deep-clone every `String` in the cache on every redraw, which is
+exactly the residual cost `borrow_lines` was added to avoid once the formatting itself was already
+cached. What's left after both fixes (rebuilding one small `Vec<Span>` per line, still real at
+six-figure line/entry counts) is inherent to `ratatui::widgets::Paragraph` needing an owned
+`Vec<Line<'a>>` each render — verified acceptable at the benchmark's most extreme, deliberately
+unrealistic sizes (100,000 notes in one folder: ~4.7% idle CPU, sub-1s first frame; a single
+300,000-line/~26MB note: ~9.9% idle CPU) with zero measured RSS drift, i.e. no leak, in either case.
+
 **`PageUp`/`PageDown`/`Home`/`End` are handled explicitly everywhere they're needed — they are not
 free from ratatui/tui-textarea.** The one place they *do* come for free is the inline editor
 (`handle_edit_key` forwards the raw `KeyEvent` straight to `tui-textarea`'s `TextArea::input`,

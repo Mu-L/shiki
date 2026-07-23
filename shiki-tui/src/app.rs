@@ -6,7 +6,7 @@ use crossterm::event::{
 };
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 use ratatui::Terminal;
@@ -244,6 +244,23 @@ pub struct App {
     /// every draw tick only actually re-walks history when the selected
     /// note has changed, not on every idle redraw.
     history_count_cache: Option<(std::path::PathBuf, usize)>,
+    /// Cache for the PREVIEW panel's folder peek: `(folder's absolute path,
+    /// subfolder names, note titles)` for whichever folder was last read, so
+    /// `run()` calling this every draw tick only actually re-lists the
+    /// directory (and re-parses each note's frontmatter) when the selected
+    /// folder has changed, not on every idle redraw.
+    folder_preview_cache: Option<(std::path::PathBuf, [Color; 4], Vec<Line<'static>>)>,
+    /// Cache for the PREVIEW panel's note view: `(note path, [fg, accent,
+    /// muted, link], formatted lines)` for whichever note was last
+    /// formatted, so `run()` calling this every draw tick only re-runs
+    /// `markdown_to_lines` (a full scan of the note body — real CPU cost on
+    /// a large note, unlike the folder cache above this isn't I/O) when the
+    /// selected note or the active theme's colors actually changed, not on
+    /// every idle redraw. Colors are part of the key because the theme
+    /// picker live-previews by mutating `self.theme` while browsing, and a
+    /// stale-colored cache hit would show the wrong theme until the note
+    /// changed.
+    note_preview_cache: Option<(std::path::PathBuf, [Color; 4], Vec<Line<'static>>)>,
     pub show_update: bool,
     pub update_state: Option<UpdateState>,
     /// Set while a background thread is checking/installing, so `run()`'s
@@ -380,6 +397,8 @@ impl App {
             history_viewing: None,
             pending_revert: None,
             history_count_cache: None,
+            folder_preview_cache: None,
+            note_preview_cache: None,
             show_update: false,
             update_state: None,
             update_rx: None,
@@ -566,6 +585,8 @@ impl App {
         self.apply_sort();
         self.selected_note = 0;
         self.preview_scroll = 0;
+        self.folder_preview_cache = None;
+        self.note_preview_cache = None;
         self.refresh_git_status();
     }
 
@@ -587,6 +608,12 @@ impl App {
                 self.selected_note = self.folders.len() + idx;
             }
         }
+        self.folder_preview_cache = None;
+        // Also covers the case this cache exists for: same note path, body
+        // changed underneath it (revert, external edit, inline edit save —
+        // every caller of this function). The colors-in-the-key check alone
+        // wouldn't catch that, since neither the path nor the theme changed.
+        self.note_preview_cache = None;
         self.refresh_git_status();
     }
 
@@ -1136,6 +1163,107 @@ impl App {
             .map(|revisions| revisions.len())
             .unwrap_or(0);
         self.history_count_cache = Some((current_path, count));
+    }
+
+    /// Keeps the PREVIEW panel's folder peek up to date without re-listing
+    /// the directory (and re-parsing every note's frontmatter in it), *and*
+    /// without re-formatting the resulting `Line`s (`format!`-ing a name or
+    /// title per row) on every draw tick — only when the selected folder or
+    /// the active theme's colors have actually changed since the last
+    /// check. Formatting a few entries is cheap, but a folder with tens of
+    /// thousands of notes made re-running it ~10x/second a real, measured
+    /// CPU cost (caught by `scripts/benchmark.sh`'s `big-folder-100k`
+    /// scenario) even after the underlying listing itself was cached.
+    /// Called once per `run()` loop iteration, right before drawing, same
+    /// spot as `refresh_history_cache`/`refresh_note_preview_cache`.
+    fn refresh_folder_preview_cache(&mut self) {
+        let Some(folder) = self.selected_folder().map(str::to_owned) else {
+            self.folder_preview_cache = None;
+            return;
+        };
+        let Some(nb_path) = self.selected_notebook().map(|nb| nb.path.clone()) else {
+            self.folder_preview_cache = None;
+            return;
+        };
+        let relative = self.notes_relative_path();
+        let current_key = nb_path.join(&relative).join(&folder);
+        let colors = [
+            hex_to_color(&self.theme.fg),
+            hex_to_color(&self.theme.accent),
+            hex_to_color(&self.theme.muted),
+            hex_to_color(&self.theme.link),
+        ];
+        if self
+            .folder_preview_cache
+            .as_ref()
+            .is_some_and(|(p, c, _)| *p == current_key && *c == colors)
+        {
+            return;
+        }
+        let sub_path = relative.join(&folder);
+        let (subfolders, notes) = self
+            .selected_notebook()
+            .and_then(|nb| nb.list_dir(&sub_path).ok())
+            .unwrap_or_default();
+        let note_titles: Vec<String> = notes.into_iter().map(|n| n.frontmatter.title).collect();
+        let lines = panel_preview::format_folder_entries(
+            &subfolders,
+            &note_titles,
+            colors[0],
+            colors[1],
+            colors[2],
+        );
+        self.folder_preview_cache = Some((current_key, colors, lines));
+    }
+
+    /// The cached, already-formatted lines for whichever folder is
+    /// currently selected (not entered) in NOTES, for the PREVIEW panel's
+    /// peek — `None` if no folder is selected or the cache hasn't caught up
+    /// yet (the very next draw tick fills it in).
+    pub(crate) fn folder_preview_lines(&self) -> Option<&[Line<'static>]> {
+        self.folder_preview_cache
+            .as_ref()
+            .map(|(_, _, lines)| lines.as_slice())
+    }
+
+    /// Keeps the PREVIEW panel's note view up to date without re-running
+    /// `markdown_to_lines` (a full line-by-line scan of the note body) on
+    /// every draw tick — only when the selected note or the active theme's
+    /// colors have actually changed since the last check. Called once per
+    /// `run()` loop iteration, right before drawing, same spot as
+    /// `refresh_history_cache`/`refresh_folder_preview_cache`.
+    fn refresh_note_preview_cache(&mut self) {
+        let Some(note) = self.selected_note() else {
+            self.note_preview_cache = None;
+            return;
+        };
+        let path = note.path.clone();
+        let colors = [
+            hex_to_color(&self.theme.fg),
+            hex_to_color(&self.theme.accent),
+            hex_to_color(&self.theme.muted),
+            hex_to_color(&self.theme.link),
+        ];
+        if self
+            .note_preview_cache
+            .as_ref()
+            .is_some_and(|(p, c, _)| *p == path && *c == colors)
+        {
+            return;
+        }
+        let body = note.body.clone();
+        let lines =
+            crate::render::markdown_to_lines(&body, colors[0], colors[1], colors[2], colors[3]);
+        self.note_preview_cache = Some((path, colors, lines));
+    }
+
+    /// The cached formatted lines for whichever note is currently selected,
+    /// for the PREVIEW panel — `None` if no note is selected or the cache
+    /// hasn't caught up yet (the very next draw tick fills it in).
+    pub(crate) fn note_preview_lines(&self) -> Option<&[Line<'static>]> {
+        self.note_preview_cache
+            .as_ref()
+            .map(|(_, _, lines)| lines.as_slice())
     }
 
     /// The cached revision count for whichever note is currently selected,
@@ -2137,6 +2265,8 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
             app.last_frame_area = Rect::new(0, 0, size.width, size.height);
         }
         app.refresh_history_cache();
+        app.refresh_folder_preview_cache();
+        app.refresh_note_preview_cache();
         app.expire_status_message();
         app.poll_update_channel();
         terminal.draw(|frame| draw(frame, app))?;

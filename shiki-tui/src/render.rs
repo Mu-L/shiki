@@ -126,6 +126,35 @@ fn wikilink_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
 /// bullets, dimmed code fences and blockquotes, styled `[[wikilinks]]`. Good
 /// enough for the preview panel; not a replacement for a full
 /// comrak/syntect-based renderer.
+/// Rebuilds `Line<'a>`s that borrow their text from an existing
+/// `&'a [Line<'static>]` instead of cloning it — used to hand a cached,
+/// already-formatted preview (`App::note_preview_lines`/
+/// `folder_preview_lines`) to `Paragraph::new`, which needs an owned
+/// `Vec<Line<'a>>`. A plain `.to_vec()` would deep-clone every `String`
+/// backing every span — cheap for a handful of lines, but a real,
+/// measured cost on a huge note or a folder with tens of thousands of
+/// entries, re-paid on every single draw tick even though the *content*
+/// hasn't changed. Only the small `Style`/`Vec` scaffolding gets rebuilt
+/// here; every span's actual text is a `Cow::Borrowed` pointing at the
+/// cache's own bytes, so nothing text-sized gets copied.
+pub fn borrow_lines<'a>(lines: &'a [Line<'static>]) -> Vec<Line<'a>> {
+    lines
+        .iter()
+        .map(|line| Line {
+            style: line.style,
+            alignment: line.alignment,
+            spans: line
+                .spans
+                .iter()
+                .map(|span| Span {
+                    style: span.style,
+                    content: std::borrow::Cow::Borrowed(span.content.as_ref()),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 pub fn markdown_to_lines(
     body: &str,
     fg: Color,

@@ -6,6 +6,29 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-23
+
+### Added
+
+- `scripts/benchmark.sh`: an automated, transparent CPU/RAM/responsiveness benchmark that drives
+  the real release binary headlessly via tmux across seven scenarios, from an empty notebook up to
+  100,000 notes in one folder, 200 levels of nested folders, and a single 300,000-line note —
+  samples real `/proc/<pid>/stat`/`status` numbers (CPU ticks, VmRSS, wall-clock time to first
+  rendered frame) rather than estimating anything, so it doubles as a freeze/hang check.
+
+### Changed
+
+- PREVIEW's note view and folder-peek now cache their formatted output (`App::note_preview_cache`/
+  `folder_preview_cache`) instead of re-formatting on every ~100ms draw tick, and borrow rather than
+  clone that cached text into the `Paragraph` (`render::borrow_lines`). Previously, a selected
+  note's entire body was reformatted via `markdown_to_lines` on every redraw regardless of size,
+  and a selected-but-not-entered folder re-listed the directory and re-parsed every note's
+  frontmatter on every redraw regardless of folder size — both scaled with content size at ~10Hz
+  whether or not anything had actually changed. Verified via `scripts/benchmark.sh`'s aggressive
+  scenarios: a 100,000-note folder now costs ~4.7% idle CPU (found via the same benchmark to be in
+  the double digits before formatted-output caching was added) and a 300,000-line note ~9.9%, both
+  with a sub-second first frame and zero measured RSS drift.
+
 ## [0.5.0] - 2026-07-23
 
 ### Added
