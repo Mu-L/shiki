@@ -294,6 +294,15 @@ pub struct ThemeConfig {
     pub overrides: ThemeOverrides,
 }
 
+/// One `Option<String>` per `Theme` color slot — every field is optional
+/// (and, critically, *absent-tolerant*: serde's derive already treats a
+/// missing `Option<T>` field as `None` with no `#[serde(default)]` needed,
+/// which is exactly why an existing `config.toml` with only some of these
+/// keys — or none at all — keeps parsing fine as more get added here), so a
+/// user can override as few or as many slots as they want without needing
+/// to specify the rest. `shiki theme create` (`shiki-cli`) scaffolds every
+/// field at once from a real palette instead of leaving them to be found
+/// and typed by hand one at a time.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ThemeOverrides {
     pub bg: Option<String>,
@@ -301,6 +310,49 @@ pub struct ThemeOverrides {
     pub accent: Option<String>,
     pub selection: Option<String>,
     pub border: Option<String>,
+    pub statusbar: Option<String>,
+    pub highlight: Option<String>,
+    pub error: Option<String>,
+    pub warning: Option<String>,
+    pub success: Option<String>,
+    pub inactive: Option<String>,
+    pub scrollbar: Option<String>,
+    pub tab_active: Option<String>,
+    pub tab_inactive: Option<String>,
+    pub panel_title: Option<String>,
+    pub cursor: Option<String>,
+    pub link: Option<String>,
+    pub tag: Option<String>,
+    pub muted: Option<String>,
+}
+
+impl ThemeOverrides {
+    /// Every field set from `theme`'s actual values — used by `shiki theme
+    /// create` to scaffold a full, ready-to-edit set of overrides instead
+    /// of blank ones.
+    pub fn from_theme(theme: &Theme) -> Self {
+        Self {
+            bg: Some(theme.bg.clone()),
+            fg: Some(theme.fg.clone()),
+            accent: Some(theme.accent.clone()),
+            selection: Some(theme.selection.clone()),
+            border: Some(theme.border.clone()),
+            statusbar: Some(theme.statusbar.clone()),
+            highlight: Some(theme.highlight.clone()),
+            error: Some(theme.error.clone()),
+            warning: Some(theme.warning.clone()),
+            success: Some(theme.success.clone()),
+            inactive: Some(theme.inactive.clone()),
+            scrollbar: Some(theme.scrollbar.clone()),
+            tab_active: Some(theme.tab_active.clone()),
+            tab_inactive: Some(theme.tab_inactive.clone()),
+            panel_title: Some(theme.panel_title.clone()),
+            cursor: Some(theme.cursor.clone()),
+            link: Some(theme.link.clone()),
+            tag: Some(theme.tag.clone()),
+            muted: Some(theme.muted.clone()),
+        }
+    }
 }
 
 impl Default for ThemeConfig {
@@ -331,6 +383,48 @@ impl ThemeConfig {
         if let Some(v) = &self.overrides.border {
             theme.border = v.clone();
         }
+        if let Some(v) = &self.overrides.statusbar {
+            theme.statusbar = v.clone();
+        }
+        if let Some(v) = &self.overrides.highlight {
+            theme.highlight = v.clone();
+        }
+        if let Some(v) = &self.overrides.error {
+            theme.error = v.clone();
+        }
+        if let Some(v) = &self.overrides.warning {
+            theme.warning = v.clone();
+        }
+        if let Some(v) = &self.overrides.success {
+            theme.success = v.clone();
+        }
+        if let Some(v) = &self.overrides.inactive {
+            theme.inactive = v.clone();
+        }
+        if let Some(v) = &self.overrides.scrollbar {
+            theme.scrollbar = v.clone();
+        }
+        if let Some(v) = &self.overrides.tab_active {
+            theme.tab_active = v.clone();
+        }
+        if let Some(v) = &self.overrides.tab_inactive {
+            theme.tab_inactive = v.clone();
+        }
+        if let Some(v) = &self.overrides.panel_title {
+            theme.panel_title = v.clone();
+        }
+        if let Some(v) = &self.overrides.cursor {
+            theme.cursor = v.clone();
+        }
+        if let Some(v) = &self.overrides.link {
+            theme.link = v.clone();
+        }
+        if let Some(v) = &self.overrides.tag {
+            theme.tag = v.clone();
+        }
+        if let Some(v) = &self.overrides.muted {
+            theme.muted = v.clone();
+        }
         theme
     }
 }
@@ -353,6 +447,19 @@ pub struct GitConfig {
     /// automatic sync when `auto_sync` is on.
     #[serde(default = "default_auto_sync_every")]
     pub auto_sync_every: u32,
+    /// Template for the remote URL to auto-configure (`git::set_remote`)
+    /// when a notebook is created with a plain name — `{notebook}` is
+    /// replaced with the new notebook's name, e.g.
+    /// `"git@git.example.com:notes/{notebook}.git"` or a local bare-repo
+    /// path template. Empty (the default) means don't auto-configure
+    /// anything — the remote still has to already exist on that server;
+    /// this doesn't create one via any hosting provider's API. Doesn't
+    /// apply when the typed name is itself a git URL
+    /// (`create_notebook_from_url` already sets its own remote from that).
+    /// Field-level default so an existing `[git]` table written before this
+    /// key existed still deserializes.
+    #[serde(default)]
+    pub remote_template: String,
 }
 
 impl Default for GitConfig {
@@ -366,6 +473,7 @@ impl Default for GitConfig {
             sign_commits: false,
             auto_sync: false,
             auto_sync_every: default_auto_sync_every(),
+            remote_template: String::new(),
         }
     }
 }
@@ -445,6 +553,20 @@ impl Config {
             .join("templates"))
     }
 
+    /// Where the persistent status/log history (`App::log_history`) is
+    /// appended to — the config dir, not the data dir, deliberately: the
+    /// data dir's top level *is* the set of notebooks (each one a plain,
+    /// user-named directory — see the filesystem layout in `IDEA.md`), so
+    /// any fixed filename placed there could collide with a notebook
+    /// someone names the same thing. The config dir has no such risk, only
+    /// shiki's own fixed files.
+    pub fn default_log_path() -> Result<PathBuf> {
+        Ok(Self::default_path()?
+            .parent()
+            .expect("config path always has a parent")
+            .join("shiki.log"))
+    }
+
     /// Loads the config from `path`, or creates and saves a default config if it doesn't exist.
     pub fn load_or_init(path: &Path) -> Result<Self> {
         if path.exists() {
@@ -472,5 +594,41 @@ impl Config {
         let contents = toml::to_string_pretty(self)?;
         std::fs::write(path, contents)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_theme_round_trips_every_field_through_resolve() {
+        let base = crate::themes::by_name("nord").expect("nord is a built-in theme");
+        let overrides = ThemeOverrides::from_theme(&base);
+        let config = ThemeConfig {
+            name: "nord".into(),
+            overrides,
+        };
+        // Every one of `Theme`'s 19 color fields — including the 14 that
+        // used to have no override path at all — must resolve back to
+        // exactly the base theme's own value, proving `from_theme` covers
+        // all of them and `resolve` applies all of them.
+        assert_eq!(config.resolve(), base);
+    }
+
+    #[test]
+    fn resolve_only_applies_fields_that_are_actually_overridden() {
+        let overrides = ThemeOverrides {
+            error: Some("#ff0000".into()),
+            ..Default::default()
+        };
+        let config = ThemeConfig {
+            name: "nord".into(),
+            overrides,
+        };
+        let base = crate::themes::by_name("nord").unwrap();
+        let resolved = config.resolve();
+        assert_eq!(resolved.error, "#ff0000");
+        assert_eq!(resolved.fg, base.fg); // untouched field falls back to the base theme
     }
 }

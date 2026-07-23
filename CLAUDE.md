@@ -164,11 +164,20 @@ is why every theme looked "flat"/less faithful than the same palette elsewhere (
 none of them were using their own `selection` color for the one thing it's for. Fixed by adding
 `.bg(hex_to_color(&theme.selection))` to every one of those `.highlight_style(...)` calls (verified
 by inspecting live ANSI output via `tmux capture-pane -e`, not just visually — e.g. gruvbox-dark's
-selected row now carries `48;2;60;56;54`, exactly `#3c3836`). `panel_tags.rs`'s `.highlight_style`
-is a pre-existing, separate gap: that panel never calls `ListState::select` at all (no navigable
-tags list yet), so its highlight style has never been reachable regardless of this fix — not
-touched here, since adding a background there wouldn't be visible without also adding real
-selection/navigation to that panel first.
+selected row now carries `48;2;60;56;54`, exactly `#3c3836`).
+
+**The tags modal (leader+`T`, `panel_tags.rs` + `App::toggle_tags`/`handle_tags_key`) is two
+levels deep, same shape as the tree view/global search's "browse then jump" pattern — it used to
+be read-only (`ListState::select` was never called, so its `.highlight_style` was unreachable).**
+Level 1 lists distinct tags (`TagIndex::build(&app.notes)`, current directory only — same scope
+the tags modal always had); `Enter`/`l` on one sets `App.tags_viewing = Some(tag)`, switching to
+level 2: every note in `self.notes` carrying that tag (`App::notes_with_tag`). `Enter`/`l` there
+jumps straight to it (select + `Focus::Preview` + close both levels) — no `reload_notes`/
+`notes_path` juggling needed, unlike the tree view's/global search's cross-folder jumps, since
+every match is already sitting in the currently-loaded `self.notes` by construction (`notes_with_tag`
+filters the same list `current_tags` was built from). `h`/`Esc`/`Backspace` at level 2 goes back
+to level 1; `Esc`/`q` at level 1 closes the modal outright. `App::toggle_tags` resets both level
+and selection to the top every time it opens, so it never reopens mid-drill-down from last time.
 
 **Each crate has its own error type** — there is no shared error enum:
 - `shiki_core::Error`/`Result` (thiserror, in `shiki-core/src/lib.rs`)
@@ -309,6 +318,32 @@ cursor and only persists to `config.toml` on `Enter`; `Esc` reverts to
 dead code — the notes-scope search (`/`) and global search (leader+`g`) were both built directly
 in `App` instead.
 
+**The theme picker's `Enter` (and `shiki theme set`) only reset `config.theme.overrides` when the
+base theme name is actually *changing*, not on every confirm/set.** Both used to zero out
+`ThemeOverrides` unconditionally — even re-confirming the theme that was already active with no
+real change silently wiped any hand-written custom colors. The fix compares against
+`config.theme.name` (the last *committed* value) before overwriting it — in `app.rs`, that's
+deliberately not `self.theme.name`, which is the live-preview value while browsing the picker and
+would give the wrong answer (it changes on every `j`/`k`, long before anything's actually
+confirmed). **`ThemeOverrides` (`shiki-config/src/config.rs`) covers all 19 of `Theme`'s color
+slots now, not just 5** (`bg`/`fg`/`accent`/`selection`/`border` — the other 14, e.g. `error`/
+`warning`/`success`/`tag`/`link`/`cursor`, had no override path at all before). Every field is a
+plain `Option<String>` with no `#[serde(default)]` needed — serde's derive already treats a
+missing `Option<T>` field as `None`, which is exactly why the original 5-field partial-override
+behavior already worked and why an existing `config.toml` with only some of the 19 keys (or none)
+keeps parsing fine. `ThemeConfig::resolve()` applies all 19 via plain repeated `if let Some(v) = …`
+blocks, not a macro — this codebase has no `macro_rules!` anywhere, and introducing the first one
+just to save repeating a 3-line pattern 14 more times isn't worth the new precedent.
+
+**`shiki theme create [--from <name>]`** (`shiki-cli/src/commands/theme.rs`) is the actual way to
+get a full custom theme instead of hand-typing hex codes with no example to copy from — it
+resolves the base theme (`--from`, or whichever is currently active), calls
+`ThemeOverrides::from_theme(&base)` (sets *every* one of the 19 fields to that theme's real
+values, not blanks), and — deliberately — also sets `config.theme.name` to that same base name,
+not just the overrides: every slot is about to be explicitly overridden with `base`'s colors
+anyway, so leaving `theme.name` pointing at whatever was active before would make the command's
+own printed "removing a key falls back to `<base>`" guidance wrong the moment someone acts on it.
+
 **`App.favorite_editor: Option<String>` is resolved once at startup, not per-render.**
 `shiki_core::editor::detect_favorite_editor()` can shell out to `xdg-mime` on Linux when
 `$VISUAL`/`$EDITOR` aren't set — cheap once, but `draw()` runs roughly every ~100ms even while
@@ -447,6 +482,16 @@ then it creates the notebook, `git::set_remote`s it, and `git::pull`s immediatel
 existing repo is `a` + paste URL + Enter instead of four separate steps (new notebook, name, `R`,
 pull). A plain name still takes the normal empty-input-fallback path.
 
+**A plain (non-URL) name still gets a remote auto-configured if `git.remote_template` is set** —
+`{notebook}` is substituted with the new name (e.g. `"git@git.example.com:notes/{notebook}.git"`),
+then `git::set_remote`, same as the pasted-URL path just without the `pull` (there's nothing to
+pull — the remote still has to already exist on that server; this is a naming convention, not repo
+creation via a hosting provider's API). Deliberately doesn't push right after either: a
+just-created notebook has no commits yet, so an immediate push would only fail with a confusing
+"reference not found" — the existing `auto_push`/`auto_sync` machinery picks the remote up
+naturally the first time there's actually something to sync. Empty string (the default) is a
+no-op, so existing configs/behavior are unaffected until someone opts in.
+
 **Git remote support** (`shiki-core/src/git.rs::set_remote`/`remote_url`, plus the pre-existing
 `pull`/`push`/`commit_all`) lets a notebook's `origin` be a normal git URL or a local path — git2
 treats both the same for fetch. `Action::PullAllNotebooks` loops every notebook and reports
@@ -577,6 +622,40 @@ ratatui's alternate screen in terminals that support it, e.g. kitty/iTerm2/Alacr
 over SSH/tmux with clipboard passthrough enabled — no native clipboard crate needed). If you add a
 new status/error message anywhere, call `self.set_status(...)` — a raw `self.status_message =
 Some(...)` assignment would skip the log history.
+
+**`log_history` is now actually persistent, not just "survives until the next status message
+overwrites the footer."** `set_status` calls `App::persist_log_entry`, which appends one line
+(`RFC3339 timestamp` + tab + message, `format_log_line`/`parse_log_line`) to
+`Config::default_log_path()` — the *config* dir (`~/.config/shiki/shiki.log`), deliberately not
+the data dir: the data dir's top level *is* the set of notebooks, each one a plain user-named
+directory, so a fixed log filename there could collide with a notebook someone names the same
+thing; the config dir has no such risk. `App::new` reads that file back into `log_history` at
+startup (`load_log_history`, same 500-entry cap as the in-memory side, though the *file* itself
+is never capped — malformed individual lines are skipped rather than failing the whole read, same
+spirit as `Notebook::list_notes` tolerating one bad note file). A write failure sets `log_path =
+None` (persistence silently disabled for the rest of the session, not retried every keystroke) but
+is still reported *once*, by pushing directly into `log_history`/`status_message` rather than
+going back through `set_status` — routing it through `set_status` would call
+`persist_log_entry` again and recurse.
+
+**leader+`l` then `x` clears all logs — both the in-memory `log_history` and the on-disk
+file — behind the same confirm-dialog pattern as delete note/delete notebook**
+(`App.pending_clear_logs`, mirrors `pending_delete`/`pending_revert`; wired into
+`handle_confirm_key`'s existing `y`/`n` chain, not a new confirmation mechanism). `App::clear_logs`
+truncates the file then calls `set_status("logs cleared")` — that message becomes the new file's
+first line, so *when* it was last cleared is itself part of the record instead of leaving an
+empty file with no context.
+
+**Git URLs are redacted before they ever reach a status message, since those are what
+`log_history`/the persisted file actually store.** `shiki_core::git::redact_credentials(url)`
+strips the userinfo (`user[:password]@` in `scheme://…`, or the whole `user@` in scp-style
+`user@host:path`) — GitHub/GitLab personal-access-token URLs commonly embed the token as bare
+userinfo with no `:password` at all (`https://ghp_xxx@github.com/…`), so *any* userinfo gets
+redacted, not just ones containing a `:`. Every call site that used to interpolate a raw URL into
+`set_status` (`create_notebook_from_url`, the `remote_template` auto-configure path, manual
+`SetRemote`) now redacts it first — `set_remote`/`pull` themselves still get the real, unredacted
+URL, since they actually need the credentials to work; only the *displayed/logged* string is
+touched.
 
 **The footer's status message clears itself after `STATUS_MESSAGE_TIMEOUT` (2s), independent of
 `log_history`.** `set_status` also stamps `status_message_set_at: Instant`; `App::expire_status_

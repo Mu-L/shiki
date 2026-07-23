@@ -201,8 +201,8 @@ search, tree view) using the same list/selection they already navigate with `j`/
 |---|---|
 | `c` | Pick a theme — modal, live preview while browsing, Enter confirms |
 | `g` | Search all notes (title + body, every notebook) — modal, Enter/click to jump |
-| `T` | Tags panel |
-| `l` | Logs — scrollback of every status-bar message (including errors that already scrolled past); `j`/`k` scroll, `y`/`c` copies the whole log to the clipboard (OSC 52), `Esc`/`q` closes |
+| `T` | Tags panel — `j`/`k` browse tags, `Enter`/`l` drills into the notes carrying one, `Enter`/`l` there jumps to it, `h`/`Esc` goes back a level |
+| `l` | Logs — persistent scrollback of every status-bar message (survives restarts, `~/.config/shiki/shiki.log`), including errors that already scrolled past; `j`/`k` scroll, `y`/`c` copies the whole log to the clipboard (OSC 52), `x` clears all logs (confirmation required), `Esc`/`q` closes |
 | `b` | Notebook drawer — left-side sidebar, every notebook's git status in color (dirty/ahead/behind); `j`/`k` or click a row to jump to it, `n`/click "New" to create a notebook, `i`/click "Import" to clone from a pasted URL, `Esc`/`b` again closes |
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
@@ -275,6 +275,7 @@ shiki notebook list
 shiki notebook rename <old> <new>
 shiki theme list          # list built-in themes, marking the active one
 shiki theme set <name>    # switch theme (persisted to config.toml)
+shiki theme create [--from <name>]  # scaffold all 19 color overrides from a real palette
 ```
 
 ---
@@ -314,6 +315,7 @@ file's mtime. It only gains real frontmatter once you touch it through shiki
 ├── config.toml            # general configuration
 ├── keybindings.toml       # custom shortcuts (optional)
 ├── theme.toml             # custom theme (optional)
+├── shiki.log              # persistent status/log history (leader+l to view, x to clear)
 └── templates/             # templates
     ├── default.md
     ├── daily.md
@@ -418,10 +420,20 @@ history = "H"
 
 [theme]
 name = "catppuccin-mocha"
-# For a custom theme (without using name):
+# Every one of a theme's 19 color slots can be overridden individually —
+# accent, bg, fg, selection, border, statusbar, highlight, error, warning,
+# success, inactive, scrollbar, tab_active, tab_inactive, panel_title,
+# cursor, link, tag, muted. Override as many or as few as you want; anything
+# left unset falls back to `name`'s own value for that slot. A couple of
+# examples:
 # accent = "blue"
 # bg = "#1e1e2e"
 # fg = "#cdd6f4"
+#
+# `shiki theme create [--from <theme>]` scaffolds *all 19* here at once,
+# copied from a real palette (defaulting to whichever theme is active) —
+# a starting point to edit slot-by-slot instead of hand-typing hex codes
+# from scratch with no example to copy from.
 
 [git]
 auto_commit = true
@@ -432,6 +444,13 @@ branch = "main"
 sign_commits = false
 auto_sync = false
 auto_sync_every = 5
+# Auto-configures a notebook's remote on creation (plain name, not a pasted
+# URL) — "{notebook}" is replaced with the new notebook's name. The remote
+# still has to already exist on that server; this doesn't create one via
+# any hosting provider's API. Empty (the default) means don't auto-configure
+# anything.
+remote_template = ""
+# remote_template = "git@git.example.com:notes/{notebook}.git"
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.

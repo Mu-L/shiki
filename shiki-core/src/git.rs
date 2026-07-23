@@ -358,6 +358,30 @@ pub fn pull(path: &Path, remote: &str, branch: &str) -> Result<String> {
 /// Sets (creating or replacing) the notebook's `origin` remote. `url` can be
 /// a normal git URL (`https://…`, `git@…`) or a local path/`file://` URL —
 /// git treats a local path remote the same as any other for fetch/pull.
+/// Strips the userinfo portion (`user[:password]@` in `scheme://user@host/…`,
+/// or the whole `user@` in scp-style `user@host:path`) from a git URL —
+/// called before any remote URL is ever interpolated into a status message
+/// in `shiki-tui`, since those land in `log_history` (viewable in the logs
+/// modal and copyable to the clipboard, and now persisted to disk).
+/// GitHub/GitLab personal-access-token URLs commonly embed the token as
+/// bare userinfo (`https://ghp_xxx@github.com/…`, no `:password` at all),
+/// so this redacts *any* userinfo present, not just ones with a `:` in
+/// them — a plain SSH `git@host:path` loses its (non-secret) "git" prefix
+/// this way too, which is an acceptable trade for never accidentally
+/// leaving a real token unredacted.
+pub fn redact_credentials(url: &str) -> String {
+    let Some(at_idx) = url.find('@') else {
+        return url.to_string();
+    };
+    match url.find("://") {
+        Some(scheme_end) if scheme_end < at_idx => {
+            format!("{}***@{}", &url[..scheme_end + 3], &url[at_idx + 1..])
+        }
+        Some(_) => url.to_string(), // '@' appears before any "://" — not userinfo
+        None => format!("***@{}", &url[at_idx + 1..]), // scp-style, no scheme
+    }
+}
+
 pub fn set_remote(path: &Path, url: &str) -> Result<()> {
     let repo = init_repo(path)?;
     if repo.find_remote("origin").is_ok() {
@@ -492,5 +516,51 @@ pub fn status(path: &Path, remote: &str) -> GitStatus {
         branch,
         ahead,
         behind,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_https_token_as_bare_userinfo() {
+        assert_eq!(
+            redact_credentials("https://ghp_secrettoken@github.com/user/repo.git"),
+            "https://***@github.com/user/repo.git"
+        );
+    }
+
+    #[test]
+    fn redacts_https_user_and_password() {
+        assert_eq!(
+            redact_credentials("https://user:hunter2@example.com/repo.git"),
+            "https://***@example.com/repo.git"
+        );
+    }
+
+    #[test]
+    fn redacts_scp_style_ssh_url() {
+        assert_eq!(
+            redact_credentials("git@github.com:user/repo.git"),
+            "***@github.com:user/repo.git"
+        );
+    }
+
+    #[test]
+    fn leaves_url_without_userinfo_unchanged() {
+        assert_eq!(
+            redact_credentials("https://github.com/user/repo.git"),
+            "https://github.com/user/repo.git"
+        );
+        assert_eq!(redact_credentials(""), "");
+    }
+
+    #[test]
+    fn leaves_local_path_unchanged() {
+        assert_eq!(
+            redact_credentials("/home/omar/bare-repos/notes.git"),
+            "/home/omar/bare-repos/notes.git"
+        );
     }
 }

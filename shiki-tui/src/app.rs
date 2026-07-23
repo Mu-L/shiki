@@ -159,6 +159,16 @@ pub struct App {
     pub should_quit: bool,
     pub show_which_key: bool,
     pub show_tags: bool,
+    /// Index into the tag list — `Vec<String>` from `TagIndex::tags()`
+    /// (already sorted, `BTreeMap::keys()`), so this stays meaningful
+    /// across redraws without needing to store the list itself.
+    pub tags_selected: usize,
+    /// `Some(tag)` while drilled into a tag's notes (level 2 of the tags
+    /// modal); `None` while browsing the tag list itself (level 1).
+    pub tags_viewing: Option<String>,
+    /// Index into the *filtered* notes list, only meaningful while
+    /// `tags_viewing.is_some()`.
+    pub tags_notes_selected: usize,
     pub status_message: Option<String>,
     /// When `status_message` was last set — the footer only shows it for
     /// `STATUS_MESSAGE_TIMEOUT`, after which `expire_status_message` (called
@@ -193,10 +203,23 @@ pub struct App {
     pub show_theme_picker: bool,
     pub show_global_search: bool,
     pub show_logs: bool,
-    /// Every status-bar message ever set, oldest first (capped at 500) — the
-    /// status bar only shows the latest one, so this is what backs the logs
-    /// modal (leader+`l`) for anything that scrolled past, especially errors.
+    /// Every status-bar message set *this session*, oldest first (capped
+    /// at 500 in memory) — the status bar only shows the latest one, so
+    /// this is what backs the logs modal (leader+`l`) for anything that
+    /// scrolled past, especially errors. Pre-populated from `log_path` on
+    /// startup (see `App::new`), so it isn't only this session's messages
+    /// in practice — the on-disk file itself isn't capped, only this
+    /// in-memory view of it.
     pub log_history: Vec<LogEntry>,
+    /// Where `log_history` is appended to, one line per entry
+    /// (`Config::default_log_path`) — `None` if that path couldn't be
+    /// resolved at startup, or once a write to it has failed (see
+    /// `persist_log_entry`); either way, `log_history` still works as an
+    /// in-memory-only log for the rest of the session.
+    log_path: Option<std::path::PathBuf>,
+    /// Staged while the confirm dialog for leader+`l`'s `x` (clear all
+    /// logs) is up — mirrors `pending_delete`/`pending_revert`'s pattern.
+    pending_clear_logs: bool,
     pub show_tree: bool,
     tree_rows: Vec<crate::tree::TreeRow>,
     /// Index into just the `Note` rows of `tree_rows` (folder rows are
@@ -371,6 +394,45 @@ pub struct LogEntry {
     pub message: String,
 }
 
+/// One line per entry: RFC3339 timestamp, a tab, the message — chosen so
+/// parsing back is unambiguous (split on the first tab) even if the message
+/// itself contains brackets, colons, or anything else a more "readable"
+/// format might collide with.
+fn format_log_line(entry: &LogEntry) -> String {
+    format!("{}\t{}\n", entry.at.to_rfc3339(), entry.message)
+}
+
+fn parse_log_line(line: &str) -> Option<LogEntry> {
+    let (at, message) = line.split_once('\t')?;
+    let at = chrono::DateTime::parse_from_rfc3339(at)
+        .ok()?
+        .with_timezone(&chrono::Local);
+    Some(LogEntry {
+        at,
+        message: message.to_string(),
+    })
+}
+
+/// Reads whatever `log_path` already has from previous sessions, capped to
+/// the same 500-entry window `log_history` keeps in memory — the file
+/// itself isn't capped (that's what the logs modal's `x`/clear is for), but
+/// there's no reason to load more than the in-memory view will ever show.
+/// Missing file, unreadable file, or unparseable lines are all silently
+/// tolerated here (an empty prior history is the correct fallback, not a
+/// startup error) — malformed *individual* lines are just skipped rather
+/// than failing the whole read, same "one bad file doesn't blank out
+/// everything" spirit as `Notebook::list_notes`.
+fn load_log_history(path: &std::path::Path) -> Vec<LogEntry> {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<LogEntry> = contents.lines().filter_map(parse_log_line).collect();
+    if entries.len() > 500 {
+        entries.drain(..entries.len() - 500);
+    }
+    entries
+}
+
 impl App {
     pub fn new(config: Config, store: NotebookStore) -> shiki_core::Result<Self> {
         let theme = config.theme.resolve();
@@ -388,6 +450,11 @@ impl App {
         let note_statuses = notebooks
             .first()
             .and_then(|nb| shiki_core::git::file_statuses(&nb.path).ok())
+            .unwrap_or_default();
+        let log_path = Config::default_log_path().ok();
+        let log_history = log_path
+            .as_deref()
+            .map(load_log_history)
             .unwrap_or_default();
         let available_themes = shiki_config::themes::all();
         let theme_index = available_themes
@@ -410,6 +477,9 @@ impl App {
             should_quit: false,
             show_which_key: false,
             show_tags: false,
+            tags_selected: 0,
+            tags_viewing: None,
+            tags_notes_selected: 0,
             status_message: None,
             status_message_set_at: None,
             git_status,
@@ -424,7 +494,9 @@ impl App {
             show_theme_picker: false,
             show_global_search: false,
             show_logs: false,
-            log_history: Vec::new(),
+            log_history,
+            log_path,
+            pending_clear_logs: false,
             show_tree: false,
             tree_rows: Vec::new(),
             tree_selected: 0,
@@ -472,15 +544,66 @@ impl App {
     /// error isn't lost once the footer clears it — see the logs modal
     /// (leader+`l`) for the permanent record.
     fn set_status(&mut self, message: String) {
-        self.log_history.push(LogEntry {
+        let entry = LogEntry {
             at: chrono::Local::now(),
             message: message.clone(),
-        });
+        };
+        self.persist_log_entry(&entry);
+        self.log_history.push(entry);
         if self.log_history.len() > 500 {
             self.log_history.remove(0);
         }
         self.status_message = Some(message);
         self.status_message_set_at = Some(std::time::Instant::now());
+    }
+
+    /// Appends one line to `log_path`, creating the parent directory (the
+    /// config dir — always exists already in practice, since a config file
+    /// had to be loaded to get this far, but cheap to make sure) if needed.
+    /// A write failure disables further persistence for the rest of the
+    /// session (`log_path = None`) rather than retrying every single status
+    /// update — and is reported once, by pushing directly into
+    /// `log_history`/`status_message` instead of going back through
+    /// `set_status` (which would call this again, recursing).
+    fn persist_log_entry(&mut self, entry: &LogEntry) {
+        let Some(path) = self.log_path.clone() else {
+            return;
+        };
+        let write_result = (|| -> std::io::Result<()> {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)?;
+            file.write_all(format_log_line(entry).as_bytes())
+        })();
+        if let Err(e) = write_result {
+            self.log_path = None;
+            let failure = LogEntry {
+                at: chrono::Local::now(),
+                message: format!("log persistence disabled ({}): {e}", path.display()),
+            };
+            self.status_message = Some(failure.message.clone());
+            self.status_message_set_at = Some(std::time::Instant::now());
+            self.log_history.push(failure);
+        }
+    }
+
+    /// leader+`l` then `x` (behind a confirmation, `App.pending_clear_logs`)
+    /// — wipes both the in-memory view and the on-disk file. Reports itself
+    /// via `set_status` same as any other action, which doubles as the
+    /// first line of the now-empty file: "when was this last cleared" is
+    /// itself useful context for whoever reads it next.
+    fn clear_logs(&mut self) {
+        self.log_history.clear();
+        self.logs_selected = 0;
+        if let Some(path) = &self.log_path {
+            let _ = std::fs::write(path, "");
+        }
+        self.set_status("logs cleared".into());
     }
 
     /// Clears the footer's status message once it's been showing for
@@ -582,8 +705,14 @@ impl App {
     /// notebook name from the repo name, creates it, points its remote at
     /// the URL, and pulls right away.
     fn create_notebook_from_url(&mut self, url: &str) {
+        // Redacted before it ever reaches a status message/log_history —
+        // never the real `url`, which still goes to `set_remote`/`pull`
+        // below since those actually need the credentials to work.
+        let redacted = shiki_core::git::redact_credentials(url);
         let Some(name) = notebook_name_from_git_url(url) else {
-            self.set_status(format!("could not derive a notebook name from '{url}'"));
+            self.set_status(format!(
+                "could not derive a notebook name from '{redacted}'"
+            ));
             return;
         };
         let notebook = match self.store.create(&name) {
@@ -610,9 +739,11 @@ impl App {
             Ok(branch) => {
                 self.reload_notes();
                 if branch == self.config.git.branch {
-                    self.set_status(format!("cloned '{name}' from {url}"));
+                    self.set_status(format!("cloned '{name}' from {redacted}"));
                 } else {
-                    self.set_status(format!("cloned '{name}' from {url} (branch '{branch}')"));
+                    self.set_status(format!(
+                        "cloned '{name}' from {redacted} (branch '{branch}')"
+                    ));
                 }
             }
             Err(e) => self.set_status(format!(
@@ -868,8 +999,16 @@ impl App {
             }
             KeyCode::Enter => {
                 self.theme_index = self.theme_picker_index;
+                // Only reset overrides when actually switching to a
+                // different base theme — compared against `config.theme.name`
+                // (the last *committed* value), not `self.theme.name` (the
+                // live-preview value while browsing). Re-confirming the
+                // theme that was already active with no real change used to
+                // silently wipe any hand-written custom colors.
+                if self.config.theme.name != self.theme.name {
+                    self.config.theme.overrides = Default::default();
+                }
                 self.config.theme.name = self.theme.name.clone();
-                self.config.theme.overrides = Default::default();
                 if let Ok(path) = Config::default_path() {
                     let _ = self.config.save(&path);
                 }
@@ -989,6 +1128,16 @@ impl App {
                 let count = self.log_history.len();
                 crate::clipboard::copy(&text);
                 self.set_status(format!("copied {count} log lines to clipboard"));
+            }
+            // Destructive and irreversible (wipes the on-disk history too,
+            // the whole point of which is surviving a crash) — behind the
+            // same confirm-dialog pattern as delete note/notebook, not an
+            // immediate clear on one keypress.
+            KeyCode::Char('x') => {
+                self.pending_clear_logs = true;
+                self.confirm = Some(confirm::ConfirmDialog::new(
+                    "Clear all logs? This can't be undone.",
+                ));
             }
             _ => {}
         }
@@ -1504,6 +1653,101 @@ impl App {
         self.focus = Focus::Preview;
         self.set_status(format!("opened '{title}'"));
         self.show_tree = false;
+    }
+
+    /// The tags modal has two levels: the tag list itself, and (after
+    /// drilling into one) the notes that carry it — reset to level 1 every
+    /// time it opens, so it never reopens showing a stale drill-down from
+    /// last time.
+    fn toggle_tags(&mut self) {
+        self.show_tags = !self.show_tags;
+        if self.show_tags {
+            self.tags_selected = 0;
+            self.tags_viewing = None;
+            self.tags_notes_selected = 0;
+        }
+    }
+
+    /// Tags are scoped to the current directory's notes (`app.notes`), same
+    /// as the tags modal always was — sorted, since `TagIndex` is backed by
+    /// a `BTreeMap`, so this order is stable across redraws without storing
+    /// the list on `App` itself.
+    fn current_tags(&self) -> Vec<String> {
+        TagIndex::build(&self.notes).tags().cloned().collect()
+    }
+
+    /// Notes in the current directory carrying `tag` — every match is
+    /// already in `self.notes`, since `current_tags` is scoped the same
+    /// way, so jumping to one never needs `reload_notes`/`notes_path`.
+    fn notes_with_tag<'a>(&'a self, tag: &str) -> Vec<&'a Note> {
+        self.notes
+            .iter()
+            .filter(|n| n.frontmatter.tags.iter().any(|t| t == tag))
+            .collect()
+    }
+
+    fn handle_tags_key(&mut self, key: KeyEvent) {
+        let Some(tag) = self.tags_viewing.clone() else {
+            let tags = self.current_tags();
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => self.show_tags = false,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if self.tags_selected + 1 < tags.len() {
+                        self.tags_selected += 1;
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.tags_selected = self.tags_selected.saturating_sub(1);
+                }
+                KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
+                    if let Some(tag) = tags.get(self.tags_selected) {
+                        self.tags_viewing = Some(tag.clone());
+                        self.tags_notes_selected = 0;
+                    }
+                }
+                _ => {}
+            }
+            return;
+        };
+
+        let notes_len = self.notes_with_tag(&tag).len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Backspace | KeyCode::Left => {
+                self.tags_viewing = None;
+            }
+            KeyCode::Char('q') => self.show_tags = false,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.tags_notes_selected + 1 < notes_len {
+                    self.tags_notes_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.tags_notes_selected = self.tags_notes_selected.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.jump_to_tag_note(&tag),
+            _ => {}
+        }
+    }
+
+    /// The deep link from level 2 of the tags modal: every match is already
+    /// in the current directory's `self.notes` (see `notes_with_tag`), so
+    /// this is just "select it and close", not a full `reload_notes` jump
+    /// like the tree view's/global search's cross-folder equivalents.
+    fn jump_to_tag_note(&mut self, tag: &str) {
+        let target = self
+            .notes_with_tag(tag)
+            .get(self.tags_notes_selected)
+            .map(|n| n.path.clone());
+        let Some(path) = target else {
+            self.show_tags = false;
+            return;
+        };
+        if let Some(idx) = self.notes.iter().position(|n| n.path == path) {
+            self.selected_note = self.folders.len() + idx;
+        }
+        self.focus = Focus::Preview;
+        self.show_tags = false;
+        self.tags_viewing = None;
     }
 
     /// Loads every note from every notebook and opens the global search modal.
@@ -2061,7 +2305,7 @@ impl App {
         match action {
             Action::ThemePicker => self.open_theme_picker(),
             Action::GlobalSearch => self.open_global_search(),
-            Action::ToggleTags => self.show_tags = !self.show_tags,
+            Action::ToggleTags => self.toggle_tags(),
             Action::ShowLogs => self.open_logs(),
             Action::CheckForUpdate => self.open_update_check(),
             Action::ToggleDrawer => self.toggle_drawer(),
@@ -2189,14 +2433,36 @@ impl App {
                         value
                     };
                     match self.store.create(&name) {
-                        Ok(_) => {
+                        Ok(nb) => {
                             self.reload_notebooks();
-                            if let Some(idx) = self.notebooks.iter().position(|nb| nb.name == name)
-                            {
+                            if let Some(idx) = self.notebooks.iter().position(|n| n.name == name) {
                                 self.selected_notebook = idx;
                                 self.reload_notes();
                             }
-                            self.set_status(format!("notebook '{name}' created"));
+                            let mut status = format!("notebook '{name}' created");
+                            // Auto-configure a remote from `git.remote_template`
+                            // (e.g. "git@git.example.com:notes/{notebook}.git")
+                            // — the remote still has to already exist on that
+                            // server; this doesn't create one via any hosting
+                            // API. Not a push yet: a fresh notebook has no
+                            // commits, so there's nothing to push until the
+                            // first note is created/synced — the existing
+                            // auto_push/auto_sync machinery picks it up from
+                            // here naturally.
+                            if !self.config.git.remote_template.is_empty() {
+                                let url =
+                                    self.config.git.remote_template.replace("{notebook}", &name);
+                                match shiki_core::git::set_remote(&nb.path, &url) {
+                                    Ok(()) => {
+                                        let redacted = shiki_core::git::redact_credentials(&url);
+                                        status = format!("{status}, remote set to '{redacted}'");
+                                    }
+                                    Err(e) => {
+                                        status = format!("{status}, but could not set remote: {e}")
+                                    }
+                                }
+                            }
+                            self.set_status(status);
                         }
                         Err(e) => self.set_status(format!("could not create: {e}")),
                     }
@@ -2264,7 +2530,10 @@ impl App {
                     self.set_status("remote cancelled (empty)".into());
                 } else if let Some(nb) = self.selected_notebook().cloned() {
                     match shiki_core::git::set_remote(&nb.path, &value) {
-                        Ok(()) => self.set_status(format!("remote set to '{value}'")),
+                        Ok(()) => {
+                            let redacted = shiki_core::git::redact_credentials(&value);
+                            self.set_status(format!("remote set to '{redacted}'"));
+                        }
                         Err(e) => self.set_status(format!("could not set remote: {e}")),
                     }
                 }
@@ -2310,11 +2579,15 @@ impl App {
                     }
                 } else if let Some((note_path, commit_id)) = self.pending_revert.take() {
                     self.perform_revert(&note_path, &commit_id);
+                } else if self.pending_clear_logs {
+                    self.pending_clear_logs = false;
+                    self.clear_logs();
                 }
             }
             _ => {
                 self.pending_delete = None;
                 self.pending_revert = None;
+                self.pending_clear_logs = false;
             }
         }
         self.confirm = None;
@@ -2408,7 +2681,7 @@ impl App {
             return;
         }
         if self.show_tags {
-            self.show_tags = false;
+            self.handle_tags_key(key);
             return;
         }
         if self.show_theme_picker {
@@ -2680,10 +2953,18 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     }
 
     if app.show_tags {
-        let tags = TagIndex::build(&app.notes);
-        let popup_area = centered_rect(frame.area(), 40, (tags.len() as u16 + 2).max(3));
+        let rows = match &app.tags_viewing {
+            None => TagIndex::build(&app.notes).len(),
+            Some(tag) => app
+                .notes
+                .iter()
+                .filter(|n| n.frontmatter.tags.iter().any(|t| t == tag))
+                .count()
+                .max(1),
+        };
+        let popup_area = centered_rect(frame.area(), 40, (rows as u16 + 2).max(3));
         frame.render_widget(Clear, popup_area);
-        panel_tags::render(frame, popup_area, &tags, true, &app.theme);
+        panel_tags::render(frame, popup_area, app);
     }
 
     if app.show_drawer {

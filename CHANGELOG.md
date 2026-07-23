@@ -6,6 +6,43 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-23
+
+### Added
+
+- Tags modal (leader+`T`) is now real, two-level navigation instead of a read-only list: `j`/`k`
+  browse tags, `Enter`/`l` drills into the notes carrying one, `Enter`/`l` there jumps straight to
+  it, `h`/`Esc`/`Backspace` goes back a level.
+- `git.remote_template` config option: auto-configures a notebook's remote on creation (plain
+  name, not a pasted URL) from a template like `"git@git.example.com:notes/{notebook}.git"` —
+  the remote still has to already exist on that server; this doesn't create one via any hosting
+  provider's API. Doesn't push immediately (nothing to push yet on an empty notebook); the
+  existing `auto_push`/`auto_sync` machinery picks it up naturally.
+- Persistent, on-disk log history (`~/.config/shiki/shiki.log`) — the logs modal (leader+`l`) now
+  survives restarts instead of resetting every session, and a new `x` (behind a confirmation)
+  clears both the in-memory and on-disk history.
+- `shiki theme create [--from <name>]`: scaffolds all 19 theme color slots into config.toml's
+  `[theme.overrides]` at once, copied from a real palette, instead of hand-typing hex codes with
+  no example to copy from.
+- First unit tests in `shiki-core` (`git::tests`) and `shiki-config` (`config::tests`).
+
+### Changed
+
+- All 19 of a theme's color slots are now overridable in `[theme.overrides]`, not just 5
+  (`bg`/`fg`/`accent`/`selection`/`border`) — `error`/`warning`/`success`/`tag`/`link`/`cursor`
+  and 8 others had no override path at all before.
+- Git remote URLs are redacted (`user:token@` → `***@`) before they ever reach a status message —
+  closes a real exposure: a URL with embedded credentials (common for GitHub/GitLab personal
+  access tokens) used to land in plaintext in the logs modal and clipboard, and would now also
+  have been persisted to disk.
+
+### Fixed
+
+- The theme picker's `Enter` and `shiki theme set` no longer wipe custom color overrides when
+  re-confirming/re-setting the theme that was already active with no actual change — previously
+  they reset `[theme.overrides]` unconditionally on every confirm, silently discarding any
+  hand-written custom colors even when nothing was actually being switched.
+
 ## [0.6.0] - 2026-07-23
 
 ### Added

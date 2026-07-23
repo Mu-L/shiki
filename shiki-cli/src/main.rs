@@ -87,6 +87,14 @@ enum ThemeAction {
     List,
     /// Sets the active theme by name (see `shiki theme list`)
     Set { name: String },
+    /// Scaffolds every one of the 19 color slots as an explicit override in
+    /// config.toml, copied from a real theme's values — a starting point to
+    /// edit, not blank fields. Defaults to the currently active theme if
+    /// `--from` is omitted.
+    Create {
+        #[arg(long)]
+        from: Option<String>,
+    },
 }
 
 struct Context {
@@ -174,6 +182,9 @@ fn main() -> Result<()> {
         Some(Commands::Theme { action }) => match action {
             ThemeAction::List => commands::theme::list(&ctx.config),
             ThemeAction::Set { name } => commands::theme::set(&mut ctx.config, &name),
+            ThemeAction::Create { from } => {
+                commands::theme::create(&mut ctx.config, from.as_deref())
+            }
         },
     }
 }
