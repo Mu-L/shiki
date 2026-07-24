@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/favicon-512.png" alt="shiki logo" width="120" />
+</p>
+
 # shiki (私記)
 
 > **Personal notes, private log.**
@@ -18,6 +22,32 @@
 
 See [IDEA.md](IDEA.md) for the full design spec (keybinding tables, config schema, theme list) and
 [CHANGELOG.md](CHANGELOG.md) for release history.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="docs/assets/screenshots/gruvbox-dark.png" width="290" /></td>
+    <td><img src="docs/assets/screenshots/catppuccin-mocha.png" width="290" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Gruvbox Dark</sub></td>
+    <td align="center"><sub>Catppuccin Mocha</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/tokyo-night-storm.png" width="290" /></td>
+    <td><img src="docs/assets/screenshots/catppuccin-latte.png" width="290" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tokyo Night Storm</sub></td>
+    <td align="center"><sub>Catppuccin Latte</sub></td>
+  </tr>
+</table>
+
+These update automatically after every release (`update-screenshots` job in
+[`release.yml`](.github/workflows/release.yml)), so they always reflect the current version — not
+a screenshot from three releases ago. All 12 built-in themes have a live, interactive preview on
+the [website](https://sazardev.github.io/shiki/#themes).
 
 ## Features
 
