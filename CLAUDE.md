@@ -278,6 +278,42 @@ those now guards on the element actually existing before touching it, so the sam
 dropped into any future page and only the parts relevant to that page's own DOM actually run — no
 per-page script variants to keep in sync.
 
+**SEO/social-preview metadata (`index.html`/`documentation.html` `<head>`) and the favicon are
+real, generated assets, not placeholders.** `docs/assets/favicon.svg` renders the 私記 kanji (the
+old favicon was a generic `>_` prompt glyph) — verified by rasterizing it with `rsvg-convert`
+(this sandbox's Chromium renderer had already cached its font list before a CJK font was installed
+mid-session, so it kept showing tofu boxes in-browser even after the font was available —
+`rsvg-convert` picks up newly-installed fontconfig entries immediately, which is how the favicon
+and the Open Graph image were actually verified to render the kanji correctly). `favicon-32.png`/
+`apple-touch-icon.png`/`favicon-512.png` are pre-rasterized alongside the SVG for browsers/contexts
+that don't support SVG favicons.
+
+**`docs/assets/og-image.png` (1200×630, the banner shown when this link is shared on
+Discord/Slack/X/iMessage/etc.) was built by rendering a dedicated HTML/CSS card
+(kanji mark + "shiki" wordmark + tagline + tag pills + the real gruvbox-dark screenshot) through
+headless `chromium --headless --screenshot` at the exact target resolution, not hand-drawn or
+scraped from an existing screenshot.** This sandbox's own browser-automation viewport is capped at
+~1061px regardless of requested window size (confirmed via `window.innerWidth` — resizing the
+automation-controlled tab has no effect on the actual render width), so it couldn't be used
+directly for a pixel-exact 1200×630 capture; local headless Chromium has no such cap and was used
+instead. If this card ever needs to be regenerated (new tagline, new screenshot), redo it the same
+way rather than trying to force the sandboxed browser tool to an exact size.
+
+**The JSON-LD `SoftwareApplication` block in `index.html`'s `<head>` has a hardcoded
+`softwareVersion`** (unlike the nav's version pill and the download button, which are fetched live
+from the GitHub Releases API in `main.js`) — structured data is meant to be read by crawlers
+parsing the static HTML, not necessarily post-JS-execution DOM state, so it can't reuse that same
+live-fetch trick. Bump it by hand alongside the workspace version the same way `CHANGELOG.md`/
+`Cargo.toml` already require a manual touch — it's not wired into any automated version-bump step.
+
+**`docs/robots.txt`, `docs/sitemap.xml`, and `docs/llms.txt` round out discoverability** —
+`robots.txt` allows every crawler and points at the sitemap; `sitemap.xml` lists both real pages
+(`index.html`, `documentation.html`); `llms.txt` follows the emerging llms.txt convention (a plain
+markdown file at the site root — H1, one-paragraph blockquote summary, then linked sections) aimed
+at AI assistants/crawlers that check for it directly, the same way search engines check for
+`robots.txt` at a well-known path. If a new real page is ever added to `/docs`, add it to
+`sitemap.xml` too — nothing regenerates that list automatically.
+
 ## Architecture
 
 Cargo workspace, four crates with a strict one-way dependency chain:

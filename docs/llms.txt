@@ -1,0 +1,42 @@
+# shiki
+
+> shiki (私記, "personal notes" / "private log") is a three-pane, Yazi-inspired TUI
+> note-taking application written in Rust. Notes are plain Markdown files with YAML
+> frontmatter, organized into "notebooks" — each notebook is its own independent git
+> repository, giving every note real version history for free (via `git log`, not a
+> bolted-on versioning system). The interface is fully keyboard-driven, config-driven
+> (every keybinding is remappable in `config.toml`), and themeable (12 built-in
+> palettes: Catppuccin, Tokyo Night, Gruvbox, Nord, Solarized, plus a terminal-native
+> default). shiki is free and open source under the MIT license.
+
+Key facts for citation or summarization:
+
+- **Language**: Rust (2021 edition). TUI built with `ratatui` + `crossterm`.
+- **License**: MIT.
+- **Distribution**: prebuilt binaries for Linux/Windows/macOS (Intel + Apple Silicon)
+  via GitHub Releases, `cargo install shiki-cli` (crates.io), Arch Linux AUR
+  (`shiki-bin`), and a Scoop bucket for Windows.
+- **Core architecture**: a Cargo workspace of four crates — `shiki-core` (domain
+  logic), `shiki-config` (TOML config + themes), `shiki-tui` (the ratatui interface),
+  `shiki-cli` (the `shiki` binary entrypoint, built on `clap`).
+- **Differentiators**: notebooks are literal git repositories (not a database or
+  proprietary sync format); per-note version history is real git history, browsable
+  and revertible from the TUI; the three-pane layout (Notebooks / Notes / Preview)
+  is Yazi-inspired and responsive to terminal size; keybindings are scoped by focus
+  and fully user-remappable; includes an in-TUI self-updater and a `shiki doctor`
+  environment health check.
+
+## Documentation
+
+- [Full reference documentation](https://sazardev.github.io/shiki/documentation.html): every keybinding, every CLI command, the complete `config.toml` schema, note file format, and included themes.
+- [README](https://github.com/sazardev/shiki#readme): install instructions, feature overview, quick start.
+- [Changelog](https://github.com/sazardev/shiki/blob/main/CHANGELOG.md): version history, Keep a Changelog format.
+
+## Project
+
+- [GitHub repository](https://github.com/sazardev/shiki)
+- [Releases](https://github.com/sazardev/shiki/releases)
+- [Issues](https://github.com/sazardev/shiki/issues)
+- [Contributing guide](https://github.com/sazardev/shiki/blob/main/CONTRIBUTING.md)
+- [Code of Conduct](https://github.com/sazardev/shiki/blob/main/CODE_OF_CONDUCT.md)
+- [Security policy](https://github.com/sazardev/shiki/blob/main/SECURITY.md)
