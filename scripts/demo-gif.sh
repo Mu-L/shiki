@@ -42,7 +42,13 @@ for tool in vhs ttyd ffmpeg; do
   }
 done
 
-NERD_FONT="$(fc-list | grep -i "nerd font mono" | head -1 | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
+# `grep -m1` (not `| head -1`) stops reading after the first match, so grep
+# exits cleanly on its own instead of relying on `head` closing the pipe —
+# `head -1` closing early while grep still had more matching lines to write
+# sent grep a SIGPIPE, which a real CI run of scripts/screenshots.sh's
+# identical line turned into a hard failure under `set -o pipefail`; fixed
+# there and mirrored here before this script hits the same thing.
+NERD_FONT="$(fc-list | grep -im1 "nerd font mono" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
 NERD_FONT="${NERD_FONT:-monospace}"
 
 BIN="$ROOT/target/release/shiki"

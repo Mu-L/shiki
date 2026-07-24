@@ -45,8 +45,13 @@ done
 
 # A Nerd Font is required for the UI's icons to render as glyphs instead of
 # boxes/mojibake — reuse whatever's already installed rather than assuming
-# a specific one.
-NERD_FONT="$(fc-list | grep -i "nerd font mono" | head -1 | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
+# a specific one. `grep -m1` (not `| head -1`) stops reading after the first
+# match, so grep exits cleanly on its own instead of relying on `head`
+# closing the pipe — a real CI failure hit and fixed here: with enough
+# matching `fc-list` lines (more style variants bundled in a newer
+# nerd-fonts release than before), `head -1` closing early sent grep a
+# SIGPIPE, and `set -o pipefail` turned that into a hard script failure.
+NERD_FONT="$(fc-list | grep -im1 "nerd font mono" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
 NERD_FONT="${NERD_FONT:-monospace}"
 
 BIN="$ROOT/target/release/shiki"
