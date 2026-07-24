@@ -23,6 +23,16 @@
 See [IDEA.md](IDEA.md) for the full design spec (keybinding tables, config schema, theme list) and
 [CHANGELOG.md](CHANGELOG.md) for release history.
 
+## Demo
+
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Animated demo of shiki: browsing notebooks and nested folders, fuzzy search, tags, multi-select, and live theme switching" width="720" />
+</p>
+
+Three notebooks, ~30 notes, folders nested two levels deep — a scripted, reproducible tour
+([`scripts/demo-gif.sh`](scripts/demo-gif.sh), recorded with [VHS](https://github.com/charmbracelet/vhs))
+covering fuzzy search (global and in-notebook), tags, multi-select, and live theme switching.
+
 ## Screenshots
 
 <table>
