@@ -108,8 +108,12 @@ yay -S shiki-bin      # or: paru -S shiki-bin
 **Windows ([Scoop](https://scoop.sh)):**
 
 ```powershell
-scoop install https://raw.githubusercontent.com/sazardev/shiki/main/packaging/scoop/shiki.json
+scoop bucket add sazardev https://github.com/sazardev/shiki
+scoop install shiki
 ```
+
+(or, without adding a bucket — a one-off install that `scoop update` won't track:
+`scoop install https://raw.githubusercontent.com/sazardev/shiki/main/packaging/scoop/shiki.json`)
 
 **Prebuilt binary (Linux/Windows/macOS), no package manager:**
 

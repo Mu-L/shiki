@@ -132,21 +132,32 @@ jobs:
           set -euo pipefail
           version="${{ needs.release.outputs.version }}"
           hash=$(grep 'x86_64-pc-windows-msvc.zip' SHA256SUMS.txt | awk '{print $1}')
+          # Written to two places, kept byte-identical on purpose:
+          # `packaging/scoop/shiki.json` is what README's direct-manifest-URL
+          # install method (`scoop install https://raw.githubusercontent...`)
+          # points at — that works with zero bucket setup. `bucket/shiki.json`
+          # (repo root) is what makes `scoop bucket add sazardev
+          # https://github.com/sazardev/shiki` + `scoop install shiki` (the
+          # method already documented on the marketing site) actually work —
+          # Scoop only resolves manifests from a bucket's `bucket/` folder (or
+          # its root, but not an arbitrary nested path), so leaving it only
+          # under `packaging/scoop/` meant that second, already-documented
+          # install method could never have found it.
           python3 - "$version" "$hash" <<'EOF'
           import json, sys
           version, sha256 = sys.argv[1], sys.argv[2]
-          path = "packaging/scoop/shiki.json"
-          with open(path) as f:
-              data = json.load(f)
-          data["version"] = version
-          data["architecture"]["64bit"]["url"] = (
-              f"https://github.com/sazardev/shiki/releases/download/v{version}/"
-              f"shiki-v{version}-x86_64-pc-windows-msvc.zip"
-          )
-          data["architecture"]["64bit"]["hash"] = f"sha256:{sha256}"
-          with open(path, "w") as f:
-              json.dump(data, f, indent=4)
-              f.write("\n")
+          for path in ("packaging/scoop/shiki.json", "bucket/shiki.json"):
+              with open(path) as f:
+                  data = json.load(f)
+              data["version"] = version
+              data["architecture"]["64bit"]["url"] = (
+                  f"https://github.com/sazardev/shiki/releases/download/v{version}/"
+                  f"shiki-v{version}-x86_64-pc-windows-msvc.zip"
+              )
+              data["architecture"]["64bit"]["hash"] = f"sha256:{sha256}"
+              with open(path, "w") as f:
+                  json.dump(data, f, indent=4)
+                  f.write("\n")
           EOF
 
       - name: Update PKGBUILD
@@ -171,7 +182,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packaging/scoop/shiki.json packaging/aur/PKGBUILD packaging/aur/.SRCINFO
+          git add packaging/scoop/shiki.json bucket/shiki.json packaging/aur/PKGBUILD packaging/aur/.SRCINFO
           if git diff --cached --quiet; then
             echo "No packaging manifest changes to commit"
           elif [ -z "$HAS_PAT" ]; then

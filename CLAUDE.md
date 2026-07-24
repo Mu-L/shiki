@@ -1041,6 +1041,22 @@ version and checksums, so those manifest files always reflect the latest publish
 between manual reviews. `.SRCINFO` is regenerated via `makepkg --printsrcinfo` inside a throwaway
 `archlinux:base-devel` container (no Arch tooling available on `ubuntu-latest` directly).
 
+**`bucket/shiki.json` (repo root) is a second, byte-identical copy of `packaging/scoop/shiki.json`
+— not a mistake, both are load-bearing.** The site's own install instructions
+(`docs/index.html`'s Scoop card) document `scoop bucket add sazardev
+https://github.com/sazardev/shiki` followed by `scoop install shiki`, which only works if Scoop can
+actually find a manifest in the repo once it's added as a bucket — and Scoop only ever looks in a
+bucket's `bucket/` folder or its repo root, never an arbitrary nested path like
+`packaging/scoop/`. Before `bucket/shiki.json` existed, that already-documented two-line install
+command would have failed outright with "couldn't find manifest for 'shiki'" — this was caught by
+actually trying to reason through why a user reported Scoop "wasn't working," not by any test
+(there's no CI check that would have caught a bucket layout mismatch like this). `packaging/scoop/
+shiki.json` still exists and still matters on its own: it's what the *other*, bucket-free README
+install method (`scoop install https://raw.githubusercontent.com/.../packaging/scoop/shiki.json`,
+a direct-manifest-URL install) points at, and that method doesn't care where the file lives at all.
+`release.yml`'s `update-packaging-manifests` job writes both paths from the same loop, so they
+can't drift out of sync with each other the way two independently-maintained copies could.
+
 **crates.io publishing is live as of v0.4.1** — `CARGO_REGISTRY_TOKEN` is configured as a repo
 secret, so `publish-crates` actually runs on every tag now rather than no-op'ing. The very first
 attempt (on `v0.4.1`) failed with "A verified email address is required to publish crates to
