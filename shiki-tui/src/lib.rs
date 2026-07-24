@@ -1,5 +1,4 @@
 pub mod app;
-pub(crate) mod key_handlers;
 pub mod clipboard;
 pub mod command;
 pub mod confirm;
@@ -7,6 +6,7 @@ pub mod draw;
 pub mod editor;
 pub mod icons;
 pub mod input;
+pub(crate) mod key_handlers;
 pub mod keybindings;
 pub mod layout;
 pub mod links_panel;

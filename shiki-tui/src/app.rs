@@ -1,9 +1,7 @@
 use std::io;
 use std::time::Duration;
 
-use crossterm::event::{
-    self, Event, KeyEventKind,
-};
+use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::Color;
@@ -996,7 +994,6 @@ impl App {
         self.mode = Mode::Insert;
     }
 
-
     /// The editor mode actually in effect right now: the resolved favorite
     /// editor's bare binary name when `use_favorite_editor` is on (falling
     /// back to the configured `general.editor` if none could be detected,
@@ -1030,18 +1027,6 @@ impl App {
         self.set_status(format!("favorite editor: {}", self.editor_status_label()));
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
     /// Resolves the selected note's path relative to its notebook's root —
     /// what `shiki_core::git::file_history`/`show_file_at`/`revert_file_to`
     /// need, since git works in repo-relative paths.
@@ -1051,11 +1036,6 @@ impl App {
         let relative = note.path.strip_prefix(&nb.path).ok()?.to_path_buf();
         Some((nb, relative))
     }
-
-
-
-
-
 
     /// Keeps the footer's "{n} changes" indicator up to date without
     /// re-walking the note's git history on every draw tick — only when the
@@ -1190,7 +1170,6 @@ impl App {
         }
     }
 
-
     /// How many `Note` rows are in `tree_rows` — the bound for `tree_selected`.
     pub(crate) fn tree_note_count(&self) -> usize {
         self.tree_rows
@@ -1211,15 +1190,10 @@ impl App {
             .map(|(row, _)| row)
     }
 
-
-
-
     /// How many rows in `link_rows` are actually selectable (headers aren't).
     pub(crate) fn link_selectable_count(&self) -> usize {
         crate::links_panel::selectable_count(&self.link_rows)
     }
-
-
 
     /// Tags are scoped to the current directory's notes (`app.notes`), same
     /// as the tags modal always was — sorted, since `TagIndex` is backed by
@@ -1238,20 +1212,6 @@ impl App {
             .filter(|n| n.frontmatter.tags.iter().any(|t| t == tag))
             .collect()
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// `"{notebook}/{breadcrumb}"` — the default move/copy target, editable
     /// down to just the notebook name (root) or out to a different
@@ -1273,7 +1233,10 @@ impl App {
     /// destination folder within that notebook, auto-created as needed
     /// (same as `create_note_in`/`create_folder_in` already do) — not
     /// checked for existence up front, since creating it is always fine.
-    pub(crate) fn parse_move_target(&self, value: &str) -> Result<(Notebook, std::path::PathBuf), String> {
+    pub(crate) fn parse_move_target(
+        &self,
+        value: &str,
+    ) -> Result<(Notebook, std::path::PathBuf), String> {
         let mut parts = value.split('/').filter(|s| !s.is_empty());
         let notebook_name = parts.next().ok_or_else(|| "empty target".to_string())?;
         let dest_notebook = self
@@ -1283,24 +1246,6 @@ impl App {
         let rest: std::path::PathBuf = parts.collect();
         Ok((dest_notebook, rest))
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     pub fn keymaps(&self) -> &KeyMaps {
         &self.keymaps
@@ -1358,7 +1303,10 @@ pub(crate) fn shift(current: usize, delta: isize, len: usize) -> usize {
 /// The folder breadcrumb (as path components) of `note_path`'s containing
 /// directory, relative to `notebook_path` — how far to descend to land on a
 /// note found via search/jump instead of always assuming it's at the root.
-pub(crate) fn relative_folder(note_path: &std::path::Path, notebook_path: &std::path::Path) -> Vec<String> {
+pub(crate) fn relative_folder(
+    note_path: &std::path::Path,
+    notebook_path: &std::path::Path,
+) -> Vec<String> {
     note_path
         .parent()
         .and_then(|dir| dir.strip_prefix(notebook_path).ok())

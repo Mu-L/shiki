@@ -1,13 +1,11 @@
-
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use shiki_config::Config;
 use shiki_core::Notebook;
 
 use crate::app::{
-    App, BatchOp, DeleteTarget, Focus, Mode, PendingInput, SelectedEntry, TrashedEntry, UpdateMsg,
-    UpdateState, drawer_area, global_search_layout, global_search_popup_area,
-    is_notebook_git_action, looks_like_git_url, relative_folder,
-    shift, PAGE_STEP,
+    drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
+    looks_like_git_url, relative_folder, shift, App, BatchOp, DeleteTarget, Focus, Mode,
+    PendingInput, SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
 };
 use crate::editor::InlineEditor;
 use crate::icons;
