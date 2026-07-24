@@ -2,7 +2,12 @@
 # Generates docs/assets/demo.gif: a fast-paced, scripted tour of shiki
 # against a deliberately rich dataset (3 notebooks, 30 notes, nested
 # folders 2 levels deep, long note bodies, varied tags) — meant to show
-# the app handling real volume, not a 3-note toy example.
+# the app handling real volume, not a 3-note toy example. Beyond browsing/
+# reading, the tour also exercises real editing actions: global search
+# with an actual cross-notebook jump, tags, multi-select (batch delete),
+# folder create + folder move, writing a full multi-section note from
+# scratch in the inline editor, and a git commit — not just read-only
+# navigation.
 #
 # Uses VHS (https://github.com/charmbracelet/vhs): a `.tape` file is a
 # literal, deterministic keystroke script, so the same recording comes out
@@ -771,15 +776,37 @@ Sleep 700ms
 Enter
 Sleep 900ms
 
-# --- Phase 5: global fuzzy search across every notebook — a leader
-# binding, reachable regardless of current focus.
+# --- Phase 5: global fuzzy search across every notebook, followed by an
+# actual jump (Enter, not just Escape) to prove it really crosses
+# notebooks instead of merely opening a box that closes again. "Acme" is
+# a one-off string in this dataset (only "work > clients > Acme Corp"
+# contains it — grepped before relying on it), so it's a deterministic
+# top hit regardless of nucleo's exact scoring internals. After landing
+# on it (focus flips to PREVIEW, notebook flips to "work"), three Lefts
+# walk back out: PREVIEW->NOTES, pop the clients/ folder to work's root,
+# then NOTES-at-root->NOTEBOOKS (navigate_backward's panel-switch
+# fallback, same mechanic Phase 4's old bug abused by accident) — then
+# Up@150ms 2 hovers back to "personal" (work=idx2 -> research=idx1 ->
+# personal=idx0, each hover live-reloading notes/preview same as Phase 1),
+# and Enter re-enters it so every later phase starts from the same known
+# state Phase 6 already assumed.
 Space
 Type "g"
 Sleep 400ms
-Type "roadmap"
+Type "Acme"
 Sleep 700ms
-Escape
-Sleep 600ms
+Enter
+Sleep 900ms
+Left
+Sleep 300ms
+Left
+Sleep 300ms
+Left
+Sleep 300ms
+Up@150ms 2
+Sleep 300ms
+Enter
+Sleep 500ms
 
 # --- Phase 6: tags panel — two levels deep (tag list, then notes carrying
 # it); one Escape only backs out of level 2, a second is needed to fully
@@ -801,16 +828,122 @@ Sleep 600ms
 Escape
 Sleep 600ms
 
-# --- Phase 7: visual mode multi-select — a notes-scope action, so NOTES
-# must actually be focused (it is, after phase 6 closed back to it).
+# --- Phase 7: real multi-select — anchor Mode::Visual on "Gift ideas"
+# (index 3 in the combined folders++notes list: journal/, projects/, Book
+# recommendations, Gift ideas, ...), extend one row down to "Morning
+# routine", then batch-delete both with `d` + confirm (`y`). Unlike the
+# old version of this phase (select, then just Escape with nothing to
+# show for it), this actually exercises the delete path — apply_batch_
+# delete resets Mode to Normal and reloads notes itself, so the very next
+# phase can rely on a clean Mode::Normal/NOTES state with no keys wasted
+# undoing anything.
+Down@150ms 3
+Sleep 300ms
 Type "v"
+Sleep 400ms
+Down@150ms 1
 Sleep 500ms
-Down@150ms 4
+Type "d"
+Sleep 500ms
+Type "y"
 Sleep 700ms
-Escape
-Sleep 600ms
 
-# --- Phase 8: theme picker, live-cycle a few palettes fast — another
+# --- Phase 8: create a folder ("f", NewFolder) — folders could only be
+# navigated, never created, until this action existed. confirm_input's
+# NewFolder arm auto-selects the freshly created folder by re-deriving
+# its position in the (re-sorted) folder list, so the very next phase can
+# assume it's already selected with no extra navigation.
+Type "f"
+Sleep 400ms
+Type "archive"
+Sleep 400ms
+Enter
+Sleep 700ms
+
+# --- Phase 9: move that folder into personal/projects/ ("m" — MoveNote,
+# broadened to also handle a selected folder). The prompt prefills with
+# "{notebook}/{breadcrumb}" — just "personal" at root — and the input box
+# only ever appends/backspaces (no cursor movement), so typing
+# "/projects" after the prefill targets the existing projects/ folder as
+# the new parent; copy_folder_to/move_folder_to append the folder's own
+# name to that destination, so this doesn't need to be spelled out.
+Type "m"
+Sleep 400ms
+Type "/projects"
+Sleep 400ms
+Enter
+Sleep 700ms
+
+# --- Phase 10: create a real note and write a full, multi-section body
+# in the inline editor, not just a title — "a" (NewNote) drops straight
+# into Mode::Edit on an empty body (confirm_input's NewNote arm calls
+# start_edit_inline() itself). Typed keys go straight into tui-textarea;
+# Enter inserts a real newline the same as any other forwarded key, and
+# Escape saves + exits back to Mode::Normal. TypingSpeed is cranked way up
+# for just this block — at the demo's normal 30ms/char this much text
+# would take the better part of a minute, working against the "shiki is
+# fast" point the whole recording is trying to make.
+Set TypingSpeed 6ms
+Type "a"
+Sleep 400ms
+Type "Release day retrospective"
+Sleep 400ms
+Enter
+Sleep 600ms
+Type "# What shipped today"
+Enter
+Enter
+Type "Spent the day wiring up the expanded demo recording -- way more surface"
+Enter
+Type "area than the first pass: folder moves, batch deletes, a freshly written"
+Enter
+Type "note (this one), and an actual git commit at the end."
+Enter
+Enter
+Type "## What went well"
+Enter
+Enter
+Type "- Multi-select finally gets used for something real instead of just"
+Enter
+Type "  toggling on and off with nothing to show for it."
+Enter
+Type "- Moving a folder into a different parent worked first try once the"
+Enter
+Type "  destination path was right."
+Enter
+Enter
+Type "## What was fiddly"
+Enter
+Enter
+Type "- Getting the exact keystroke count right for deep navigation without a"
+Enter
+Type "  search to fall back on -- folders aren't reachable via jump-search,"
+Enter
+Type "  only notes."
+Enter
+Enter
+Type "## Tomorrow"
+Enter
+Enter
+Type "Wire this whole thing into CI so it regenerates automatically per"
+Enter
+Type "release, same as the screenshots already do."
+Sleep 900ms
+Set TypingSpeed 30ms
+Escape
+Sleep 700ms
+
+# --- Phase 11: git sync ("s", notebook-scoped — resolves regardless of
+# focus). Commits every pending change from phases 7-10 (batch delete,
+# folder create+move, new note) in one go and reports it in the footer's
+# dirty count. No remote is configured for this demo's notebooks, so this
+# only commits — `auto_push` is false in the generated config, matching
+# the resolved-policy behavior manual `s` always respects (unlike `u`,
+# which force-pushes regardless).
+Type "s"
+Sleep 1300ms
+
+# --- Phase 12: theme picker, live-cycle a few palettes fast — another
 # leader binding, reachable regardless of focus.
 Space
 Type "c"
@@ -820,7 +953,7 @@ Sleep 900ms
 Escape
 Sleep 500ms
 
-# --- Phase 9: which-key / command palette, quick glimpse.
+# --- Phase 13: which-key / command palette, quick glimpse.
 Type "?"
 Sleep 900ms
 Escape
