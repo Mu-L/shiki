@@ -154,14 +154,26 @@ if a caller needs to know which branch got pushed, read it off `GitStatus.branch
 
 ## Marketing site (`/docs`, GitHub Pages)
 
-**`/docs` is a plain static HTML/CSS/JS site (no build step, no framework) served by GitHub Pages
-from `main`'s `/docs` folder — deliberately not a `gh-pages` branch or a generator like
-Astro/11ty**, since a single marketing page doesn't need componentization and a build step would
-be one more thing to keep working. `docs/css/styles.css`'s theme variables (`[data-theme="..."]`
-blocks) are copied verbatim from `shiki-config/src/themes/*.rs` — if a theme's hex values change
-there, or a new theme is added to `themes/mod.rs::all()`, update both `styles.css` and the
-`THEMES` array in `docs/js/main.js` (which drives the swatch buttons) so the site doesn't silently
-drift out of sync with the app it's advertising.
+**`/docs` is a plain static HTML/CSS/JS site (no build step, no framework) — deliberately not a
+`gh-pages` branch or a generator like Astro/11ty**, since a single marketing site doesn't need
+componentization and a build step would be one more thing to keep working. `docs/css/styles.css`'s
+theme variables (`[data-theme="..."]` blocks) are copied verbatim from
+`shiki-config/src/themes/*.rs` — if a theme's hex values change there, or a new theme is added to
+`themes/mod.rs::all()`, update both `styles.css` and the `THEMES` array in `docs/js/main.js` (which
+drives the swatch buttons) so the site doesn't silently drift out of sync with the app it's
+advertising.
+
+**Deployment is `.github/workflows/pages.yml`, using the GitHub Actions Pages source (not the
+classic "deploy from a branch" setting) — chosen specifically so a deploy is a real, observable
+workflow run, not an opaque background process with no logs.** It triggers on any push to `main`
+that touches `docs/**`, plus `workflow_dispatch` for a manual redeploy. `actions/deploy-pages@v4`
+needs `contents: read`, `pages: write`, `id-token: write` (an OIDC token to authenticate the
+deployment) — all three, not just `contents: read`, or the deploy step fails with a permissions
+error. `concurrency: { group: pages, cancel-in-progress: true }` means a newer push wins over an
+in-flight older deploy rather than queuing behind it, since an in-progress deploy of already-stale
+content isn't worth finishing. This also means every release's `update-screenshots` commit (which
+touches `docs/assets/screenshots/**`) triggers its own Pages deploy automatically — a new
+release's refreshed screenshots go live with no separate manual "redeploy the site" step.
 
 **All 12 themes have a real captured screenshot** (`docs/assets/screenshots/*.png`, via
 `scripts/screenshots.sh`'s `THEMES` array — originally only 5 were captured; extended to all 12

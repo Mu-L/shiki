@@ -1,0 +1,45 @@
+name: Deploy GitHub Pages
+
+# Publishes /docs to GitHub Pages automatically whenever it changes on main —
+# no manual "build and upload" step, and no dependency on the classic
+# branch-based Pages source (which can't be scripted/observed the same way
+# a workflow run can). Also fires after release.yml's update-screenshots/
+# auto-tag-driven commits land on main, since those touch docs/ too, so a
+# new release's refreshed screenshots and version go live without a
+# separate manual "redeploy" step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; a newer push should win rather than
+# queue behind an older one that's already stale by the time it would run.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
