@@ -4,6 +4,27 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.2] - 2026-07-24
+
+### Fixed
+
+- `find_note` del CLI ahora busca en subcarpetas recursivamente (`all_notes_recursive`), no solo en
+  la raiz del notebook — `shiki edit`/`shiki show` ya encuentran notas anidadas.
+- `synthesize_frontmatter` asigna el nombre correcto del notebook para notas sin YAML frontmatter
+  que viven varios niveles dentro del notebook (antes usaba la carpeta intermedia).
+- `apply_pending_batch` reporta el mensaje real del error en vez de "already exists there?" generico
+  cuando un move/copy falla.
+- `unwrap()` potencial en `start_move_or_copy` reemplazado por `let Some(nb) = ... else`.
+- `render_global_search` verifica bounds antes de indexar `global_search_pool`, evitando panic si un
+  reload ocurre entre la busqueda y el render.
+
+### Changed
+
+- 4 dependencias muertas removidas de `shiki-core`: `notify`, `pulldown-cmark`, `anyhow`, `uuid`
+  (ninguna tenia uso en el codigo fuente).
+- `app.rs` partido en 4 modulos (`draw.rs`, `sync.rs`, `key_handlers.rs`, `app.rs`): paso de 4057
+  a 1508 lineas. Sin cambios de comportamiento, solo reorganizacion.
+
 ## [0.8.1] - 2026-07-23
 
 ### Added

@@ -15,14 +15,10 @@ serde.workspace = true
 serde_yaml.workspace = true
 chrono.workspace = true
 regex.workspace = true
-pulldown-cmark.workspace = true
 git2.workspace = true
 nucleo-matcher.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
 tracing.workspace = true
-notify.workspace = true
 self_update.workspace = true
 
 [dev-dependencies]

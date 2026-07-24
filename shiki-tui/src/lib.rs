@@ -1,7 +1,9 @@
 pub mod app;
+pub(crate) mod key_handlers;
 pub mod clipboard;
 pub mod command;
 pub mod confirm;
+pub mod draw;
 pub mod editor;
 pub mod icons;
 pub mod input;
@@ -15,6 +17,7 @@ pub mod panel_preview;
 pub mod panel_tags;
 pub mod render;
 pub mod status_bar;
+pub(crate) mod sync;
 pub mod tree;
 pub mod which;
 

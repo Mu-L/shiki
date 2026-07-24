@@ -50,7 +50,7 @@ impl Notebook {
                     folders.push(name.to_string_lossy().to_string());
                 }
             } else if path.extension().is_some_and(|ext| ext == "md") {
-                notes.push(Note::from_file(&path)?);
+                notes.push(Note::from_file_in_notebook(&path, &self.name)?);
             }
         }
         Ok((folders, notes))
@@ -131,7 +131,7 @@ impl Notebook {
 
     /// Renames the note at `path`, keeping it in the same folder.
     pub fn rename_note_at(&self, path: &Path, new_title: &str) -> Result<Note> {
-        let mut note = Note::from_file(path)?;
+        let mut note = Note::from_file_in_notebook(path, &self.name)?;
         let dir = path.parent().unwrap_or(&self.path);
         let new_path = dir.join(format!("{}.md", Note::slugify(new_title)));
         note.frontmatter.title = new_title.to_string();
@@ -169,7 +169,7 @@ impl Notebook {
         dest_notebook: &Notebook,
         dest_relative: &Path,
     ) -> Result<Note> {
-        let mut copy = Note::from_file(path)?;
+        let mut copy = Note::from_file_in_notebook(path, &self.name)?;
         let dest_dir = dest_notebook.path.join(dest_relative);
         std::fs::create_dir_all(&dest_dir)?;
         let file_name = path

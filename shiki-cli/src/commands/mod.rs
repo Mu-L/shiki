@@ -18,7 +18,7 @@ pub fn find_note(store: &NotebookStore, notebook: &str, needle: &str) -> Result<
     let nb = store
         .get(notebook)
         .with_context(|| format!("notebook '{notebook}' not found"))?;
-    let notes = nb.list_notes()?;
+    let notes = nb.all_notes_recursive()?;
     let slug = shiki_core::note::Note::slugify(needle);
     notes
         .into_iter()

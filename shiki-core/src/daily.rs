@@ -19,7 +19,7 @@ pub fn daily_note_path(notebook: &Notebook, date: NaiveDate) -> std::path::PathB
 pub fn create_or_open(notebook: &Notebook, date: NaiveDate, templates_dir: &Path) -> Result<Note> {
     let path = daily_note_path(notebook, date);
     if path.exists() {
-        return Note::from_file(&path);
+        return Note::from_file_in_notebook(&path, &notebook.name);
     }
 
     let body = match Template::load(templates_dir, "daily") {

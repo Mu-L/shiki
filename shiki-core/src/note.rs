@@ -78,10 +78,11 @@ impl Note {
     /// valid note, just without that metadata. Rather than rejecting those,
     /// this synthesizes a title (first `# heading`, else the filename), a
     /// date (the file's mtime), and treats the whole file as the body — see
-    /// `synthesize_frontmatter`. The only real failure mode left is I/O.
+    /// `synthesize_frontmatter` and `from_file_in_notebook` for the
+    /// notebook-aware variant. The only real failure mode left is I/O.
     pub fn from_file(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
-        let (frontmatter, body) = Self::split(path, &contents);
+        let (frontmatter, body) = Self::split(path, &contents, None);
         Ok(Self {
             path: path.to_path_buf(),
             frontmatter,
@@ -89,10 +90,26 @@ impl Note {
         })
     }
 
-    fn split(path: &Path, contents: &str) -> (Frontmatter, String) {
+    /// Like `from_file`, but passes `notebook_name` through to
+    /// `synthesize_frontmatter` so the `frontmatter.notebook` field is
+    /// correct even for notes nested several folders deep inside the
+    /// notebook — the old `synthesize_frontmatter` read the notebook name
+    /// from `path.parent().file_name()`, which would pick up an
+    /// intermediate folder name instead of the notebook itself.
+    pub fn from_file_in_notebook(path: &Path, notebook_name: &str) -> Result<Self> {
+        let contents = std::fs::read_to_string(path)?;
+        let (frontmatter, body) = Self::split(path, &contents, Some(notebook_name));
+        Ok(Self {
+            path: path.to_path_buf(),
+            frontmatter,
+            body,
+        })
+    }
+
+    fn split(path: &Path, contents: &str, notebook: Option<&str>) -> (Frontmatter, String) {
         Self::try_parse_frontmatter(contents).unwrap_or_else(|| {
             (
-                Self::synthesize_frontmatter(path, contents),
+                Self::synthesize_frontmatter(path, contents, notebook),
                 contents.to_string(),
             )
         })
@@ -108,21 +125,24 @@ impl Note {
     }
 
     /// Best-effort metadata for a note that arrived with no frontmatter of
-    /// its own. The notebook name is read off the parent directory rather
-    /// than passed in, since every caller already has a path inside some
-    /// notebook's directory.
-    fn synthesize_frontmatter(path: &Path, contents: &str) -> Frontmatter {
+    /// its own. When `notebook` is `Some`, it's used as the `notebook` field
+    /// directly; when `None`, falls back to `path.parent().file_name()` for
+    /// backward compatibility with callers that don't know the notebook.
+    fn synthesize_frontmatter(path: &Path, contents: &str, notebook: Option<&str>) -> Frontmatter {
         let title = contents
             .lines()
             .find_map(|line| line.strip_prefix("# "))
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| Self::title_from_filename(path));
-        let notebook = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let notebook = match notebook {
+            Some(name) => name.to_string(),
+            None => path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        };
         let date = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .ok()
