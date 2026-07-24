@@ -102,7 +102,8 @@ whichever of these fits your platform:
 **Arch Linux (`yay`/`paru`):**
 
 ```sh
-yay -S shiki-bin      # or: paru -S shiki-bin
+yay -S shiki-bin      # or: paru -S shiki-bin      — prebuilt binary, fastest
+yay -S shiki          # or: paru -S shiki           — builds from source (needs cargo)
 ```
 
 **Windows ([Scoop](https://scoop.sh)):**

@@ -1068,16 +1068,43 @@ partially-published state to clean up). Verified end-to-end: all four crates sho
 crates.io API (`max_version` = `0.4.1`, `yanked: false`), and `cargo install shiki-cli` with no
 `--git`/`--path` genuinely resolves and installs from the registry.
 
-**Publishing to the *real* AUR is still gated behind a secret that doesn't exist yet
-(`AUR_SSH_PRIVATE_KEY`) — that step no-ops (not fails) until Omar adds it.** This one can't be set
-up by an agent: AUR requires a personal aur.archlinux.org account with an SSH key registered to it
-(the *first* push to a new AUR package must also be done manually once to create the package page
-— `packaging/aur/PKGBUILD` targets `shiki-bin`, so the one-time manual step is `git clone
-ssh://aur@aur.archlinux.org/shiki-bin.git`, add `PKGBUILD`/`.SRCINFO`, commit, push — after that the
-workflow's `update-packaging-manifests` job keeps it in sync automatically). `publish-crates`
-publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that exact dependency order with a
-30s pause between each (crates.io's index needs a moment to make a
-just-published crate resolvable before the next one in the chain can depend on it).
+**Publishing to the real AUR is live as of v0.8.1 — `AUR_SSH_PRIVATE_KEY` is configured, and
+`release.yml`'s "Push to AUR" step actually runs now instead of no-op'ing.** Getting there needed a
+real aur.archlinux.org account (registered by Omar himself — account creation isn't something an
+agent should ever do) with a dedicated SSH deploy key, plus a one-time manual `git clone
+ssh://aur@aur.archlinux.org/<pkgname>.git` → add `PKGBUILD`/`.SRCINFO` → commit → push for *each*
+AUR package to create its page (AUR rejects an empty repo's first push unless the branch is
+literally named `master` — pushing `main` fails with "hook declined", a real error hit while
+bootstrapping this). **There are two AUR packages, not one**, mirroring the common Arch convention
+of shipping both a fast prebuilt binary and a from-source build side by side:
+- `packaging/aur/` → `shiki-bin` (downloads this repo's own prebuilt release asset, `provides`/
+  `conflicts` `shiki` so pacman treats them as mutually exclusive alternatives).
+- `packaging/aur-src/` → `shiki` (builds from the plain GitHub source tarball for the tag via
+  `cargo build --release`; `conflicts=('shiki-bin')` since both install the same `/usr/bin/shiki`).
+  `shiki-bin` exists specifically because `-bin` is the AUR-convention suffix for "prebuilt binary,
+  doesn't compile anything" — asking to rename it to plain `shiki` would get flagged by AUR
+  moderators, since that name is reserved by convention for something that actually builds from
+  source. Getting a *second*, real package was the only clean way to make `paru -S shiki` (no
+  suffix) work at all.
+  **A real, non-hypothetical build failure was hit and fixed while writing `packaging/aur-src/
+  PKGBUILD`:** `makepkg.conf`'s hardening `CFLAGS`/`LDFLAGS` (`-march=native`, `--as-needed`,
+  `-z,now`, …) are meant for C/C++ packages — `rustc` itself ignores them, but they still leak into
+  any C build script a dependency runs, and `aws-lc-sys` (pulled in transitively via `self_update`'s
+  reqwest+rustls) failed to link against them with pages of `undefined symbol: aws_lc_*` errors.
+  Fixed by `unset CFLAGS CXXFLAGS LDFLAGS LTOFLAGS` right before the `cargo build` line in
+  `build()` — verified by actually running `makepkg` end-to-end (not just reasoning about it) both
+  before (failed) and after (built, packaged, and the resulting binary ran and printed the right
+  version) the fix, in a directory *outside* `/tmp` specifically — this sandbox's own `/tmp` is an
+  8G tmpfs that was already 86% full from unrelated leftover files, which briefly produced a
+  *different*, red-herring "No space left on device" failure before the real root cause was found.
+  `release.yml`'s "Push to AUR" step now loops over both package dirs against their respective AUR
+  git repos, rather than duplicating the clone/commit/push block per package.
+
+`publish-crates` publishes `shiki-core`/`shiki-config`/`shiki-tui`/`shiki-cli` in that exact
+dependency order with a 30s pause between each (crates.io's index needs a moment to make a
+just-published crate resolvable before the next one in the chain can depend on it). See
+`bucket/shiki.json` above for the analogous "path Scoop actually needed didn't match what was
+already documented" bug on the Windows side.
 
 **In-TUI self-update (leader+`U`, `shiki-core/src/update.rs` + `App::open_update_check`/
 `start_update_install`/`poll_update_channel`/`handle_update_key`) is built on the `self_update`

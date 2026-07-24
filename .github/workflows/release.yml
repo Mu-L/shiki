@@ -160,7 +160,7 @@ jobs:
                   f.write("\n")
           EOF
 
-      - name: Update PKGBUILD
+      - name: Update PKGBUILD (shiki-bin)
         run: |
           set -euo pipefail
           version="${{ needs.release.outputs.version }}"
@@ -169,10 +169,32 @@ jobs:
           sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD
           sed -i "s/^sha256sums=.*/sha256sums=('${hash}')/" packaging/aur/PKGBUILD
 
-      - name: Regenerate .SRCINFO
+      - name: Regenerate .SRCINFO (shiki-bin)
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD/packaging/aur:/pkg" -w /pkg archlinux:base-devel \
+            bash -c "useradd -m builder && chown -R builder /pkg && su builder -c 'makepkg --printsrcinfo' > .SRCINFO"
+
+      - name: Update PKGBUILD (shiki, builds from source)
+        run: |
+          set -euo pipefail
+          version="${{ needs.release.outputs.version }}"
+          # No prebuilt asset to hash here — this package builds from the
+          # plain GitHub source tarball for the tag, which isn't one of the
+          # release's own uploaded assets (it's generated on the fly by
+          # GitHub's codeload), so it has to be downloaded and hashed here.
+          curl -sSfL -o source.tar.gz \
+            "https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+          hash=$(sha256sum source.tar.gz | awk '{print $1}')
+          sed -i "s/^pkgver=.*/pkgver=${version}/" packaging/aur-src/PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur-src/PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${hash}')/" packaging/aur-src/PKGBUILD
+          rm source.tar.gz
+
+      - name: Regenerate .SRCINFO (shiki)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/packaging/aur-src:/pkg" -w /pkg archlinux:base-devel \
             bash -c "useradd -m builder && chown -R builder /pkg && su builder -c 'makepkg --printsrcinfo' > .SRCINFO"
 
       - name: Commit updated manifests
@@ -182,7 +204,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packaging/scoop/shiki.json bucket/shiki.json packaging/aur/PKGBUILD packaging/aur/.SRCINFO
+          git add packaging/scoop/shiki.json bucket/shiki.json packaging/aur/PKGBUILD packaging/aur/.SRCINFO \
+                  packaging/aur-src/PKGBUILD packaging/aur-src/.SRCINFO
           if git diff --cached --quiet; then
             echo "No packaging manifest changes to commit"
           elif [ -z "$HAS_PAT" ]; then
@@ -206,19 +229,29 @@ jobs:
           chmod 600 ~/.ssh/aur
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
-          rm -rf /tmp/aur-shiki-bin
-          git clone ssh://aur@aur.archlinux.org/shiki-bin.git /tmp/aur-shiki-bin
-          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO /tmp/aur-shiki-bin/
-          cd /tmp/aur-shiki-bin
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then
-            echo "No AUR changes to push"
-          else
-            git commit -m "Update to ${{ github.ref_name }}"
-            git push origin master
-          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          # Two AUR packages, same maintenance shape: shiki-bin (this repo's
+          # own prebuilt release asset) and shiki (builds from source) — see
+          # packaging/aur/ and packaging/aur-src/ respectively.
+          for pair in "shiki-bin:packaging/aur" "shiki:packaging/aur-src"; do
+            aur_repo="${pair%%:*}"
+            local_dir="${pair#*:}"
+            clone_dir="/tmp/aur-${aur_repo}"
+            rm -rf "$clone_dir"
+            git clone "ssh://aur@aur.archlinux.org/${aur_repo}.git" "$clone_dir"
+            cp "$local_dir/PKGBUILD" "$local_dir/.SRCINFO" "$clone_dir/"
+            (
+              cd "$clone_dir"
+              git add PKGBUILD .SRCINFO
+              if git diff --cached --quiet; then
+                echo "No AUR changes to push for ${aur_repo}"
+              else
+                git commit -m "Update to ${{ github.ref_name }}"
+                git push origin master
+              fi
+            )
+          done
 
   update-screenshots:
     name: Regenerate marketing screenshots for the docs site
