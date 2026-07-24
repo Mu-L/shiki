@@ -1,8 +1,9 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use regex::Regex;
 use std::sync::OnceLock;
+
+use crate::note::Note;
 
 /// Finds all `[[wikilinks]]` in a note's markdown body.
 pub fn extract(body: &str) -> Vec<String> {
@@ -13,18 +14,125 @@ pub fn extract(body: &str) -> Vec<String> {
         .collect()
 }
 
-/// Resolves wikilink targets (by slug) to existing note paths within a notebook.
-pub fn resolve(
-    links: &[String],
-    notebook_path: &std::path::Path,
-) -> HashMap<String, Option<PathBuf>> {
-    links
+/// Resolves a single wikilink's target text to an existing note's path,
+/// matched against every note in `notes` — not just a notebook's root, since
+/// a link can point at a note nested in any folder. Tries an exact
+/// (case-insensitive) title match first, then falls back to comparing
+/// slugs, so `[[Weekend Hiking Trip]]` and `[[weekend-hiking-trip]]` both
+/// resolve to the same note.
+pub fn resolve_one(link: &str, notes: &[Note]) -> Option<PathBuf> {
+    let link = link.trim();
+    let slug = Note::slugify(link);
+    notes
         .iter()
-        .map(|link| {
-            let slug = crate::note::Note::slugify(link);
-            let path = notebook_path.join(format!("{slug}.md"));
-            let resolved = path.exists().then_some(path);
-            (link.clone(), resolved)
+        .find(|n| n.frontmatter.title.eq_ignore_ascii_case(link) || n.file_stem() == slug)
+        .map(|n| n.path.clone())
+}
+
+/// Every note in `notes` (excluding `target` itself) whose body contains a
+/// `[[wikilink]]` that resolves to `target` — the reverse of `extract` +
+/// `resolve_one`, used to answer "what links here?" without every note
+/// needing to maintain its own back-reference list.
+pub fn backlinks<'a>(target: &std::path::Path, notes: &'a [Note]) -> Vec<&'a Note> {
+    notes
+        .iter()
+        .filter(|n| {
+            n.path != target
+                && extract(&n.body)
+                    .iter()
+                    .any(|link| resolve_one(link, notes).as_deref() == Some(target))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::note::Frontmatter;
+
+    fn note(path: &str, title: &str, body: &str) -> Note {
+        Note::new(
+            PathBuf::from(path),
+            Frontmatter::new(title, "test"),
+            body.to_string(),
+        )
+    }
+
+    #[test]
+    fn extract_finds_every_link_ignoring_aliases() {
+        let body = "See [[Weekend Hiking Trip]] and [[Gift Ideas|gifts]] for more.";
+        assert_eq!(
+            extract(body),
+            vec!["Weekend Hiking Trip".to_string(), "Gift Ideas".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_one_matches_by_title_case_insensitively() {
+        let notes = vec![note("a/hiking.md", "Weekend Hiking Trip", "")];
+        assert_eq!(
+            resolve_one("weekend hiking trip", &notes),
+            Some(PathBuf::from("a/hiking.md"))
+        );
+    }
+
+    #[test]
+    fn resolve_one_falls_back_to_slug_match() {
+        // On disk the file name is always `slugify(title)` (`create_note_in`)
+        // — a link using that slug directly (rather than the exact title
+        // text) should still resolve via the file-stem fallback.
+        let notes = vec![note("a/weekend-hiking-trip.md", "Weekend Hiking Trip!", "")];
+        assert_eq!(
+            resolve_one("weekend-hiking-trip", &notes),
+            Some(PathBuf::from("a/weekend-hiking-trip.md"))
+        );
+    }
+
+    #[test]
+    fn resolve_one_finds_nested_notes_not_just_root() {
+        let notes = vec![note("nb/projects/roadmap.md", "shiki roadmap", "")];
+        assert_eq!(
+            resolve_one("shiki roadmap", &notes),
+            Some(PathBuf::from("nb/projects/roadmap.md"))
+        );
+    }
+
+    #[test]
+    fn resolve_one_returns_none_for_unknown_link() {
+        let notes = vec![note("a/hiking.md", "Weekend Hiking Trip", "")];
+        assert_eq!(resolve_one("nonexistent", &notes), None);
+    }
+
+    #[test]
+    fn backlinks_finds_notes_linking_to_target_and_excludes_self_and_unrelated() {
+        // The target's own body contains a self-reference, which must not
+        // count as its own backlink.
+        let target = note(
+            "a/hiking.md",
+            "Weekend Hiking Trip",
+            "[[Weekend Hiking Trip]] (self-reference, shouldn't count)",
+        );
+        let linker = note(
+            "a/journal.md",
+            "Journal",
+            "Planning [[Weekend Hiking Trip]] now.",
+        );
+        let unrelated = note("a/other.md", "Other", "Nothing to see here.");
+        let notes = vec![target.clone(), linker.clone(), unrelated];
+
+        let result = backlinks(&target.path, &notes);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, linker.path);
+    }
+
+    #[test]
+    fn backlinks_ignores_unresolvable_links() {
+        let target = note("a/hiking.md", "Weekend Hiking Trip", "");
+        let notes = vec![
+            target.clone(),
+            note("a/journal.md", "Journal", "See [[Nonexistent Note]]."),
+        ];
+        assert!(backlinks(&target.path, &notes).is_empty());
+    }
 }

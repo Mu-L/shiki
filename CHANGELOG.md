@@ -4,16 +4,35 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
-## [Unreleased]
+## [0.8.1] - 2026-07-23
 
 ### Added
 
 - Footer now shows a clickable "☕ Support" link (`buymeacoffee.com/sazarcode`) — opens in the
   default browser cross-platform via a new `shiki_core::browser::open_url`.
+- Scripted, reproducible demo GIF (`scripts/demo-gif.sh`, recorded with VHS) covering global and
+  in-notebook fuzzy search (with a real cross-notebook jump), tags, real multi-select with a batch
+  delete, creating and moving folders, writing a full note from scratch in the inline editor, a
+  git commit, and live theme switching — featured in the hero of the marketing site (playing on
+  page load) and in a dedicated Demo section, plus `README.md`.
+- Links modal (`L` in PREVIEW) — the selected note's outgoing `[[wikilinks]]` (resolved against
+  every note in the notebook, any folder depth — not just its own directory) plus every other note
+  that links back to it, with `Enter` jumping straight to either. `shiki_core::wikilinks` already
+  had `extract`/`resolve` written but nothing called them; `resolve` is also fixed to search the
+  whole notebook recursively instead of only a note's own directory.
+- Deleting a note or folder now moves it to a trash directory (`~/.config/shiki/trash/`) instead
+  of removing it permanently; leader+`u` restores the most recently deleted note/folder (or whole
+  batch, from a Visual-mode delete) — one level of undo, not a full history.
+- `a` (new note) now opens a template picker after the title — every `.md` file in
+  `~/.config/shiki/templates/` plus a "blank" option — instead of always starting from an empty
+  body. The chosen template's name is recorded in the note's own `template` frontmatter field.
+- Footer's character count (NOTES/PREVIEW, a note selected) now also shows word count and an
+  estimated reading time (200wpm).
 
 ### Changed
 
 - Fresh installs now default to the `gruvbox-dark` theme instead of `catppuccin-mocha`.
+- Delete confirmation prompts no longer say "this can't be undone" — it can now, via leader+`u`.
 
 ## [0.8.0] - 2026-07-23
 

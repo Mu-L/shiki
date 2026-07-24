@@ -8,6 +8,24 @@ use crate::app::{App, Focus, Mode};
 use crate::icons;
 use crate::render::hex_to_color;
 
+/// Whitespace-separated word count — good enough for an estimate next to
+/// the character count, not a publishing-grade word counter (doesn't try
+/// to special-case punctuation-only "words" or CJK text without spaces).
+fn word_count(body: &str) -> usize {
+    body.split_whitespace().count()
+}
+
+/// Rounded up to the nearest minute at the common 200wpm estimate (the
+/// same figure Medium/most reading-time plugins use), with a floor of 1
+/// for any non-empty note — "0 min read" reads as broken, not as "very
+/// short".
+fn reading_time_minutes(words: usize) -> usize {
+    if words == 0 {
+        return 0;
+    }
+    words.div_ceil(200).max(1)
+}
+
 /// Only worth announcing when it's not the default — a "NORMAL" label on
 /// every frame is noise, but INSERT/EDIT/VISUAL are worth flagging.
 fn mode_label(mode: Mode) -> Option<&'static str> {
@@ -120,7 +138,13 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     // view (e.g. while still browsing NOTEBOOKS).
     let meta = match app.selected_note() {
         Some(note) if matches!(app.focus, Focus::Notes | Focus::Preview) => {
-            format!("{} {} chars", icons::NOTE, note.body.chars().count())
+            let words = word_count(&note.body);
+            format!(
+                "{} {} chars · {words} words · {} min read",
+                icons::NOTE,
+                note.body.chars().count(),
+                reading_time_minutes(words)
+            )
         }
         _ => format!("{} {} notes", icons::NOTE, app.notes.len()),
     };
@@ -257,5 +281,21 @@ mod tests {
         // The same column that hit when area matched `width` exactly now
         // falls in the extra left-hand gap, so it should miss.
         assert!(!coffee_hit_at(area, range.start as u16, 0));
+    }
+
+    #[test]
+    fn word_count_splits_on_any_whitespace() {
+        assert_eq!(word_count("one two  three\nfour"), 4);
+        assert_eq!(word_count(""), 0);
+        assert_eq!(word_count("   "), 0);
+    }
+
+    #[test]
+    fn reading_time_rounds_up_at_200_words_per_minute() {
+        assert_eq!(reading_time_minutes(0), 0);
+        assert_eq!(reading_time_minutes(1), 1);
+        assert_eq!(reading_time_minutes(200), 1);
+        assert_eq!(reading_time_minutes(201), 2);
+        assert_eq!(reading_time_minutes(500), 3);
     }
 }

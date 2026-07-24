@@ -7,6 +7,7 @@ pub mod icons;
 pub mod input;
 pub mod keybindings;
 pub mod layout;
+pub mod links_panel;
 pub mod panel_drawer;
 pub mod panel_notebooks;
 pub mod panel_notes;

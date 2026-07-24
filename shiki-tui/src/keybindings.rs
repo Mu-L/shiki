@@ -15,6 +15,9 @@ pub enum Action {
     ToggleFavoriteEditor,
     CheckForUpdate,
     ToggleDrawer,
+    /// Restores the most recently deleted note/folder (or batch) from the
+    /// trash — a single level of undo.
+    UndoDelete,
     // Notebooks-focus
     NewNotebook,
     RenameNotebook,
@@ -48,6 +51,9 @@ pub enum Action {
     EditExternal,
     // Preview-focus
     ShowHistory,
+    /// Opens the links modal — the selected note's outgoing `[[wikilinks]]`
+    /// plus every other note that links back to it.
+    ShowLinks,
 }
 
 /// Translates a config string (e.g. `"enter"`, `"tab"`, `"a"`, `"space"`) into a `KeyCode`.
@@ -110,6 +116,7 @@ impl KeyMaps {
             Action::CheckForUpdate,
         );
         bind(&mut global, &cfg.global.drawer, Action::ToggleDrawer);
+        bind(&mut global, &cfg.global.undo_delete, Action::UndoDelete);
 
         let mut notebooks = HashMap::new();
         bind(&mut notebooks, &cfg.notebooks.new, Action::NewNotebook);
@@ -157,6 +164,7 @@ impl KeyMaps {
             Action::EditExternal,
         );
         bind(&mut preview, &cfg.preview.history, Action::ShowHistory);
+        bind(&mut preview, &cfg.preview.links, Action::ShowLinks);
 
         Self {
             leader,
@@ -236,6 +244,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::ToggleFavoriteEditor => "toggle favorite editor",
         Action::CheckForUpdate => "check for update",
         Action::ToggleDrawer => "toggle notebook drawer",
+        Action::UndoDelete => "undo last delete",
         Action::NewNotebook => "new notebook",
         Action::RenameNotebook => "rename notebook",
         Action::DeleteNotebook => "delete notebook",
@@ -259,6 +268,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::EditInline => "edit (insert mode)",
         Action::EditExternal => "edit externally ($EDITOR)",
         Action::ShowHistory => "note history (view/revert)",
+        Action::ShowLinks => "links (wikilinks + backlinks)",
     }
 }
 
@@ -288,5 +298,7 @@ pub fn action_icon(action: Action) -> char {
         Action::ToggleDates | Action::ShowHistory => crate::icons::HISTORY,
         Action::ToggleVisual => crate::icons::CHECK,
         Action::CopyEntries => crate::icons::CLIPBOARD,
+        Action::ShowLinks => crate::icons::LINK,
+        Action::UndoDelete => crate::icons::UNDO,
     }
 }

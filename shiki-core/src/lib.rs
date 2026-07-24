@@ -7,6 +7,7 @@ pub mod notebook;
 pub mod search;
 pub mod tags;
 pub mod templates;
+pub mod trash;
 pub mod update;
 pub mod wikilinks;
 

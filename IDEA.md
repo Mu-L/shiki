@@ -206,6 +206,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `b` | Notebook drawer — left-side sidebar, every notebook's git status in color (dirty/ahead/behind); `j`/`k` or click a row to jump to it, `n`/click "New" to create a notebook, `i`/click "Import" to clone from a pasted URL, `Esc`/`b` again closes |
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
+| `u` | Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (`~/.config/shiki/trash/`) back to exactly where it came from. A single level of undo, not a full history: only the *most recent* delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything |
 
 #### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
 
@@ -233,10 +234,10 @@ sync attempt (manual or automatic) just tries the push again.
 
 | Key | Action |
 |---|---|
-| `a` | New note (empty title stamps today's date and jumps straight to editing) |
+| `a` | New note (empty title stamps today's date). After the title, a template picker opens — every `.md` file in `~/.config/shiki/templates/` plus a "blank" option; `j`/`k` browse, `Enter` picks one and jumps straight to editing (`{{title}}`/`{{date}}` already substituted), `Esc`/`q` cancels the note entirely |
 | `f` | New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first |
 | `r` | Rename note |
-| `d` | Delete the selected note *or* folder (with confirmation) — a folder deletes everything inside it too. In `v` select mode, deletes every selected item at once |
+| `d` | Delete the selected note *or* folder (with confirmation) — a folder deletes everything inside it too. In `v` select mode, deletes every selected item at once. Moved to the trash rather than permanently removed, so leader+`u` can undo it |
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
 | `/` | Fuzzy-jump to a note by title anywhere in the current notebook (any folder depth) |
@@ -255,6 +256,7 @@ sync attempt (manual or automatic) just tries the push again.
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
 | `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `r` reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
+| `L` | Links — the selected note's outgoing `[[wikilinks]]` (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` jumps to the selected note (an unresolved outgoing link reports that instead of jumping), `Esc`/`q` closes |
 
 ---
 
@@ -318,11 +320,19 @@ file's mtime. It only gains real frontmatter once you touch it through shiki
 ├── keybindings.toml       # custom shortcuts (optional)
 ├── theme.toml             # custom theme (optional)
 ├── shiki.log              # persistent status/log history (leader+l to view, x to clear)
+├── trash/                 # deleted notes/folders, restorable with leader+u (see below)
+│   └── <notebook>/
 └── templates/             # templates
     ├── default.md
     ├── daily.md
     └── meeting.md
 ```
+
+Deleting a note or folder (`d` in NOTES scope) moves it here instead of removing it outright, so
+leader+`u` can put it right back — see the `[keybindings.global]` table above. Same collision
+reasoning as `shiki.log`: this lives in the config dir, not the data dir, since the data dir's top
+level is the set of notebooks themselves (user-named directories), so a fixed name placed there
+could collide with one.
 
 ### Note format (Markdown + YAML frontmatter)
 
@@ -391,6 +401,7 @@ logs = "l"
 toggle_favorite_editor = "e"
 check_update = "U"
 drawer = "b"
+undo_delete = "u"
 
 [keybindings.notebooks]
 new = "a"
@@ -421,6 +432,7 @@ copy_entries = "y"
 edit_inline = "i"
 edit_external = "E"
 history = "H"
+links = "L"
 
 [theme]
 name = "gruvbox-dark"

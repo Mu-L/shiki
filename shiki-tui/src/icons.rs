@@ -23,3 +23,5 @@ pub const DOWNLOAD: char = '\u{f019}'; // download, "needs pull" indicator (behi
 pub const UPLOAD: char = '\u{f093}'; // upload, "needs push" indicator (ahead)
 pub const HISTORY: char = '\u{f1da}'; // history, note version history / date toggle
 pub const COFFEE: char = '\u{f0f4}'; // coffee, buy-me-a-coffee footer link
+pub const LINK: char = '\u{f0c1}'; // link (chain), wikilinks/backlinks modal
+pub const UNDO: char = '\u{f0e2}'; // undo, restore-from-trash

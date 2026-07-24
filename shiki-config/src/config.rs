@@ -117,6 +117,12 @@ pub struct GlobalKeybindings {
     /// backward-compatibility reason as `logs`/`toggle_favorite_editor`.
     #[serde(default = "default_drawer_key")]
     pub drawer: String,
+    /// Restores the most recently deleted note/folder (or batch of them)
+    /// from the trash — a single level of undo, not a full history. Field-
+    /// level default for the same backward-compatibility reason as
+    /// `logs`/`toggle_favorite_editor`.
+    #[serde(default = "default_undo_delete_key")]
+    pub undo_delete: String,
 }
 
 impl Default for GlobalKeybindings {
@@ -129,12 +135,17 @@ impl Default for GlobalKeybindings {
             toggle_favorite_editor: default_toggle_favorite_editor_key(),
             check_update: default_check_update_key(),
             drawer: default_drawer_key(),
+            undo_delete: default_undo_delete_key(),
         }
     }
 }
 
 fn default_logs_key() -> String {
     "l".into()
+}
+
+fn default_undo_delete_key() -> String {
+    "u".into()
 }
 
 fn default_drawer_key() -> String {
@@ -289,6 +300,11 @@ pub struct PreviewKeybindings {
     /// deserializes.
     #[serde(default = "default_history_key")]
     pub history: String,
+    /// Opens the links modal — the selected note's outgoing `[[wikilinks]]`
+    /// plus every other note that links back to it. Same field-level-default
+    /// backward-compatibility reasoning as `history`.
+    #[serde(default = "default_links_key")]
+    pub links: String,
 }
 
 impl Default for PreviewKeybindings {
@@ -297,12 +313,17 @@ impl Default for PreviewKeybindings {
             edit_inline: "i".into(),
             edit_external: "E".into(),
             history: default_history_key(),
+            links: default_links_key(),
         }
     }
 }
 
 fn default_history_key() -> String {
     "H".into()
+}
+
+fn default_links_key() -> String {
+    "L".into()
 }
 
 /// Theme config: `name` references a built-in theme; the optional fields
@@ -585,6 +606,18 @@ impl Config {
             .parent()
             .expect("config path always has a parent")
             .join("shiki.log"))
+    }
+
+    /// Where deleted notes/folders are moved instead of being permanently
+    /// removed (see `shiki_core::trash`) — the config dir, for the exact
+    /// same collision reason as `default_log_path`: the data dir's top
+    /// level is user-named notebooks, so a fixed directory name placed
+    /// there could collide with one.
+    pub fn default_trash_dir() -> Result<PathBuf> {
+        Ok(Self::default_path()?
+            .parent()
+            .expect("config path always has a parent")
+            .join("trash"))
     }
 
     /// Loads the config from `path`, or creates and saves a default config if it doesn't exist.

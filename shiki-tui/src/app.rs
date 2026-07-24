@@ -7,7 +7,7 @@ use crossterm::event::{
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 use ratatui::Terminal;
 use shiki_config::{Config, Theme};
@@ -154,6 +154,15 @@ enum SelectedEntry {
     Folder(std::path::PathBuf),
 }
 
+/// One item moved into the trash by a delete — enough to move it back to
+/// exactly where it came from.
+#[derive(Debug, Clone)]
+struct TrashedEntry {
+    notebook: String,
+    original_path: std::path::PathBuf,
+    trash_path: std::path::PathBuf,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BatchOp {
     Move,
@@ -256,11 +265,37 @@ pub struct App {
     /// Staged while the confirm dialog for leader+`l`'s `x` (clear all
     /// logs) is up — mirrors `pending_delete`/`pending_revert`'s pattern.
     pending_clear_logs: bool,
+    /// Where deleted notes/folders go instead of being permanently removed
+    /// (`Config::default_trash_dir`) — `None` if that path couldn't be
+    /// resolved, in which case delete falls back to the old permanent
+    /// behavior rather than failing outright.
+    trash_root: Option<std::path::PathBuf>,
+    /// The most recently deleted note/folder (or whole batch of them),
+    /// restorable with leader+`u` — a single level of undo, not a full
+    /// history. Cleared once restored (or once another delete overwrites
+    /// it); older trashed items simply stay on disk, unreachable from here
+    /// but not actually gone.
+    last_trash: Option<Vec<TrashedEntry>>,
+    pub show_template_picker: bool,
+    /// `None` is always the first entry ("blank, no template"); every
+    /// `Some(name)` after it is a `.md` file found in the templates dir at
+    /// the moment the picker opened.
+    template_picker_options: Vec<Option<String>>,
+    template_picker_index: usize,
+    /// The title already confirmed by the `NewNote` prompt, carried over
+    /// while the template picker is up — the note isn't actually created
+    /// until a template (or "blank") is chosen.
+    pending_new_note_title: String,
     pub show_tree: bool,
     tree_rows: Vec<crate::tree::TreeRow>,
     /// Index into just the `Note` rows of `tree_rows` (folder rows are
     /// display-only and never selectable) — not a raw row index.
     tree_selected: usize,
+    pub show_links: bool,
+    link_rows: Vec<crate::links_panel::LinkRow>,
+    /// Index into just the selectable rows of `link_rows` (section headers
+    /// are display-only) — same shape as `tree_selected`.
+    link_selected: usize,
     /// True right after the leader key is pressed, waiting for the next key
     /// to resolve against the `global` scope.
     pub leader_pending: bool,
@@ -504,6 +539,7 @@ impl App {
             .as_deref()
             .map(load_log_history)
             .unwrap_or_default();
+        let trash_root = Config::default_trash_dir().ok();
         let available_themes = shiki_config::themes::all();
         let theme_index = available_themes
             .iter()
@@ -546,9 +582,18 @@ impl App {
             log_history,
             log_path,
             pending_clear_logs: false,
+            trash_root,
+            last_trash: None,
+            show_template_picker: false,
+            template_picker_options: Vec::new(),
+            template_picker_index: 0,
+            pending_new_note_title: String::new(),
             show_tree: false,
             tree_rows: Vec::new(),
             tree_selected: 0,
+            show_links: false,
+            link_rows: Vec::new(),
+            link_selected: 0,
             leader_pending: false,
             preview_scroll: 0,
             last_frame_area: Rect::default(),
@@ -1773,6 +1818,105 @@ impl App {
         self.show_tree = false;
     }
 
+    /// Opens the links modal for the currently selected note: its own
+    /// outgoing `[[wikilinks]]` plus every other note in the notebook that
+    /// links back to it. Built fresh every time it opens (like the tags
+    /// modal) rather than kept in sync incrementally — cheap enough for a
+    /// single note's worth of links, and it means an edit made just before
+    /// opening this is never stale.
+    fn open_links(&mut self) {
+        let Some(note) = self.selected_note().cloned() else {
+            self.set_status("select a note first".into());
+            return;
+        };
+        let Some(nb) = self.selected_notebook() else {
+            return;
+        };
+        let all_notes = nb.all_notes_recursive().unwrap_or_default();
+        self.link_rows = crate::links_panel::build(&note, &all_notes);
+        self.link_selected = 0;
+        if self.link_rows.is_empty() {
+            self.set_status("no links or backlinks for this note".into());
+            return;
+        }
+        self.show_links = true;
+    }
+
+    /// How many rows in `link_rows` are actually selectable (headers aren't).
+    fn link_selectable_count(&self) -> usize {
+        crate::links_panel::selectable_count(&self.link_rows)
+    }
+
+    fn handle_links_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.show_links = false,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.link_selected + 1 < self.link_selectable_count() {
+                    self.link_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.link_selected = self.link_selected.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.link_selected = (self.link_selected + PAGE_STEP as usize)
+                    .min(self.link_selectable_count().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.link_selected = self.link_selected.saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.link_selected = 0,
+            KeyCode::End => self.link_selected = self.link_selectable_count().saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.jump_to_link_selection(),
+            _ => {}
+        }
+    }
+
+    /// The deep link: an outgoing link jumps to its resolved note (a broken
+    /// one — no matching note found — just reports that instead), a
+    /// backlink always jumps since `links_panel::build` only ever includes
+    /// notes that actually resolved. Same "point breadcrumb at the note's
+    /// folder, reload, select, focus PREVIEW" shape as `jump_to_tree_
+    /// selection`/`jump_to_tag_note`/`jump_to_global_hit`.
+    fn jump_to_link_selection(&mut self) {
+        let Some(row) = crate::links_panel::selected_row(&self.link_rows, self.link_selected)
+        else {
+            self.show_links = false;
+            return;
+        };
+        let (note_path, title) = match &self.link_rows[row] {
+            crate::links_panel::LinkRow::Outgoing {
+                resolved: Some(path),
+                text,
+            } => (path.clone(), text.clone()),
+            crate::links_panel::LinkRow::Outgoing {
+                resolved: None,
+                text,
+            } => {
+                self.set_status(format!("'{text}' doesn't match any note"));
+                return;
+            }
+            crate::links_panel::LinkRow::Backlink { note } => {
+                (note.path.clone(), note.frontmatter.title.clone())
+            }
+            crate::links_panel::LinkRow::Header(_) => {
+                self.show_links = false;
+                return;
+            }
+        };
+        let notebook_path = self.selected_notebook().map(|nb| nb.path.clone());
+        if let Some(notebook_path) = notebook_path {
+            self.notes_path = relative_folder(&note_path, &notebook_path);
+        }
+        self.reload_notes();
+        if let Some(idx) = self.notes.iter().position(|n| n.path == note_path) {
+            self.selected_note = self.folders.len() + idx;
+        }
+        self.focus = Focus::Preview;
+        self.set_status(format!("opened '{title}'"));
+        self.show_links = false;
+    }
+
     /// The tags modal has two levels: the tag list itself, and (after
     /// drilling into one) the notes that carry it — reset to level 1 every
     /// time it opens, so it never reopens showing a stale drill-down from
@@ -2051,21 +2195,25 @@ impl App {
                 SelectedEntry::Folder(_) => (n, f + 1),
             });
             let message = format!(
-                "Delete {notes} note(s) and {folders} folder(s) (and everything inside them)? This can't be undone."
+                "Delete {notes} note(s) and {folders} folder(s) (and everything inside them)? Restorable with leader+u."
             );
             self.pending_batch_delete = Some(entries);
             self.confirm = Some(confirm::ConfirmDialog::new(message));
             return;
         }
         if let Some(note) = self.selected_note() {
-            let message = format!("Delete note '{}'?", note.file_stem());
+            let message = format!(
+                "Delete note '{}'? Restorable with leader+u.",
+                note.file_stem()
+            );
             self.pending_delete = Some((DeleteTarget::Note, note.path.clone()));
             self.confirm = Some(confirm::ConfirmDialog::new(message));
         } else if let (Some(folder), Some(nb)) = (self.selected_folder(), self.selected_notebook())
         {
             let path = nb.path.join(self.notes_relative_path()).join(folder);
-            let message =
-                format!("Delete folder '{folder}' and everything inside it? This can't be undone.");
+            let message = format!(
+                "Delete folder '{folder}' and everything inside it? Restorable with leader+u."
+            );
             self.pending_delete = Some((DeleteTarget::Folder, path));
             self.confirm = Some(confirm::ConfirmDialog::new(message));
         }
@@ -2525,6 +2673,107 @@ impl App {
         }
     }
 
+    /// Opens the template picker for a note titled `title` — every `.md`
+    /// file in the templates dir, plus a leading "blank" option, listed
+    /// fresh each time (mirrors the tags/tree modals' "rebuild on open"
+    /// approach) so a template added or removed between two `a` presses is
+    /// always reflected without needing its own invalidation logic.
+    fn open_template_picker(&mut self, title: String) {
+        self.pending_new_note_title = title;
+        let mut options = vec![None];
+        if let Ok(dir) = Config::default_templates_dir() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                let mut names: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let path = e.path();
+                        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                            return None;
+                        }
+                        path.file_stem().map(|s| s.to_string_lossy().to_string())
+                    })
+                    .collect();
+                names.sort();
+                options.extend(names.into_iter().map(Some));
+            }
+        }
+        self.template_picker_options = options;
+        self.template_picker_index = 0;
+        self.show_template_picker = true;
+    }
+
+    fn handle_template_picker_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.show_template_picker = false;
+                self.pending_new_note_title.clear();
+                self.set_status("new note cancelled".into());
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.template_picker_index + 1 < self.template_picker_options.len() {
+                    self.template_picker_index += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.template_picker_index = self.template_picker_index.saturating_sub(1);
+            }
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
+                self.confirm_template_choice();
+            }
+            _ => {}
+        }
+    }
+
+    /// Creates the note with the chosen template's rendered body (or an
+    /// empty one, for "blank") — the actual creation `confirm_input`'s old
+    /// `NewNote` arm used to do directly, now happening here once a
+    /// template's actually been picked instead of always being empty.
+    fn confirm_template_choice(&mut self) {
+        let title = std::mem::take(&mut self.pending_new_note_title);
+        let template_choice = self
+            .template_picker_options
+            .get(self.template_picker_index)
+            .cloned()
+            .flatten();
+        self.show_template_picker = false;
+
+        let body = match &template_choice {
+            Some(name) => Config::default_templates_dir()
+                .ok()
+                .and_then(|dir| shiki_core::Template::load(&dir, name).ok())
+                .map(|template| {
+                    let mut vars = std::collections::HashMap::new();
+                    vars.insert("title", title.clone());
+                    vars.insert("date", chrono::Local::now().format("%Y-%m-%d").to_string());
+                    template.render(&vars)
+                })
+                .unwrap_or_default(),
+            None => String::new(),
+        };
+
+        match self.selected_notebook().cloned() {
+            Some(nb) => match nb.create_note_in(&self.notes_relative_path(), &title, body) {
+                Ok(mut note) => {
+                    if let Some(name) = &template_choice {
+                        note.frontmatter.template = Some(name.clone());
+                        let _ = note.save();
+                    }
+                    self.reload_notes();
+                    self.focus = Focus::Notes;
+                    if let Some(idx) = self.notes.iter().position(|n| n.path == note.path) {
+                        self.selected_note = self.folders.len() + idx;
+                    }
+                    self.set_status(format!("created '{title}'"));
+                    // Drop straight into the inline editor — a fresh note
+                    // (blank or templated) isn't useful to just sit on.
+                    self.start_edit_inline();
+                }
+                Err(e) => self.set_status(format!("could not create note: {e}")),
+            },
+            None => self.set_status("create a notebook first".into()),
+        }
+    }
+
     fn start_edit_inline(&mut self) {
         if let Some(note) = self.selected_note() {
             let mut editor = InlineEditor::from_contents(&note.body);
@@ -2567,6 +2816,7 @@ impl App {
             Action::ShowLogs => self.open_logs(),
             Action::CheckForUpdate => self.open_update_check(),
             Action::ToggleDrawer => self.toggle_drawer(),
+            Action::UndoDelete => self.undo_delete(),
 
             Action::NewNotebook => self.start_input(PendingInput::NewNotebook, String::new()),
             Action::RenameNotebook => self.start_rename_notebook(),
@@ -2594,6 +2844,7 @@ impl App {
                 ));
             }
             Action::ShowHistory => self.open_history(),
+            Action::ShowLinks => self.open_links(),
             Action::ToggleFavoriteEditor => self.toggle_favorite_editor(),
             Action::ToggleVisual => self.toggle_visual(),
             Action::CopyEntries => {
@@ -2638,24 +2889,12 @@ impl App {
                 } else {
                     value
                 };
-                match self.selected_notebook().cloned() {
-                    Some(nb) => match nb.create_note_in(&self.notes_relative_path(), &title, "") {
-                        Ok(note) => {
-                            self.reload_notes();
-                            self.focus = Focus::Notes;
-                            if let Some(idx) = self.notes.iter().position(|n| n.path == note.path) {
-                                self.selected_note = self.folders.len() + idx;
-                            }
-                            self.set_status(format!("created '{title}'"));
-                            // Drop straight into the inline editor — a blank
-                            // note with just a title isn't useful on its own.
-                            self.start_edit_inline();
-                            return;
-                        }
-                        Err(e) => self.set_status(format!("could not create note: {e}")),
-                    },
-                    None => self.set_status("create a notebook first".into()),
-                }
+                // The note itself isn't created yet — `open_template_picker`
+                // takes over from here and creates it once a template (or
+                // "blank") is actually chosen.
+                self.open_template_picker(title);
+                self.mode = Mode::Normal;
+                return;
             }
             Some(PendingInput::NewFolder) => {
                 // Unlike NewNote, an empty name has no sensible default (a
@@ -2828,12 +3067,27 @@ impl App {
                                 .file_stem()
                                 .map(|s| s.to_string_lossy().to_string())
                                 .unwrap_or_default();
+                            let mut trashed = false;
                             if let Some(nb) = self.selected_notebook().cloned() {
-                                let _ = nb.delete_note_at(&path);
+                                let suffix = chrono::Local::now().timestamp_millis().to_string();
+                                match self.trash_path(&nb, &path, &suffix) {
+                                    Some(entry) => {
+                                        self.last_trash = Some(vec![entry]);
+                                        trashed = true;
+                                    }
+                                    None => {
+                                        let _ = nb.delete_note_at(&path);
+                                        self.last_trash = None;
+                                    }
+                                }
                                 self.note_changed(&nb.name);
                             }
                             self.reload_notes();
-                            self.set_status(format!("deleted '{name}'"));
+                            self.set_status(if trashed {
+                                format!("deleted '{name}' (undo: leader+u)")
+                            } else {
+                                format!("deleted '{name}'")
+                            });
                         }
                         DeleteTarget::Notebook => {
                             let name = path
@@ -2849,14 +3103,29 @@ impl App {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
+                            let mut trashed = false;
                             if let Some(nb) = self.selected_notebook().cloned() {
-                                if let Ok(relative) = path.strip_prefix(&nb.path) {
-                                    let _ = nb.delete_folder_at(relative);
+                                let suffix = chrono::Local::now().timestamp_millis().to_string();
+                                match self.trash_path(&nb, &path, &suffix) {
+                                    Some(entry) => {
+                                        self.last_trash = Some(vec![entry]);
+                                        trashed = true;
+                                    }
+                                    None => {
+                                        if let Ok(relative) = path.strip_prefix(&nb.path) {
+                                            let _ = nb.delete_folder_at(relative);
+                                        }
+                                        self.last_trash = None;
+                                    }
                                 }
                                 self.note_changed(&nb.name);
                             }
                             self.reload_notes();
-                            self.set_status(format!("deleted folder '{name}'"));
+                            self.set_status(if trashed {
+                                format!("deleted folder '{name}' (undo: leader+u)")
+                            } else {
+                                format!("deleted folder '{name}'")
+                            });
                         }
                     }
                 } else if let Some((note_path, commit_id)) = self.pending_revert.take() {
@@ -2886,8 +3155,23 @@ impl App {
         let Some(nb) = self.selected_notebook().cloned() else {
             return;
         };
+        // Shared across the whole batch, with a per-entry index appended
+        // (`trash_path`'s `suffix`) — same-named items from different
+        // folders deleted in the same batch still can't collide in the
+        // trash, the same reasoning as a single delete's own timestamp.
+        let batch_id = chrono::Local::now().timestamp_millis();
         let (mut ok, mut failed) = (0u32, 0u32);
-        for entry in &entries {
+        let mut trashed = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            let path: &std::path::Path = match entry {
+                SelectedEntry::Note(path) | SelectedEntry::Folder(path) => path,
+            };
+            let suffix = format!("{batch_id}-{index}");
+            if let Some(entry) = self.trash_path(&nb, path, &suffix) {
+                trashed.push(entry);
+                ok += 1;
+                continue;
+            }
             let result = match entry {
                 SelectedEntry::Note(path) => nb.delete_note_at(path),
                 SelectedEntry::Folder(path) => path
@@ -2900,13 +3184,73 @@ impl App {
                 Err(_) => failed += 1,
             }
         }
+        let any_trashed = !trashed.is_empty();
+        self.last_trash = any_trashed.then_some(trashed);
         self.note_changed(&nb.name);
         self.reload_notes();
         self.mode = Mode::Normal;
         if failed == 0 {
-            self.set_status(format!("deleted {ok} item(s)"));
+            self.set_status(if any_trashed {
+                format!("deleted {ok} item(s) (undo: leader+u)")
+            } else {
+                format!("deleted {ok} item(s)")
+            });
         } else {
             self.set_status(format!("deleted {ok} item(s), {failed} failed"));
+        }
+    }
+
+    /// Moves `path` (an absolute path to a note file or a whole folder)
+    /// into the trash for notebook `nb`, tagged with `suffix` (unique per
+    /// call — see the batch-delete call site for why). `None` if the trash
+    /// directory couldn't be resolved or the move itself failed, in which
+    /// case the caller should fall back to actually deleting `path`
+    /// outright — a delete the user just confirmed should always visibly
+    /// remove the item; trash is a safety net on top of that, not a
+    /// precondition for it.
+    fn trash_path(
+        &self,
+        nb: &Notebook,
+        path: &std::path::Path,
+        suffix: &str,
+    ) -> Option<TrashedEntry> {
+        let root = self.trash_root.as_ref()?;
+        let trash_dir = root.join(&nb.name);
+        let trash_path = shiki_core::trash::move_to_trash(path, &trash_dir, suffix).ok()?;
+        Some(TrashedEntry {
+            notebook: nb.name.clone(),
+            original_path: path.to_path_buf(),
+            trash_path,
+        })
+    }
+
+    /// Restores everything from the last delete back to where it came from
+    /// (leader+`u`) — a no-op, reported as such, if nothing's been deleted
+    /// yet this session or a later delete already replaced the undo slot.
+    fn undo_delete(&mut self) {
+        let Some(entries) = self.last_trash.take() else {
+            self.set_status("nothing to undo".into());
+            return;
+        };
+        let (mut ok, mut failed) = (0u32, 0u32);
+        let mut notebooks_touched = std::collections::HashSet::new();
+        for entry in &entries {
+            match shiki_core::trash::restore(&entry.trash_path, &entry.original_path) {
+                Ok(()) => {
+                    ok += 1;
+                    notebooks_touched.insert(entry.notebook.clone());
+                }
+                Err(_) => failed += 1,
+            }
+        }
+        for name in &notebooks_touched {
+            self.note_changed(name);
+        }
+        self.reload_notes();
+        if failed == 0 {
+            self.set_status(format!("restored {ok} item(s)"));
+        } else {
+            self.set_status(format!("restored {ok} item(s), {failed} failed"));
         }
     }
 
@@ -3015,6 +3359,10 @@ impl App {
             self.handle_theme_picker_key(key);
             return;
         }
+        if self.show_template_picker {
+            self.handle_template_picker_key(key);
+            return;
+        }
         if self.show_global_search {
             self.handle_global_search_key(key);
             return;
@@ -3029,6 +3377,10 @@ impl App {
         }
         if self.show_tree {
             self.handle_tree_key(key);
+            return;
+        }
+        if self.show_links {
+            self.handle_links_key(key);
             return;
         }
         if self.show_history {
@@ -3304,6 +3656,10 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         render_theme_picker(frame, frame.area(), app);
     }
 
+    if app.show_template_picker {
+        render_template_picker(frame, frame.area(), app);
+    }
+
     if app.show_global_search {
         render_global_search(frame, frame.area(), app);
     }
@@ -3314,6 +3670,10 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
 
     if app.show_tree {
         render_tree(frame, frame.area(), app);
+    }
+
+    if app.show_links {
+        render_links(frame, frame.area(), app);
     }
 
     if app.show_history {
@@ -3363,6 +3723,37 @@ fn render_theme_picker(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) 
 
     let mut state = ListState::default();
     state.select(Some(app.theme_picker_index));
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+fn render_template_picker(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
+    let height =
+        (app.template_picker_options.len() as u16 + 2).min(frame_area.height.saturating_sub(2));
+    let popup_area = centered_rect(frame_area, 40, height);
+    frame.render_widget(Clear, popup_area);
+
+    let items: Vec<ListItem> = app
+        .template_picker_options
+        .iter()
+        .map(|opt| match opt {
+            Some(name) => ListItem::new(name.clone()),
+            None => ListItem::new("(blank, no template)"),
+        })
+        .collect();
+    let highlight_symbol = format!("{} ", icons::ARROW);
+    let title = format!(" {}  Pick a template ", icons::NOTE);
+    let list = List::new(items)
+        .block(panel_block(Line::from(title), true, &app.theme))
+        .highlight_style(
+            Style::default()
+                .bg(hex_to_color(&app.theme.selection))
+                .fg(hex_to_color(&app.theme.accent))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(&highlight_symbol);
+
+    let mut state = ListState::default();
+    state.select(Some(app.template_picker_index));
     frame.render_stateful_widget(list, popup_area, &mut state);
 }
 
@@ -3537,6 +3928,64 @@ fn render_tree(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
 
     let mut state = ListState::default();
     state.select(app.tree_selected_row());
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+fn render_links(frame: &mut ratatui::Frame, frame_area: Rect, app: &App) {
+    let height = ((app.link_rows.len() as u16) + 2).max(4);
+    let popup_area = centered_rect(frame_area, (frame_area.width * 3 / 4).max(40), height);
+    frame.render_widget(Clear, popup_area);
+
+    let muted = hex_to_color(&app.theme.muted);
+    let fg = hex_to_color(&app.theme.fg);
+    let error = hex_to_color(&app.theme.error);
+    let items: Vec<ListItem> = app
+        .link_rows
+        .iter()
+        .map(|row| match row {
+            crate::links_panel::LinkRow::Header(label) => ListItem::new(Line::from(Span::styled(
+                label.to_string(),
+                Style::default().fg(muted).add_modifier(Modifier::BOLD),
+            ))),
+            crate::links_panel::LinkRow::Outgoing {
+                text,
+                resolved: Some(_),
+            } => ListItem::new(Line::from(Span::styled(
+                format!("  {} {text}", icons::LINK),
+                Style::default().fg(fg),
+            ))),
+            crate::links_panel::LinkRow::Outgoing {
+                text,
+                resolved: None,
+            } => ListItem::new(Line::from(Span::styled(
+                format!("  {} {text}  (no matching note)", icons::WARNING),
+                Style::default().fg(error),
+            ))),
+            crate::links_panel::LinkRow::Backlink { note } => {
+                ListItem::new(Line::from(Span::styled(
+                    format!("  {} {}", icons::NOTE, note.frontmatter.title),
+                    Style::default().fg(fg),
+                )))
+            }
+        })
+        .collect();
+    let highlight_symbol = format!("{} ", icons::ARROW);
+    let title = format!(" {}  Links  —  enter jump · esc/q close ", icons::LINK);
+    let list = List::new(items)
+        .block(panel_block(Line::from(title), true, &app.theme))
+        .highlight_style(
+            Style::default()
+                .bg(hex_to_color(&app.theme.selection))
+                .fg(hex_to_color(&app.theme.accent))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(&highlight_symbol);
+
+    let mut state = ListState::default();
+    state.select(crate::links_panel::selected_row(
+        &app.link_rows,
+        app.link_selected,
+    ));
     frame.render_stateful_widget(list, popup_area, &mut state);
 }
 
