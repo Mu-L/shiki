@@ -17,10 +17,19 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Build
+      - name: Build (local src draft)
         run: nix-build nix/shiki-package-test.nix -o result
 
-      - name: Verify binary
+      - name: Verify binary (local src draft)
         run: |
           ./result/bin/shiki --version
           file ./result/bin/shiki
+
+      - name: Build (final fetchFromGitHub draft)
+        run: |
+          nix-build -E 'with import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") { }; callPackage ./nix/shiki-package-final.nix { }' -o result-final
+
+      - name: Verify binary (final fetchFromGitHub draft)
+        run: |
+          ./result-final/bin/shiki --version
+          file ./result-final/bin/shiki
