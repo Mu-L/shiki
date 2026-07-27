@@ -544,6 +544,44 @@ pub struct ResolvedSync {
     pub auto_sync_every: u32,
 }
 
+/// One entry in the inline editor's `/`-menu, defined under
+/// `[snippets.<trigger>]` in `config.toml` — e.g.:
+///
+/// ```toml
+/// [snippets.note]
+/// label = "Callout note"
+/// body = "> **Note:** {{cursor}}"
+/// ```
+///
+/// Keyed by trigger (a `HashMap`, like `[notebooks.<name>]` above) rather
+/// than an array of `{ trigger, label, body }` tables — deliberately not
+/// `Vec<SnippetConfig>` with `[[snippets]]`: `Config::save` always writes
+/// every field including empty ones, and an empty `Vec` serializes as a
+/// bare `snippets = []` line, which conflicts as a "duplicate key" with
+/// any `[[snippets]]` block a user later appends by hand (hit for real
+/// while dogfooding this — a fresh install's already-written `config.toml`
+/// has `snippets = []` from the very first launch, before anyone's added
+/// one). An empty `HashMap` instead serializes as a bare `[snippets]`
+/// table header, and TOML lets `[snippets.note]` extend that table
+/// afterward with no conflict — the same reason `[notebooks.work]` already
+/// composes cleanly with the auto-written `[notebooks]`.
+///
+/// The map key is what filters the `/`-menu (and, if it matches a built-in
+/// command's trigger case-insensitively, *replaces* that built-in instead
+/// of adding a duplicate — every command in the menu is customizable this
+/// way, not just ones added from scratch). `label` falls back to the
+/// trigger when omitted. `body` supports the same `{{title}}`/`{{date}}`
+/// placeholders note templates do (`shiki_core::Template::render`), plus a
+/// `{{cursor}}` marker (not a template placeholder — resolved separately)
+/// marking where the cursor lands after insertion; omit it to leave the
+/// cursor at the end of the inserted text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnippetConfig {
+    #[serde(default)]
+    pub label: Option<String>,
+    pub body: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -558,6 +596,12 @@ pub struct Config {
     /// `[notebooks.work]` with `auto_push = true`. See `NotebookGitOverride`.
     #[serde(default)]
     pub notebooks: std::collections::HashMap<String, NotebookGitOverride>,
+    /// User-defined `/`-menu commands for the inline editor, keyed by
+    /// trigger — see `SnippetConfig`. Empty by default; the built-in
+    /// commands (`shiki-tui`'s `slash_menu::builtins`) aren't stored here
+    /// at all, only ever the user's own additions/overrides.
+    #[serde(default)]
+    pub snippets: std::collections::HashMap<String, SnippetConfig>,
 }
 
 impl Config {

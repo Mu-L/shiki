@@ -16,6 +16,7 @@ pub mod panel_notes;
 pub mod panel_preview;
 pub mod panel_tags;
 pub mod render;
+pub mod slash_menu;
 pub mod status_bar;
 pub(crate) mod sync;
 pub mod tree;

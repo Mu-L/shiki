@@ -234,7 +234,7 @@ sync attempt (manual or automatic) just tries the push again.
 
 | Key | Action |
 |---|---|
-| `a` | New note (empty title stamps today's date). After the title, a template picker opens — every `.md` file in `~/.config/shiki/templates/` plus a "blank" option; `j`/`k` browse, `Enter` picks one and jumps straight to editing (`{{title}}`/`{{date}}` already substituted), `Esc`/`q` cancels the note entirely |
+| `a` | New note (empty title stamps today's date). After the title, a template picker opens — every `.md` file in `~/.config/shiki/templates/` plus a "blank" option; `j`/`k` browse, `Enter` picks one and jumps straight to editing (`{{title}}`/`{{date}}` already substituted), `Esc`/`q` cancels the note entirely. Typing `@` anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — `today`/`yesterday`/`tomorrow` (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; `Enter` creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely |
 | `f` | New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first |
 | `r` | Rename note |
 | `d` | Delete the selected note *or* folder (with confirmation) — a folder deletes everything inside it too. In `v` select mode, deletes every selected item at once. Moved to the trash rather than permanently removed, so leader+`u` can undo it |
@@ -257,6 +257,23 @@ sync attempt (manual or automatic) just tries the push again.
 | `E` | Edit externally ($EDITOR) |
 | `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `r` reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
 | `L` | Links — the selected note's outgoing `[[wikilinks]]` (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` jumps to the selected note (an unresolved outgoing link reports that instead of jumping), `Esc`/`q` closes |
+
+#### Inside the inline editor (`i`)
+
+Long lines wrap to the panel's width, the same as PREVIEW — they never scroll off the edge of the
+screen. A completely empty note shows a dim placeholder hint ("Type `/` for quick blocks…"),
+gone the instant you type anything.
+
+Typing `/` as the very first character of a line (nothing to its left — a `/` anywhere else, e.g.
+mid-sentence or in a URL/fraction, is just a literal slash) opens a small searchable menu right
+under the cursor: keep typing to filter by name, `↑`/`↓` to move, `Enter` to insert the highlighted
+block, `Esc` to dismiss the menu without leaving edit mode (a second `Esc` then saves and exits, as
+usual). Built-in blocks: `h1`/`h2`/`h3`, a code fence, a math (`$$…$$`) block, a table skeleton, a
+checklist item, a quote, a divider, today's date, a `Tags:` line, and a YAML frontmatter skeleton.
+
+Every command is customizable from `config.toml` under `[snippets.<trigger>]` — see the
+Configuration section below. A custom entry with the same trigger as a built-in (case-insensitive)
+replaces it instead of adding a duplicate, so nothing here is off-limits to redefine.
 
 ---
 
@@ -474,6 +491,21 @@ remote_template = ""
 auto_sync = true
 auto_sync_every = 3
 auto_push = true
+
+# Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
+# default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
+# divider/date/tags/frontmatter) aren't listed here at all, only your own
+# additions/overrides. `label` falls back to the trigger when omitted; `body`
+# supports {{title}}/{{date}} (substituted the same way note templates are)
+# plus a {{cursor}} marker for where the cursor lands after insertion.
+[snippets.note]
+label = "Callout note"
+body = "> **Note:** {{cursor}}"
+
+# Same trigger as a built-in (case-insensitive) replaces it instead of
+# adding a duplicate — every command in the menu is customizable this way.
+[snippets.h1]
+body = "# [{{title}}] {{cursor}}"
 ```
 
 ---
