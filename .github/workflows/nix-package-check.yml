@@ -1,0 +1,24 @@
+name: Nix package check
+
+# Scratch workflow to validate nix/shiki-package-test.nix (a draft of the
+# derivation intended for nixpkgs) actually builds, without needing a local
+# Nix install. Manual-trigger only — this is a one-off verification aid, not
+# part of the regular CI gate.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Build
+        run: nix-build nix/shiki-package-test.nix -o result
+
+      - name: Verify binary
+        run: |
+          ./result/bin/shiki --version
+          file ./result/bin/shiki
