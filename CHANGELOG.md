@@ -8,56 +8,54 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ### Added
 
-- Menu `/` en el editor inline: escribir `/` como primer caracter de una linea abre un mini-menu
-  buscable (filtra al seguir escribiendo, `↑`/`↓` navega, `Enter` inserta, `Esc` cierra el menu sin
-  salir de edicion) con bloques listos para insertar — `h1`/`h2`/`h3`, bloque de codigo, bloque de
-  math, tabla, checklist, quote, divider, fecha de hoy, linea de tags, y un bloque de frontmatter
-  YAML. `/` en cualquier otra posicion de la linea (una URL, una fraccion) sigue siendo un caracter
-  normal.
-- Los comandos del menu `/` son totalmente personalizables via `[snippets.<trigger>]` en
-  `config.toml` — cada entrada puede agregar un bloque nuevo o redefinir uno existente (mismo
-  trigger, case-insensitive). Soporta `{{title}}`/`{{date}}` (igual que los templates de notas) y
-  un marcador `{{cursor}}` que indica donde queda el cursor despues de insertar.
-- Dropdown `@` en el prompt de nota nueva (`a`): escribir `@` despues del titulo (o solo, sin
-  titulo) abre un dropdown con `today`/`yesterday`/`tomorrow` (fecha calculada, sin template) mas
-  cada template disponible — filtra al escribir, `Enter` crea la nota y salta directo a edicion,
-  saltandose el flujo normal de "titulo → Enter → elegir template".
-- 9 templates nuevos ademas de los 3 existentes (`default`/`daily`/`meeting`): `bug`, `spec`,
-  `review`, `postmortem` (dev), `standup`, `retro`, `1on1`, `weekly` (productividad/reuniones) y
-  `brainstorm` (general) — se generan automaticamente en `~/.config/shiki/templates/` en el
-  proximo arranque sin tocar ningun template ya personalizado.
-- El editor inline muestra un placeholder ("Type '/' for quick blocks...") cuando la nota esta
-  vacia, para que el menu `/` sea descubrible sin tener que leer la documentacion.
+- `/`-menu in the inline editor: typing `/` as the first character of a line opens a small
+  searchable menu (filters as you keep typing, `↑`/`↓` navigates, `Enter` inserts, `Esc` closes the
+  menu without leaving edit mode) with ready-to-insert blocks — `h1`/`h2`/`h3`, a code fence, a math
+  block, a table, a checklist item, a quote, a divider, today's date, a tags line, and a YAML
+  frontmatter block. `/` anywhere else on the line (a URL, a fraction) is still a plain character.
+- `/`-menu commands are fully customizable via `[snippets.<trigger>]` in `config.toml` — each entry
+  can add a new block or redefine an existing one (same trigger, case-insensitive). Supports
+  `{{title}}`/`{{date}}` (same as note templates) and a `{{cursor}}` marker for where the cursor
+  lands after insertion.
+- `@` dropdown in the new-note title prompt (`a`): typing `@` after the title (or alone, with no
+  title) opens a dropdown with `today`/`yesterday`/`tomorrow` (a computed date, no template) plus
+  every available template — filters as you type, `Enter` creates the note and jumps straight to
+  editing, skipping the normal "title → Enter → pick a template" flow.
+- 9 new templates alongside the existing 3 (`default`/`daily`/`meeting`): `bug`, `spec`, `review`,
+  `postmortem` (dev), `standup`, `retro`, `1on1`, `weekly` (productivity/meetings), and `brainstorm`
+  (general) — generated automatically in `~/.config/shiki/templates/` on next launch, without
+  touching any template you've already customized.
+- The inline editor shows a placeholder ("Type '/' for quick blocks...") when the note is empty, so
+  the `/`-menu is discoverable without reading the docs.
 
 ### Fixed
 
-- El editor inline ahora envuelve las lineas largas dentro del ancho del panel (igual que PREVIEW)
-  en vez de scrollear horizontalmente y sacarlas de la vista — `tui-textarea` no soporta wrap en
-  ninguna version publicada, asi que el render del editor ahora se calcula a mano (mismo wrap tanto
-  para dibujar como para ubicar el cursor, para que nunca puedan desincronizarse), mientras que
-  toda la edicion real (insertar/borrar/deshacer/seleccion) sigue pasando por `tui-textarea` sin
-  cambios.
+- The inline editor now wraps long lines to the panel's width (same as PREVIEW) instead of
+  scrolling them off-screen horizontally — `tui-textarea` has no wrap support in any published
+  version, so the editor's rendering is now computed by hand (the same wrap math is reused both to
+  draw the text and to place the cursor, so the two can never disagree), while all real editing
+  (insert/delete/undo/selection) still goes through `tui-textarea` unchanged.
 
 ## [0.8.2] - 2026-07-24
 
 ### Fixed
 
-- `find_note` del CLI ahora busca en subcarpetas recursivamente (`all_notes_recursive`), no solo en
-  la raiz del notebook — `shiki edit`/`shiki show` ya encuentran notas anidadas.
-- `synthesize_frontmatter` asigna el nombre correcto del notebook para notas sin YAML frontmatter
-  que viven varios niveles dentro del notebook (antes usaba la carpeta intermedia).
-- `apply_pending_batch` reporta el mensaje real del error en vez de "already exists there?" generico
-  cuando un move/copy falla.
-- `unwrap()` potencial en `start_move_or_copy` reemplazado por `let Some(nb) = ... else`.
-- `render_global_search` verifica bounds antes de indexar `global_search_pool`, evitando panic si un
-  reload ocurre entre la busqueda y el render.
+- The CLI's `find_note` now searches subfolders recursively (`all_notes_recursive`), not just the
+  notebook's root — `shiki edit`/`shiki show` now find nested notes.
+- `synthesize_frontmatter` now assigns the correct notebook name for notes with no YAML frontmatter
+  that live several levels deep inside the notebook (it used to use the intermediate folder).
+- `apply_pending_batch` reports the actual error message instead of a generic "already exists
+  there?" when a move/copy fails.
+- A potential `unwrap()` in `start_move_or_copy` replaced with `let Some(nb) = ... else`.
+- `render_global_search` checks bounds before indexing `global_search_pool`, avoiding a panic if a
+  reload happens between the search and the render.
 
 ### Changed
 
-- 4 dependencias muertas removidas de `shiki-core`: `notify`, `pulldown-cmark`, `anyhow`, `uuid`
-  (ninguna tenia uso en el codigo fuente).
-- `app.rs` partido en 4 modulos (`draw.rs`, `sync.rs`, `key_handlers.rs`, `app.rs`): paso de 4057
-  a 1508 lineas. Sin cambios de comportamiento, solo reorganizacion.
+- 4 dead dependencies removed from `shiki-core`: `notify`, `pulldown-cmark`, `anyhow`, `uuid` (none
+  were used anywhere in the source).
+- `app.rs` split into 4 modules (`draw.rs`, `sync.rs`, `key_handlers.rs`, `app.rs`): went from 4057
+  to 1508 lines. No behavior change, reorganization only.
 
 ## [0.8.1] - 2026-07-23
 
