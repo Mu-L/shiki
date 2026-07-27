@@ -155,6 +155,15 @@ jobs:
                   f"shiki-v{version}-x86_64-pc-windows-msvc.zip"
               )
               data["architecture"]["64bit"]["hash"] = f"sha256:{sha256}"
+              # The zip's own top-level entry is this same
+              # shiki-v{version}-x86_64-pc-windows-msvc/ folder (see the
+              # release job's "Package (zip)" step) — Scoop does not
+              # auto-strip a single nested top-level folder on extract, so
+              # without extract_dir it looks for shiki.exe directly under
+              # the app's version dir and fails to shim it (issue #8).
+              data["architecture"]["64bit"]["extract_dir"] = (
+                  f"shiki-v{version}-x86_64-pc-windows-msvc"
+              )
               with open(path, "w") as f:
                   json.dump(data, f, indent=4)
                   f.write("\n")

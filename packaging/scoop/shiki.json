@@ -6,7 +6,8 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/sazardev/shiki/releases/download/v0.8.1/shiki-v0.8.1-x86_64-pc-windows-msvc.zip",
-            "hash": "sha256:e268cc5e253aeccf177f810376143fb7756772fc43bf12883187416db585d604"
+            "hash": "sha256:e268cc5e253aeccf177f810376143fb7756772fc43bf12883187416db585d604",
+            "extract_dir": "shiki-v0.8.1-x86_64-pc-windows-msvc"
         }
     },
     "bin": "shiki.exe",
@@ -16,7 +17,8 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/sazardev/shiki/releases/download/v$version/shiki-v$version-x86_64-pc-windows-msvc.zip"
+                "url": "https://github.com/sazardev/shiki/releases/download/v$version/shiki-v$version-x86_64-pc-windows-msvc.zip",
+                "extract_dir": "shiki-v$version-x86_64-pc-windows-msvc"
             }
         }
     }
