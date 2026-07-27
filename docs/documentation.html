@@ -244,7 +244,9 @@
         <code>Esc</code> to dismiss the menu without leaving edit mode (a second <code>Esc</code>
         then saves and exits, as usual). Built-in blocks: <code>h1</code>/<code>h2</code>/<code>h3</code>,
         a code fence, a math (<code>$$…$$</code>) block, a table skeleton, a checklist item, a
-        quote, a divider, today's date, a <code>Tags:</code> line, and a YAML frontmatter skeleton.
+        quote, a divider, today's date, a <code>Tags:</code> line, a YAML frontmatter skeleton, a
+        bullet/numbered list item, a link, an image, a note/warning callout, and a collapsible
+        (<code>&lt;details&gt;</code>) section.
       </p>
       <p>
         Every command is customizable from <code>config.toml</code> under
@@ -480,13 +482,14 @@ auto_push = true
 
 # Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
 # default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
-# divider/date/tags/frontmatter) aren't listed here at all, only your own
-# additions/overrides. `label` falls back to the trigger when omitted; `body`
-# supports {{title}}/{{date}} (substituted the same way note templates are)
-# plus a {{cursor}} marker for where the cursor lands after insertion.
-[snippets.note]
-label = "Callout note"
-body = "> **Note:** {{cursor}}"
+# divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
+# details) aren't listed here at all, only your own additions/overrides.
+# `label` falls back to the trigger when omitted; `body` supports
+# {{title}}/{{date}} (substituted the same way note templates are) plus a
+# {{cursor}} marker for where the cursor lands after insertion.
+[snippets.callout]
+label = "Info callout"
+body = "> **Info:** {{cursor}}"
 
 # Same trigger as a built-in (case-insensitive) replaces it instead of
 # adding a duplicate — every command in the menu is customizable this way.

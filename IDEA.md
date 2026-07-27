@@ -270,7 +270,9 @@ mid-sentence or in a URL/fraction, is just a literal slash) opens a small search
 under the cursor: keep typing to filter by name, `↑`/`↓` to move, `Enter` to insert the highlighted
 block, `Esc` to dismiss the menu without leaving edit mode (a second `Esc` then saves and exits, as
 usual). Built-in blocks: `h1`/`h2`/`h3`, a code fence, a math (`$$…$$`) block, a table skeleton, a
-checklist item, a quote, a divider, today's date, a `Tags:` line, and a YAML frontmatter skeleton.
+checklist item, a quote, a divider, today's date, a `Tags:` line, a YAML frontmatter skeleton, a
+bullet/numbered list item, a link, an image, a note/warning callout, and a collapsible
+(`<details>`) section.
 
 Every command is customizable from `config.toml` under `[snippets.<trigger>]` — see the
 Configuration section below. A custom entry with the same trigger as a built-in (case-insensitive)
@@ -498,13 +500,14 @@ auto_push = true
 
 # Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
 # default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
-# divider/date/tags/frontmatter) aren't listed here at all, only your own
-# additions/overrides. `label` falls back to the trigger when omitted; `body`
-# supports {{title}}/{{date}} (substituted the same way note templates are)
-# plus a {{cursor}} marker for where the cursor lands after insertion.
-[snippets.note]
-label = "Callout note"
-body = "> **Note:** {{cursor}}"
+# divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
+# details) aren't listed here at all, only your own additions/overrides.
+# `label` falls back to the trigger when omitted; `body` supports
+# {{title}}/{{date}} (substituted the same way note templates are) plus a
+# {{cursor}} marker for where the cursor lands after insertion.
+[snippets.callout]
+label = "Info callout"
+body = "> **Info:** {{cursor}}"
 
 # Same trigger as a built-in (case-insensitive) replaces it instead of
 # adding a duplicate — every command in the menu is customizable this way.

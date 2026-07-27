@@ -86,8 +86,9 @@ the [website](https://sazardev.github.io/shiki/#themes).
 - **Inline editor** built into the TUI, or your favorite external editor — auto-detected from
   `$VISUAL`/`$EDITOR`/the OS default, toggleable on the fly from the footer. Long lines wrap to the
   panel width instead of scrolling off-screen, and a `/`-menu (type `/` at the start of a line)
-  drops in ready-made blocks — headers, code, math, tables, checklists, a YAML frontmatter
-  skeleton — fully customizable/overridable via `[snippets.<trigger>]` in `config.toml`.
+  drops in 19 ready-made blocks — headers, code, math, tables, checklists, links, images,
+  callouts, a collapsible section, a YAML frontmatter skeleton, and more — fully
+  customizable/overridable via `[snippets.<trigger>]` in `config.toml`.
 - **12 built-in note templates** (`default`/`daily`/`meeting` plus `bug`/`spec`/`review`/
   `postmortem`/`standup`/`retro`/`1on1`/`weekly`/`brainstorm`) — pick one from the template picker
   when creating a note, or type `@` in the title prompt for a fast dropdown (`today`/`yesterday`/

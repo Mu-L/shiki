@@ -989,11 +989,12 @@ fn section_comment(line: &str) -> Option<&'static str> {
         "[snippets]" => {
             "\
 # Custom entries for the inline editor's `/`-menu, keyed by trigger, e.g.:
-# [snippets.note]
-# label = \"Callout note\"
-# body = \"> **Note:** {{cursor}}\"
+# [snippets.callout]
+# label = \"Info callout\"
+# body = \"> **Info:** {{cursor}}\"
 # A trigger matching a built-in (h1/h2/h3/code/math/table/check/quote/
-# divider/date/tags/frontmatter) replaces it instead of adding a duplicate."
+# divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
+# details) replaces it instead of adding a duplicate."
         }
         _ => return None,
     })

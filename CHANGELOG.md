@@ -17,6 +17,10 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 - A fresh install's `config.toml` is now fully commented, section by section — generated from the
   real `Config::default()` values (never hand-duplicated, so a comment can go stale but a default
   value never can) with prose explaining each table.
+- 7 more built-in `/`-menu commands, so more of it is useful out of the box with zero config:
+  `bullet`/`numbered` list items, `link`, `image`, `note`/`warning` callouts, and a collapsible
+  `details` section — alongside the existing headers/code/math/table/checklist/quote/divider/
+  date/tags/frontmatter, for 19 built-ins total.
 - `shiki doctor` now flags configuration mistakes that used to fail silently: two keybindings in
   the same scope bound to the same key (only one ever actually works), a keybinding that collides
   with `leader` or `quit` (always loses to them, so it can never trigger), a keybinding string that

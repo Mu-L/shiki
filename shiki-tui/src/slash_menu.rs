@@ -52,6 +52,17 @@ pub fn builtins() -> Vec<SlashCommand> {
             "YAML frontmatter block",
             "---\ntitle: {{title}}\ndate: {{date}}\ntags: []\n---\n{{cursor}}",
         ),
+        builtin("bullet", "Bullet list item", "- {{cursor}}"),
+        builtin("numbered", "Numbered list item", "1. {{cursor}}"),
+        builtin("link", "Link", "[{{cursor}}]()"),
+        builtin("image", "Image", "![{{cursor}}]()"),
+        builtin("note", "Note callout", "> **Note:** {{cursor}}"),
+        builtin("warning", "Warning callout", "> **Warning:** {{cursor}}"),
+        builtin(
+            "details",
+            "Collapsible section",
+            "<details>\n<summary>{{cursor}}</summary>\n\n</details>\n",
+        ),
     ]
 }
 
@@ -111,7 +122,7 @@ mod tests {
     fn custom_snippet_is_appended() {
         let mut config = Config::default();
         config.snippets.insert(
-            "note".to_string(),
+            "callout".to_string(),
             SnippetConfig {
                 label: Some("Callout".to_string()),
                 body: "> {{cursor}}".to_string(),
@@ -119,7 +130,7 @@ mod tests {
         );
         let commands = all_commands(&config);
         assert_eq!(commands.len(), builtins().len() + 1);
-        assert!(commands.iter().any(|c| c.trigger == "note"));
+        assert!(commands.iter().any(|c| c.trigger == "callout"));
     }
 
     #[test]
