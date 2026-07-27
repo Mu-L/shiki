@@ -108,6 +108,35 @@ pub(crate) enum PendingInput {
     RenameNotebook,
     Search,
     SetRemote,
+    /// Editing a notebook's remote from inside the Settings modal's
+    /// NOTEBOOKS section (level 2) rather than the notebooks-panel `R`
+    /// binding — which notebook is always `App.settings_notebook_drill`,
+    /// not tracked here, so this stays a plain unit variant like the rest.
+    SettingsNotebookRemote,
+    /// Same idea, for that notebook's `auto_sync_every` override — the
+    /// boolean overrides (`auto_push`/`auto_sync`) don't need a text prompt
+    /// at all, they cycle in place on `Enter` (see
+    /// `App::cycle_notebook_bool_override`).
+    SettingsNotebookAutoSyncEvery,
+    /// A GENERAL-tab text field (`default_notebook`/`editor`/`daily_template`)
+    /// — which one is always `GeneralField::ALL[App.settings_selected]`, not
+    /// tracked here, same reasoning as the `SettingsNotebook*` variants above.
+    SettingsGeneralText,
+    /// A GIT-tab (global `[git]` defaults) text/number field — which one is
+    /// `GitField::ALL[App.settings_selected]`. The boolean fields
+    /// (`auto_commit`/`auto_push`/`sign_commits`/`auto_sync`) don't need a
+    /// prompt at all, they toggle in place on `Enter`.
+    SettingsGitText,
+    /// A brand-new snippet's trigger, typed via SNIPPETS level 1's `a` —
+    /// the only `Settings*` prompt not tied to `settings_selected`/a drill
+    /// field, since the snippet doesn't exist yet to index into.
+    SettingsSnippetTrigger,
+    /// The drilled-into snippet's `label` (SNIPPETS level 2) — which
+    /// snippet is `App.settings_snippet_drill`. Its `body` isn't edited
+    /// through a `PendingInput` prompt at all (see `App.editing_snippet`);
+    /// a snippet body is arbitrary multi-line text, which a single-line
+    /// prompt can't hold.
+    SettingsSnippetLabel,
     /// Move or copy — one or more items (`App.pending_batch` always holds
     /// the actual list, even for a single item, so there's exactly one
     /// apply path regardless of how many things are selected). Which of
@@ -118,10 +147,11 @@ pub(crate) enum PendingInput {
 
 impl PendingInput {
     /// Falls back to this when `App.pending_input_title` is `None` — every
-    /// variant except `MoveOrCopy` always has a plain static title;
-    /// `MoveOrCopy`'s title depends on the op (move/copy) and how many
-    /// items/what they're named, so it's always computed and set
-    /// explicitly by whatever starts that particular input instead.
+    /// variant except `MoveOrCopy`/the `Settings*` ones always has a plain
+    /// static title; those depend on which notebook/snippet/field they're
+    /// acting on (and, for `MoveOrCopy`, which op/items), so their title is
+    /// always computed and set explicitly by whatever starts that
+    /// particular input instead.
     pub(crate) fn title(self) -> &'static str {
         match self {
             PendingInput::NewNote => " New note (@ for quick date/template) ",
@@ -130,6 +160,11 @@ impl PendingInput {
             PendingInput::RenameNote | PendingInput::RenameNotebook => " Rename ",
             PendingInput::Search => " Jump to note ",
             PendingInput::SetRemote => " Git remote (URL or local path) ",
+            PendingInput::SettingsNotebookRemote => " Git remote (URL or local path) ",
+            PendingInput::SettingsNotebookAutoSyncEvery => " Auto-sync every N changes ",
+            PendingInput::SettingsGeneralText | PendingInput::SettingsGitText => " Edit value ",
+            PendingInput::SettingsSnippetTrigger => " New snippet trigger ",
+            PendingInput::SettingsSnippetLabel => " Snippet label ",
             PendingInput::MoveOrCopy => " Move/copy to ",
         }
     }
@@ -308,20 +343,66 @@ pub struct App {
     pub show_theme_picker: bool,
     pub show_global_search: bool,
     pub show_logs: bool,
-    /// Settings screen (leader+`s`) — a read-only summary of the current
-    /// config grouped by section, with `i`/`E` jumping straight to editing
-    /// `config.toml` itself. `settings_selected` drives a `List`/`ListState`
-    /// over the summary's rendered lines purely for auto-scroll (same
+    /// Settings screen (leader+`s`) — a summary of the current config,
+    /// paged by tab (`settings_section`) rather than one long scroll, with
+    /// `i`/`E` still jumping straight to editing `config.toml` itself for
+    /// anything not covered below. Every tab is genuinely actionable now:
+    /// `Enter` toggles a boolean in place, opens a prompt for a text/number
+    /// field, opens the theme picker (THEME's `name`), or drills into a
+    /// notebook/snippet (NOTEBOOKS/SNIPPETS) — `settings_selected` doubles
+    /// as both the level-1 row index and (for the read-only-by-construction
+    /// cases, e.g. an empty section) the scroll position, same `List`/
     /// `ListState`-does-the-scrolling-for-free trick the logs/tree/global-
-    /// search modals already use) — nothing in the summary is individually
-    /// actionable, so "selecting" a row means nothing beyond scroll position.
+    /// search modals use.
     pub(crate) show_settings: bool,
     pub(crate) settings_selected: usize,
+    /// Active tab (GENERAL/THEME/GIT/NOTEBOOKS/SNIPPETS) — left/right
+    /// (`App::switch_settings_section`) cycles it, resetting
+    /// `settings_selected`/`settings_notebook_drill`/`settings_snippet_drill`/
+    /// `settings_field_selected` each time, same as `toggle_settings` does
+    /// when the modal first opens.
+    pub(crate) settings_section: crate::panel_settings::SettingsSection,
+    /// `Some(notebook name)` while drilled into that notebook's own fields
+    /// (NOTEBOOKS level 2); `None` while browsing the flat notebook list
+    /// (level 1) — same one-`Option`-is-the-level shape `tags_viewing`
+    /// already uses for the tags modal's identical two-level pattern.
+    pub(crate) settings_notebook_drill: Option<String>,
+    /// Same idea as `settings_notebook_drill`, for SNIPPETS' level 2 — the
+    /// two are never both `Some` at once (only one section is active at a
+    /// time, and `switch_settings_section` clears both), but each gets its
+    /// own field rather than one shared "drilled-into name" so the two
+    /// sections' drill states can't be confused with each other.
+    pub(crate) settings_snippet_drill: Option<String>,
+    /// Selected row among the drilled-into notebook's/snippet's fields —
+    /// kept separate from `settings_selected` (which indexes the level-1
+    /// list instead) so switching levels never has to reinterpret one index
+    /// as the other. Shared by both NOTEBOOKS and SNIPPETS level 2, safely,
+    /// since only one of the two drill fields above is ever `Some` at once.
+    pub(crate) settings_field_selected: usize,
     /// True while `self.editor` holds `config.toml`'s contents rather than
     /// a note's body — `save_and_exit_edit` checks this to decide whether
     /// to write+reload the config or save a note, since both share the same
     /// `Mode::Edit`/`InlineEditor` machinery.
     pub(crate) editing_config: bool,
+    /// `Some(trigger)` while `self.editor` holds a snippet's `body` instead
+    /// of `config.toml` or a note's body (SNIPPETS level 2's `body` field,
+    /// leader+`s`) — checked by `save_and_exit_edit` right alongside
+    /// `editing_config`, same three-way "which of these is this edit
+    /// actually for" dispatch.
+    pub(crate) editing_snippet: Option<String>,
+    /// True from the moment THEME's `name` row opens the theme picker from
+    /// inside Settings until the picker closes — `show_settings` is hidden
+    /// first (its render call in `draw()` comes after the theme picker's,
+    /// so leaving it `true` would paint Settings right over the picker) and
+    /// restored once `handle_theme_picker_key` closes it, but *only* when
+    /// it was opened this way — the normal leader+`c` picker (opened with
+    /// no Settings modal underneath at all) must not reopen one.
+    pub(crate) reopen_settings_after_theme_picker: bool,
+    /// Staged while the confirm dialog for SNIPPETS level 1's `d` is up —
+    /// mirrors `pending_delete`'s pattern (a plain trigger string instead of
+    /// a `(DeleteTarget, PathBuf)` pair, since a snippet has no filesystem
+    /// path of its own).
+    pub(crate) pending_delete_snippet: Option<String>,
     /// Every status-bar message set *this session*, oldest first (capped
     /// at 500 in memory) — the status bar only shows the latest one, so
     /// this is what backs the logs modal (leader+`l`) for anything that
@@ -643,7 +724,14 @@ impl App {
             show_logs: false,
             show_settings: false,
             settings_selected: 0,
+            settings_section: crate::panel_settings::SettingsSection::General,
+            settings_notebook_drill: None,
+            settings_snippet_drill: None,
+            settings_field_selected: 0,
             editing_config: false,
+            editing_snippet: None,
+            reopen_settings_after_theme_picker: false,
+            pending_delete_snippet: None,
             log_history,
             log_path,
             pending_clear_logs: false,
