@@ -1,5 +1,8 @@
 /target
 /nul
+# scripts/screenshots.sh's default output — generated marketing screenshots,
+# not source
+/screenshots
 
 # Claude Code CLI / Serena MCP local tooling artifacts (skill installs, project
 # index/cache), not project source
