@@ -76,20 +76,31 @@ the [website](https://sazardev.github.io/shiki/#themes).
   automatically every N changes), per-notebook policy overrides, robust HTTPS/SSH auth that
   reuses your system's own git credential store, and automatic fallback to the remote's actual
   default branch.
-- **Six built-in themes** (Catppuccin, Tokyo Night, Gruvbox, Nord, Solarized, and a terminal-native
-  default that inherits your terminal's own palette) with a live-preview picker.
+- **12 built-in themes** (Catppuccin ×4, Tokyo Night ×3, Gruvbox ×2, Nord, Solarized ×2, and a
+  terminal-native default that inherits your terminal's own palette) with a live-preview picker.
 - **Config-driven keybindings**, scoped by focus, fully remappable in `config.toml` — nothing
   hardcoded except plain navigation.
 - **Global fuzzy search** across every notebook, plus in-notebook fuzzy jump.
 - **Notebook tree view**, tags panel, daily notes with templates, moving notes between notebooks,
   cycling sort order, an optional date column in the notes list.
 - **Inline editor** built into the TUI, or your favorite external editor — auto-detected from
-  `$VISUAL`/`$EDITOR`/the OS default, toggleable on the fly from the footer.
+  `$VISUAL`/`$EDITOR`/the OS default, toggleable on the fly from the footer. Long lines wrap to the
+  panel width instead of scrolling off-screen, and a `/`-menu (type `/` at the start of a line)
+  drops in ready-made blocks — headers, code, math, tables, checklists, a YAML frontmatter
+  skeleton — fully customizable/overridable via `[snippets.<trigger>]` in `config.toml`.
+- **12 built-in note templates** (`default`/`daily`/`meeting` plus `bug`/`spec`/`review`/
+  `postmortem`/`standup`/`retro`/`1on1`/`weekly`/`brainstorm`) — pick one from the template picker
+  when creating a note, or type `@` in the title prompt for a fast dropdown (`today`/`yesterday`/
+  `tomorrow` or any template, fuzzy-filtered) that skips straight to editing.
+- **Settings screen** (leader+`s`) — a read-only summary of the whole config (general/theme/git/
+  per-notebook overrides/snippets), with `i`/`E` jumping straight to editing `config.toml` itself;
+  saved changes apply immediately, no restart needed.
 - **Logs modal** recording every status message (so errors don't get lost), with one-key clipboard
   copy (OSC 52) for pasting elsewhere.
 - **In-TUI self-update** (leader+`U`) — checks GitHub Releases for a newer version, and on
   confirmation downloads, verifies, installs, and relaunches into it automatically.
-- **`shiki doctor`** — an environment health check that works even with a broken config.
+- **`shiki doctor`** — an environment health check that works even with a broken config; also
+  flags duplicate/colliding keybindings and `/`-menu snippet triggers before they cause confusion.
 - **CLI commands** alongside the TUI (`new`, `list`, `edit`, `show`, `search`, `daily`, `sync`,
   `notebook`, `theme`, `config`, `doctor`) for quick one-off operations without opening the UI.
 

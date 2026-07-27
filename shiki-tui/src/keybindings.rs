@@ -18,6 +18,9 @@ pub enum Action {
     /// Restores the most recently deleted note/folder (or batch) from the
     /// trash — a single level of undo.
     UndoDelete,
+    /// Opens the Settings screen — a read-only summary of the current
+    /// config, with a key to jump straight to editing `config.toml` itself.
+    ToggleSettings,
     // Notebooks-focus
     NewNotebook,
     RenameNotebook,
@@ -62,7 +65,13 @@ pub enum Action {
 /// crossterm reports typed uppercase letters as `Char('A')` with the `SHIFT`
 /// modifier set, so comparing full `KeyEvent`s against a hardcoded
 /// `KeyModifiers::NONE` would silently drop every Shift-based binding.
-fn parse_key(spec: &str) -> Option<KeyCode> {
+///
+/// `pub`, not just `pub(crate)`: `shiki doctor` (in `shiki-cli`) calls this
+/// directly to detect two config fields in the same scope that resolve to
+/// the same actual key (e.g. `"space"` and `" "`, not just literal string
+/// duplicates) — that's real collision detection `bind`'s silent
+/// last-one-wins `HashMap::insert` can't surface on its own.
+pub fn parse_key(spec: &str) -> Option<KeyCode> {
     match spec.to_ascii_lowercase().as_str() {
         "enter" => Some(KeyCode::Enter),
         "tab" => Some(KeyCode::Tab),
@@ -117,6 +126,7 @@ impl KeyMaps {
         );
         bind(&mut global, &cfg.global.drawer, Action::ToggleDrawer);
         bind(&mut global, &cfg.global.undo_delete, Action::UndoDelete);
+        bind(&mut global, &cfg.global.settings, Action::ToggleSettings);
 
         let mut notebooks = HashMap::new();
         bind(&mut notebooks, &cfg.notebooks.new, Action::NewNotebook);
@@ -245,6 +255,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::CheckForUpdate => "check for update",
         Action::ToggleDrawer => "toggle notebook drawer",
         Action::UndoDelete => "undo last delete",
+        Action::ToggleSettings => "settings (view + edit config.toml)",
         Action::NewNotebook => "new notebook",
         Action::RenameNotebook => "rename notebook",
         Action::DeleteNotebook => "delete notebook",
@@ -300,5 +311,6 @@ pub fn action_icon(action: Action) -> char {
         Action::CopyEntries => crate::icons::CLIPBOARD,
         Action::ShowLinks => crate::icons::LINK,
         Action::UndoDelete => crate::icons::UNDO,
+        Action::ToggleSettings => crate::icons::GEAR,
     }
 }

@@ -5,8 +5,8 @@ use crate::app::{
 use crate::icons;
 use crate::render::{hex_to_color, panel_block};
 use crate::{
-    layout, panel_drawer, panel_notebooks, panel_notes, panel_preview, panel_tags, status_bar,
-    which,
+    layout, panel_drawer, panel_notebooks, panel_notes, panel_preview, panel_settings, panel_tags,
+    status_bar, which,
 };
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -143,6 +143,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     if app.show_update {
         render_update(frame, frame.area(), app);
+    }
+
+    if app.show_settings {
+        panel_settings::render(frame, frame.area(), app);
     }
 
     if app.show_which_key {

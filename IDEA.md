@@ -207,6 +207,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
 | `u` | Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (`~/.config/shiki/trash/`) back to exactly where it came from. A single level of undo, not a full history: only the *most recent* delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything |
+| `s` | Settings — a read-only, near-full-screen summary of the current config (general/theme/git/per-notebook overrides/snippets), grouped by section; `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` scroll. Doesn't repeat the keybindings tables — `?` (which-key) already covers those live. `i`/`E` jump straight to editing `config.toml` itself (inline or externally, same convention as editing a note) instead of a hand-built form widget per field; on save, the config is re-read, re-applied, and takes effect immediately (no restart), the same "instant" feel the theme picker already has — an invalid edit is reported and neither written nor applied, keeping the previous config running. `Esc`/`q` closes |
 
 #### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
 
@@ -297,6 +298,7 @@ shiki notebook rename <old> <new>
 shiki theme list          # list built-in themes, marking the active one
 shiki theme set <name>    # switch theme (persisted to config.toml)
 shiki theme create [--from <name>]  # scaffold all 19 color overrides from a real palette
+shiki doctor              # environment check: config, data dir, git, editor, terminal, keybindings, snippets
 ```
 
 ---
@@ -419,6 +421,7 @@ toggle_favorite_editor = "e"
 check_update = "U"
 drawer = "b"
 undo_delete = "u"
+settings = "s"
 
 [keybindings.notebooks]
 new = "a"
@@ -428,6 +431,7 @@ sync = "s"
 pull = "p"
 pull_all = "P"
 set_remote = "R"
+push = "u"
 
 [keybindings.notes]
 new = "a"

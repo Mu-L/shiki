@@ -121,6 +121,67 @@ impl App {
         }
         self.show_drawer = false;
     }
+    fn toggle_settings(&mut self) {
+        self.show_settings = !self.show_settings;
+        if self.show_settings {
+            self.settings_selected = 0;
+        }
+    }
+    fn handle_settings_key(&mut self, key: KeyEvent) {
+        let len = crate::panel_settings::build(self).len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.show_settings = false,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.settings_selected + 1 < len {
+                    self.settings_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.settings_selected = self.settings_selected.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.settings_selected =
+                    (self.settings_selected + PAGE_STEP as usize).min(len.saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.settings_selected = self.settings_selected.saturating_sub(PAGE_STEP as usize);
+            }
+            KeyCode::Home => self.settings_selected = 0,
+            KeyCode::End => self.settings_selected = len.saturating_sub(1),
+            // Same `i`/`E` convention as editing a note: `i` respects
+            // `use_favorite_editor` (native inline vs. the OS favorite),
+            // `E` always uses the configured `general.editor`.
+            KeyCode::Char('i') => {
+                self.show_settings = false;
+                if self.config.general.use_favorite_editor {
+                    let editor = self
+                        .favorite_editor
+                        .clone()
+                        .unwrap_or_else(|| self.config.general.editor.clone());
+                    self.start_external_config_edit(editor);
+                } else {
+                    self.start_edit_config_inline();
+                }
+            }
+            KeyCode::Char('E') => {
+                self.show_settings = false;
+                self.start_external_config_edit(self.config.general.editor.clone());
+            }
+            _ => {}
+        }
+    }
+    /// Queues `config.toml` for external editing — same
+    /// `want_external_edit` mechanism a note's `E`/favorite-editor `i` use,
+    /// plus `want_external_edit_config` so `run()` reloads/applies the
+    /// config afterward instead of refreshing notes.
+    fn start_external_config_edit(&mut self, editor: String) {
+        if let Ok(path) = Config::default_path() {
+            self.want_external_edit = Some((path, editor));
+            self.want_external_edit_config = true;
+        } else {
+            self.set_status("config path error".into());
+        }
+    }
     fn handle_logs_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.show_logs = false,
@@ -1223,23 +1284,30 @@ impl App {
             None => self.set_status("create a notebook first".into()),
         }
     }
+    /// Shared block/style setup for the inline editor — used both for
+    /// editing a note (`start_edit_inline`) and for editing `config.toml`
+    /// itself (`start_edit_config_inline`), so the two can't visually drift
+    /// apart from each other.
+    fn style_inline_editor(&self, editor: &mut InlineEditor, title: String) {
+        editor.textarea.set_block(panel_block(
+            ratatui::text::Line::from(title),
+            true,
+            &self.theme,
+        ));
+        editor.textarea.set_style(
+            ratatui::style::Style::default()
+                .fg(hex_to_color(&self.theme.fg))
+                .bg(hex_to_color(&self.theme.bg)),
+        );
+        editor.textarea.set_cursor_line_style(
+            ratatui::style::Style::default().fg(hex_to_color(&self.theme.fg)),
+        );
+    }
     fn start_edit_inline(&mut self) {
         if let Some(note) = self.selected_note() {
             let mut editor = InlineEditor::from_contents(&note.body);
             let title = format!(" {}  Editing: {} ", icons::PENCIL, note.frontmatter.title);
-            editor.textarea.set_block(panel_block(
-                ratatui::text::Line::from(title),
-                true,
-                &self.theme,
-            ));
-            editor.textarea.set_style(
-                ratatui::style::Style::default()
-                    .fg(hex_to_color(&self.theme.fg))
-                    .bg(hex_to_color(&self.theme.bg)),
-            );
-            editor.textarea.set_cursor_line_style(
-                ratatui::style::Style::default().fg(hex_to_color(&self.theme.fg)),
-            );
+            self.style_inline_editor(&mut editor, title);
             // Only ever rendered while the note is completely empty (see
             // `InlineEditor::render`'s placeholder branch) — the `/`-menu
             // has no other in-app hint pointing at it, so this is its one
@@ -1254,16 +1322,74 @@ impl App {
             self.mode = Mode::Edit;
         }
     }
+    /// Opens `config.toml`'s actual on-disk contents (whatever's really
+    /// there — comments included, if the file has any) in the same inline
+    /// editor notes use. `editing_config` tells `save_and_exit_edit` which
+    /// of the two save paths to take.
+    fn start_edit_config_inline(&mut self) {
+        let path = match Config::default_path() {
+            Ok(p) => p,
+            Err(e) => {
+                self.set_status(format!("config path error: {e}"));
+                return;
+            }
+        };
+        let contents = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut editor = InlineEditor::from_contents(&contents);
+        let title = format!(" {}  Editing: config.toml ", icons::GEAR);
+        self.style_inline_editor(&mut editor, title);
+        self.editor = Some(editor);
+        self.editing_config = true;
+        self.mode = Mode::Edit;
+    }
     fn save_and_exit_edit(&mut self) {
-        let note = self.selected_note().cloned();
         let editor = self.editor.take();
-        if let (Some(editor), Some(mut note)) = (editor, note) {
+        if self.editing_config {
+            self.editing_config = false;
+            if let Some(editor) = editor {
+                self.save_config_from_editor(&editor.contents());
+            }
+            self.mode = Mode::Normal;
+            return;
+        }
+        if let (Some(editor), Some(mut note)) = (editor, self.selected_note().cloned()) {
             note.body = editor.contents();
             let _ = note.save();
             self.note_changed(&note.frontmatter.notebook);
         }
         self.mode = Mode::Normal;
         self.refresh_notes_preserve_selection();
+    }
+    /// Writes the editor's raw text (comments and all) straight to
+    /// `config.toml`, verbatim — never round-tripped through
+    /// `toml::to_string_pretty`, which would silently strip any comments
+    /// the user just wrote, since only *parsing* it (to validate it and
+    /// apply it live via `App::apply_config`) is needed, not
+    /// re-serializing it. An invalid edit is reported and neither written
+    /// to disk nor applied — the previous config keeps running, same
+    /// "never apply/save something broken" stance `reload_config_from_disk`
+    /// takes for the external-editor path.
+    fn save_config_from_editor(&mut self, raw: &str) {
+        let new_config = match Config::parse(raw) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("config not saved — invalid TOML: {e}"));
+                return;
+            }
+        };
+        let path = match Config::default_path() {
+            Ok(p) => p,
+            Err(e) => {
+                self.set_status(format!("config not saved — {e}"));
+                return;
+            }
+        };
+        if let Err(e) = std::fs::write(&path, raw) {
+            self.set_status(format!("config not saved — {e}"));
+            return;
+        }
+        self.apply_config(new_config);
+        self.set_status("config saved and reloaded".into());
     }
     fn handle_action(&mut self, action: Action) {
         match action {
@@ -1274,6 +1400,7 @@ impl App {
             Action::CheckForUpdate => self.open_update_check(),
             Action::ToggleDrawer => self.toggle_drawer(),
             Action::UndoDelete => self.undo_delete(),
+            Action::ToggleSettings => self.toggle_settings(),
 
             Action::NewNotebook => self.start_input(PendingInput::NewNotebook, String::new()),
             Action::RenameNotebook => self.start_rename_notebook(),
@@ -2019,6 +2146,10 @@ impl App {
         }
         if self.show_drawer {
             self.handle_drawer_key(key);
+            return;
+        }
+        if self.show_settings {
+            self.handle_settings_key(key);
             return;
         }
         match self.mode {

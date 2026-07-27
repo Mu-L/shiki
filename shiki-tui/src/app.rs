@@ -299,9 +299,29 @@ pub struct App {
     /// `i` when `use_favorite_editor` is on) rather than always reusing the
     /// static config value.
     pub want_external_edit: Option<(std::path::PathBuf, String)>,
+    /// Set alongside `want_external_edit` when the path being externally
+    /// edited is `config.toml`, not a note — `run()` checks this to decide
+    /// whether to reload/apply the config afterward instead of refreshing
+    /// notes, since the two `want_external_edit` call sites otherwise look
+    /// identical (a path + an editor command to spawn).
+    pub(crate) want_external_edit_config: bool,
     pub show_theme_picker: bool,
     pub show_global_search: bool,
     pub show_logs: bool,
+    /// Settings screen (leader+`s`) — a read-only summary of the current
+    /// config grouped by section, with `i`/`E` jumping straight to editing
+    /// `config.toml` itself. `settings_selected` drives a `List`/`ListState`
+    /// over the summary's rendered lines purely for auto-scroll (same
+    /// `ListState`-does-the-scrolling-for-free trick the logs/tree/global-
+    /// search modals already use) — nothing in the summary is individually
+    /// actionable, so "selecting" a row means nothing beyond scroll position.
+    pub(crate) show_settings: bool,
+    pub(crate) settings_selected: usize,
+    /// True while `self.editor` holds `config.toml`'s contents rather than
+    /// a note's body — `save_and_exit_edit` checks this to decide whether
+    /// to write+reload the config or save a note, since both share the same
+    /// `Mode::Edit`/`InlineEditor` machinery.
+    pub(crate) editing_config: bool,
     /// Every status-bar message set *this session*, oldest first (capped
     /// at 500 in memory) — the status bar only shows the latest one, so
     /// this is what backs the logs modal (leader+`l`) for anything that
@@ -617,9 +637,13 @@ impl App {
             show_slash_menu: false,
             slash_menu_selected: 0,
             want_external_edit: None,
+            want_external_edit_config: false,
             show_theme_picker: false,
             show_global_search: false,
             show_logs: false,
+            show_settings: false,
+            settings_selected: 0,
+            editing_config: false,
             log_history,
             log_path,
             pending_clear_logs: false,
@@ -1097,6 +1121,45 @@ impl App {
         self.set_status(format!("favorite editor: {}", self.editor_status_label()));
     }
 
+    /// Swaps in a freshly (re)loaded `Config` and re-derives everything
+    /// that was computed from it once at startup (`App::new`) — the theme,
+    /// the keymaps, and the detected favorite editor — so editing
+    /// `config.toml` through the Settings screen takes effect immediately,
+    /// the same "no restart needed" experience the theme picker already
+    /// gives for just the `[theme]` table. `theme_index` is re-derived too,
+    /// so a later `leader+c` (theme picker) opens positioned on whatever
+    /// theme is now actually active instead of the one from before the edit.
+    /// Re-reads `config.toml` from disk and applies it — used after an
+    /// external editor (`E` from Settings) has just written to `path`
+    /// directly, the same way `refresh_notes_preserve_selection` re-reads a
+    /// note after external-editing it. A parse error (invalid TOML,
+    /// something hand-typed wrong) is reported and the *previous* in-memory
+    /// config is kept running rather than applying a broken one — same
+    /// "never crash on a bad file" stance `Notebook::list_notes` already
+    /// takes for a malformed note.
+    pub(crate) fn reload_config_from_disk(&mut self, path: &std::path::Path) {
+        match std::fs::read_to_string(path).map(|s| Config::parse(&s)) {
+            Ok(Ok(new_config)) => {
+                self.apply_config(new_config);
+                self.set_status("config reloaded".into());
+            }
+            Ok(Err(e)) => self.set_status(format!("config not reloaded — invalid TOML: {e}")),
+            Err(e) => self.set_status(format!("config not reloaded — {e}")),
+        }
+    }
+
+    pub(crate) fn apply_config(&mut self, new_config: Config) {
+        self.theme = new_config.theme.resolve();
+        self.theme_index = self
+            .available_themes
+            .iter()
+            .position(|t| t.name == self.theme.name)
+            .unwrap_or(0);
+        self.keymaps = KeyMaps::from_config(&new_config.keybindings);
+        self.favorite_editor = shiki_core::editor::detect_favorite_editor();
+        self.config = new_config;
+    }
+
     /// Resolves the selected note's path relative to its notebook's root —
     /// what `shiki_core::git::file_history`/`show_file_at`/`revert_file_to`
     /// need, since git works in repo-relative paths.
@@ -1459,11 +1522,17 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         }
 
         if let Some((path, editor)) = app.want_external_edit.take() {
-            let notebook_name = app.selected_notebook().map(|nb| nb.name.clone());
-            suspend_and_edit(terminal, &editor, &path)?;
-            app.refresh_notes_preserve_selection();
-            if let Some(notebook_name) = notebook_name {
-                app.note_changed(&notebook_name);
+            if app.want_external_edit_config {
+                app.want_external_edit_config = false;
+                suspend_and_edit(terminal, &editor, &path)?;
+                app.reload_config_from_disk(&path);
+            } else {
+                let notebook_name = app.selected_notebook().map(|nb| nb.name.clone());
+                suspend_and_edit(terminal, &editor, &path)?;
+                app.refresh_notes_preserve_selection();
+                if let Some(notebook_name) = notebook_name {
+                    app.note_changed(&notebook_name);
+                }
             }
         }
 

@@ -4,6 +4,36 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.4] - 2026-07-27
+
+### Added
+
+- Settings screen (leader+`s`) — a read-only, near-full-screen summary of the current config
+  (general/theme/git/per-notebook overrides/snippets), grouped by section, scrollable with
+  `j`/`k`/`PageUp`/`PageDown`/`Home`/`End`. `i`/`E` jump straight to editing `config.toml` itself
+  (inline or externally, same convention as editing a note); on save the config is re-parsed,
+  applied immediately (theme, keybindings, favorite editor — no restart), and an invalid edit is
+  reported without being written or applied, keeping the previous config running.
+- A fresh install's `config.toml` is now fully commented, section by section — generated from the
+  real `Config::default()` values (never hand-duplicated, so a comment can go stale but a default
+  value never can) with prose explaining each table.
+- `shiki doctor` now flags configuration mistakes that used to fail silently: two keybindings in
+  the same scope bound to the same key (only one ever actually works), a keybinding that collides
+  with `leader` or `quit` (always loses to them, so it can never trigger), a keybinding string that
+  doesn't parse to any real key, and two `/`-menu snippet triggers that collide case-insensitively
+  (e.g. `[snippets.H1]` next to `[snippets.h1]`).
+
+### Fixed
+
+- `config.toml` tables missing an individual key (e.g. `[general]` with only `default_notebook`
+  set) used to fail parsing the *entire* config instead of falling back to that one field's
+  default — now every field across every table has its own default, so a partial hand-edit (more
+  likely now that Settings invites editing this file directly) never takes down the whole app.
+- Two `/`-menu snippet triggers colliding case-insensitively (`[snippets.H1]` and `[snippets.h1]`
+  in the same config) used to resolve to whichever one `HashMap` iteration happened to visit last
+  — different, unpredictably, between runs of the exact same config. Now sorted deterministically,
+  so the outcome (while still worth fixing — `shiki doctor` reports it) is at least reproducible.
+
 ## [0.8.3] - 2026-07-27
 
 ### Added

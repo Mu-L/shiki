@@ -14,6 +14,7 @@ pub mod panel_drawer;
 pub mod panel_notebooks;
 pub mod panel_notes;
 pub mod panel_preview;
+pub mod panel_settings;
 pub mod panel_tags;
 pub mod render;
 pub mod slash_menu;
