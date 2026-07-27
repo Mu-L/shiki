@@ -6,6 +6,8 @@ name: Nix package check
 # part of the regular CI gate.
 on:
   workflow_dispatch:
+  push:
+    branches: [ nix-package-check ]
 
 jobs:
   build:
