@@ -26,3 +26,4 @@ pub const COFFEE: char = '\u{f0f4}'; // coffee, buy-me-a-coffee footer link
 pub const LINK: char = '\u{f0c1}'; // link (chain), wikilinks/backlinks modal
 pub const UNDO: char = '\u{f0e2}'; // undo, restore-from-trash
 pub const GEAR: char = '\u{f013}'; // gear/cog, settings screen
+pub const IMAGE: char = '\u{f03e}'; // picture-o, markdown image placeholder in the preview

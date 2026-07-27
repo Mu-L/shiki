@@ -127,38 +127,180 @@ pub fn render_scrollbar(
     );
 }
 
-/// Splits `text` on `[[wikilink]]` occurrences, styling the links distinctly
-/// from the surrounding prose so cross-references stand out in the preview.
-fn wikilink_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    let mut rest = text;
-    while let Some(start) = rest.find("[[") {
-        if start > 0 {
-            spans.push(Span::styled(rest[..start].to_string(), base));
-        }
-        let after = &rest[start + 2..];
-        match after.find("]]") {
-            Some(end) => {
-                spans.push(Span::styled(format!("[[{}]]", &after[..end]), link));
-                rest = &after[end + 2..];
-            }
-            None => {
-                spans.push(Span::styled(rest[start..].to_string(), base));
-                rest = "";
-                break;
-            }
+/// A single left-to-right pass over `text` recognizing, at each position in
+/// priority order: `[[wikilink]]`, `![alt](url)`, `[text](url)`,
+/// `**bold**`, `` `code` ``, then `*italic*` — anything else accumulates as
+/// plain text in `base` style. An opening marker with no matching closer
+/// (a bare `*`, an unterminated `**`) is left as literal text for just
+/// that character rather than swallowing the rest of the line looking for
+/// a closer that isn't there.
+///
+/// Bold/italic are applied as `base.add_modifier(...)` rather than a fixed
+/// style, so e.g. bold text inside a dim/italic blockquote still reads as
+/// dim+bold, not a jarring unrelated color — the same reason `inline_spans`
+/// takes `base` as a parameter instead of assuming plain body-text style.
+fn inline_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
+    fn flush(plain: &mut String, spans: &mut Vec<Span<'static>>, style: Style) {
+        if !plain.is_empty() {
+            spans.push(Span::styled(std::mem::take(plain), style));
         }
     }
-    if !rest.is_empty() || spans.is_empty() {
-        spans.push(Span::styled(rest.to_string(), base));
+    fn find_pair(chars: &[char], from: usize, marker: char) -> Option<usize> {
+        chars[from..]
+            .iter()
+            .position(|&c| c == marker)
+            .map(|p| p + from)
+    }
+    /// For `[text](url)` (or `![alt](url)` when `open` is the `[` right
+    /// after a leading `!`): the index of the closing `]` and of the `)`,
+    /// if the syntax is well-formed starting at `open`. Doesn't handle
+    /// nested `[`/`]` inside the label — real Markdown rarely needs that,
+    /// and this is a preview renderer, not a full parser.
+    fn find_link_parts(chars: &[char], open: usize) -> Option<(usize, usize)> {
+        let close_bracket = find_pair(chars, open + 1, ']')?;
+        if chars.get(close_bracket + 1) != Some(&'(') {
+            return None;
+        }
+        let close_paren = find_pair(chars, close_bracket + 2, ')')?;
+        Some((close_bracket, close_paren))
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut plain = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' && chars.get(i + 1) == Some(&'[') {
+            if let Some(end) =
+                find_pair(&chars, i + 2, ']').filter(|&e| chars.get(e + 1) == Some(&']'))
+            {
+                flush(&mut plain, &mut spans, base);
+                spans.push(Span::styled(
+                    chars[i..end + 2].iter().collect::<String>(),
+                    link,
+                ));
+                i = end + 2;
+                continue;
+            }
+        }
+        if chars[i] == '!' && chars.get(i + 1) == Some(&'[') {
+            if let Some((close_bracket, close_paren)) = find_link_parts(&chars, i + 1) {
+                flush(&mut plain, &mut spans, base);
+                let alt: String = chars[i + 2..close_bracket].iter().collect();
+                let label = if alt.is_empty() {
+                    format!("{} image", crate::icons::IMAGE)
+                } else {
+                    format!("{} {alt}", crate::icons::IMAGE)
+                };
+                spans.push(Span::styled(label, link));
+                i = close_paren + 1;
+                continue;
+            }
+        }
+        if chars[i] == '[' {
+            if let Some((close_bracket, close_paren)) = find_link_parts(&chars, i) {
+                flush(&mut plain, &mut spans, base);
+                let label: String = chars[i + 1..close_bracket].iter().collect();
+                spans.push(Span::styled(label, link));
+                i = close_paren + 1;
+                continue;
+            }
+        }
+        if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
+            if let Some(end) =
+                find_pair(&chars, i + 2, '*').filter(|&e| chars.get(e + 1) == Some(&'*'))
+            {
+                flush(&mut plain, &mut spans, base);
+                let inner: String = chars[i + 2..end].iter().collect();
+                spans.push(Span::styled(inner, base.add_modifier(Modifier::BOLD)));
+                i = end + 2;
+                continue;
+            }
+        }
+        if chars[i] == '`' {
+            if let Some(end) = find_pair(&chars, i + 1, '`') {
+                flush(&mut plain, &mut spans, base);
+                let inner: String = chars[i + 1..end].iter().collect();
+                // `Modifier::DIM`, not `ITALIC` — distinct from `*italic*`
+                // below, since both would otherwise render identically.
+                spans.push(Span::styled(inner, base.add_modifier(Modifier::DIM)));
+                i = end + 1;
+                continue;
+            }
+        }
+        if chars[i] == '*' {
+            if let Some(end) = find_pair(&chars, i + 1, '*') {
+                flush(&mut plain, &mut spans, base);
+                let inner: String = chars[i + 1..end].iter().collect();
+                spans.push(Span::styled(inner, base.add_modifier(Modifier::ITALIC)));
+                i = end + 1;
+                continue;
+            }
+        }
+        plain.push(chars[i]);
+        i += 1;
+    }
+    flush(&mut plain, &mut spans, base);
+    if spans.is_empty() {
+        spans.push(Span::styled(String::new(), base));
     }
     spans
 }
 
+/// Splits a `| cell | cell |` row into trimmed cell strings, dropping the
+/// (possibly absent) leading/trailing empty cell the outer pipes produce.
+fn table_cells(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_start_matches('|')
+        .trim_end_matches('|')
+        .split('|')
+        .map(|c| c.trim().to_string())
+        .collect()
+}
+
+/// Whether `line` is a table's own separator row (`| --- | :-- |`, etc.) —
+/// every cell only `-`/`:` characters, and at least one cell. Checked
+/// against the line *after* a candidate header row before committing to
+/// table rendering, so a stray `|` in ordinary prose (a shell pipe
+/// example, say) doesn't get misread as a table.
+fn is_table_separator(line: &str) -> bool {
+    let cells = table_cells(line);
+    !cells.is_empty()
+        && cells
+            .iter()
+            .all(|c| !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':'))
+}
+
+/// `N. rest` → `Some(("N.", rest))` — the digit run can be any length
+/// (`1.` through `99.` and beyond), unlike a fixed `strip_prefix`.
+fn ordered_list_prefix(line: &str) -> Option<(&str, &str)> {
+    let digits = line.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+    if digits == 0
+        || line.as_bytes().get(digits) != Some(&b'.')
+        || line.as_bytes().get(digits + 1) != Some(&b' ')
+    {
+        return None;
+    }
+    Some((&line[..=digits], &line[digits + 2..]))
+}
+
+/// A horizontal rule: 3+ of the same `-`/`*`/`_` character (optionally
+/// surrounded by whitespace), nothing else on the line.
+fn is_horizontal_rule(line: &str) -> bool {
+    let t = line.trim();
+    t.len() >= 3
+        && (t.chars().all(|c| c == '-')
+            || t.chars().all(|c| c == '*')
+            || t.chars().all(|c| c == '_'))
+}
+
 /// Minimal markdown-to-styled-lines render: bold headings, checkbox/list
-/// bullets, dimmed code fences and blockquotes, styled `[[wikilinks]]`. Good
-/// enough for the preview panel; not a replacement for a full
-/// comrak/syntect-based renderer.
+/// bullets (ordered and unordered), tables, math/code fences, blockquotes
+/// with working inline formatting, a stripped-down `<details>`/`<summary>`
+/// (shown fully expanded — a static `Paragraph` has no fold state to toggle
+/// against), horizontal rules, and styled `[[wikilinks]]`/`[links](url)`/
+/// `![images](url)`. Good enough for the preview panel; not a replacement
+/// for a full comrak/syntect-based renderer.
 /// Rebuilds `Line<'a>`s that borrow their text from an existing
 /// `&'a [Line<'static>]` instead of cloning it — used to hand a cached,
 /// already-formatted preview (`App::note_preview_lines`/
@@ -198,12 +340,19 @@ pub fn markdown_to_lines(
     let heading = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let text = Style::default().fg(fg);
     let dim = Style::default().fg(muted).add_modifier(Modifier::ITALIC);
+    // No dedicated theme slot for "math block" — reusing `accent` (instead
+    // of `muted`, which code fences already use) is enough to make a math
+    // block visually distinct from a code block at a glance, without
+    // needing a 20th configurable color just for this.
+    let math = Style::default().fg(accent).add_modifier(Modifier::ITALIC);
     let link_style = Style::default().fg(link).add_modifier(Modifier::UNDERLINED);
 
     let mut in_code_block = false;
+    let mut in_math_block = false;
     let mut lines = Vec::new();
 
-    for line in body.lines() {
+    let mut source = body.lines().peekable();
+    while let Some(line) = source.next() {
         if line.trim_start().starts_with("```") {
             in_code_block = !in_code_block;
             lines.push(Line::from(Span::styled(line.to_string(), dim)));
@@ -213,15 +362,83 @@ pub fn markdown_to_lines(
             lines.push(Line::from(Span::styled(line.to_string(), dim)));
             continue;
         }
+        if line.trim_start().starts_with("$$") {
+            in_math_block = !in_math_block;
+            lines.push(Line::from(Span::styled(line.to_string(), math)));
+            continue;
+        }
+        if in_math_block {
+            lines.push(Line::from(Span::styled(line.to_string(), math)));
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if trimmed == "<details>" || trimmed == "</details>" {
+            continue;
+        }
+        if let Some(inner) = trimmed
+            .strip_prefix("<summary>")
+            .and_then(|s| s.strip_suffix("</summary>"))
+        {
+            lines.push(Line::from(Span::styled(format!("▸ {inner}"), heading)));
+            continue;
+        }
+
+        if is_horizontal_rule(line) {
+            lines.push(Line::from(Span::styled("─".repeat(40), dim)));
+            continue;
+        }
+
+        if line.trim_start().starts_with('|')
+            && source.peek().is_some_and(|next| is_table_separator(next))
+        {
+            let header = table_cells(line);
+            source.next(); // consume the separator row itself
+            let mut rows = vec![header];
+            while let Some(&next) = source.peek() {
+                if next.trim_start().starts_with('|') {
+                    rows.push(table_cells(next));
+                    source.next();
+                } else {
+                    break;
+                }
+            }
+            let col_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+            let mut widths = vec![0usize; col_count];
+            for row in &rows {
+                for (i, cell) in row.iter().enumerate() {
+                    widths[i] = widths[i].max(cell.chars().count());
+                }
+            }
+            for (ri, row) in rows.iter().enumerate() {
+                let mut spans = Vec::new();
+                for (i, width) in widths.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(Span::styled(" │ ", dim));
+                    }
+                    let cell = row.get(i).map(String::as_str).unwrap_or("");
+                    let style = if ri == 0 { heading } else { text };
+                    spans.push(Span::styled(format!("{cell:<width$}"), style));
+                }
+                lines.push(Line::from(spans));
+                if ri == 0 {
+                    let rule_width =
+                        widths.iter().sum::<usize>() + widths.len().saturating_sub(1) * 3;
+                    lines.push(Line::from(Span::styled("─".repeat(rule_width), dim)));
+                }
+            }
+            continue;
+        }
 
         lines.push(if let Some(rest) = line.strip_prefix("### ") {
-            Line::from(Span::styled(rest.to_string(), heading))
+            Line::from(inline_spans(rest, heading, link_style))
         } else if let Some(rest) = line.strip_prefix("## ") {
-            Line::from(Span::styled(rest.to_string(), heading))
+            Line::from(inline_spans(rest, heading, link_style))
         } else if let Some(rest) = line.strip_prefix("# ") {
-            Line::from(Span::styled(
-                rest.to_string(),
+            Line::from(inline_spans(
+                rest,
                 heading.add_modifier(Modifier::UNDERLINED),
+                link_style,
             ))
         } else if let Some(rest) = line.strip_prefix("- [x] ").or(line.strip_prefix("- [X] ")) {
             Line::from(vec![
@@ -238,18 +455,196 @@ pub fn markdown_to_lines(
             ])
         } else if let Some(rest) = line.strip_prefix("- [ ] ") {
             let mut spans = vec![Span::styled("☐ ", Style::default().fg(muted))];
-            spans.extend(wikilink_spans(rest, text, link_style));
+            spans.extend(inline_spans(rest, text, link_style));
             Line::from(spans)
         } else if let Some(rest) = line.strip_prefix("- ") {
             let mut spans = vec![Span::styled("• ", Style::default().fg(accent))];
-            spans.extend(wikilink_spans(rest, text, link_style));
+            spans.extend(inline_spans(rest, text, link_style));
+            Line::from(spans)
+        } else if let Some((marker, rest)) = ordered_list_prefix(line) {
+            let mut spans = vec![Span::styled(
+                format!("{marker} "),
+                Style::default().fg(accent),
+            )];
+            spans.extend(inline_spans(rest, text, link_style));
             Line::from(spans)
         } else if let Some(rest) = line.strip_prefix("> ") {
-            Line::from(Span::styled(format!("▏ {rest}"), dim))
+            let mut spans = vec![Span::styled("▏ ", dim)];
+            spans.extend(inline_spans(rest, dim, link_style));
+            Line::from(spans)
         } else {
-            Line::from(wikilink_spans(line, text, link_style))
+            Line::from(inline_spans(line, text, link_style))
         });
     }
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FG: Color = Color::White;
+    const ACCENT: Color = Color::Blue;
+    const MUTED: Color = Color::Gray;
+    const LINK: Color = Color::Cyan;
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn bold_is_stripped_and_styled() {
+        let spans = inline_spans("hello **world** today", Style::default(), Style::default());
+        let bold = spans
+            .iter()
+            .find(|s| s.content.as_ref() == "world")
+            .expect("bold segment present");
+        assert!(bold.style.add_modifier.contains(Modifier::BOLD));
+        // No literal `**` survives anywhere in the reconstructed text.
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(full, "hello world today");
+    }
+
+    #[test]
+    fn italic_is_stripped_and_styled() {
+        let spans = inline_spans("a *b* c", Style::default(), Style::default());
+        let italic = spans.iter().find(|s| s.content.as_ref() == "b").unwrap();
+        assert!(italic.style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn inline_code_is_stripped_and_styled() {
+        let spans = inline_spans("run `cargo test` now", Style::default(), Style::default());
+        let code = spans
+            .iter()
+            .find(|s| s.content.as_ref() == "cargo test")
+            .unwrap();
+        assert!(code.style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn unterminated_marker_is_left_literal() {
+        // No closing `*` anywhere — must not swallow the rest of the line
+        // looking for one, and must not panic.
+        let spans = inline_spans("a * b c", Style::default(), Style::default());
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(full, "a * b c");
+    }
+
+    #[test]
+    fn markdown_link_shows_only_the_label() {
+        let spans = inline_spans(
+            "see [the docs](https://example.com) here",
+            Style::default(),
+            Style::default(),
+        );
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(full, "see the docs here");
+    }
+
+    #[test]
+    fn wikilink_still_renders_verbatim() {
+        let spans = inline_spans(
+            "see [[Some Note]] please",
+            Style::default(),
+            Style::default(),
+        );
+        assert!(spans.iter().any(|s| s.content.as_ref() == "[[Some Note]]"));
+    }
+
+    #[test]
+    fn image_becomes_an_icon_plus_alt_text() {
+        let spans = inline_spans("![a photo](pic.png)", Style::default(), Style::default());
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(full.contains("a photo"));
+        assert!(!full.contains("pic.png"));
+    }
+
+    #[test]
+    fn bold_inside_a_blockquote_is_still_bold_not_literal_asterisks() {
+        let lines = markdown_to_lines("> **Warning:** be careful", FG, ACCENT, MUTED, LINK);
+        assert_eq!(lines.len(), 1);
+        let full = line_text(&lines[0]);
+        assert!(!full.contains('*'), "asterisks must not survive: {full:?}");
+        assert!(full.contains("Warning:"));
+        let bold = lines[0]
+            .spans
+            .iter()
+            .find(|s| s.content.as_ref() == "Warning:")
+            .expect("bold span present");
+        assert!(bold.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn ordered_list_items_are_recognized() {
+        assert_eq!(ordered_list_prefix("1. first"), Some(("1.", "first")));
+        assert_eq!(ordered_list_prefix("12. twelfth"), Some(("12.", "twelfth")));
+        assert_eq!(ordered_list_prefix("not a list"), None);
+        assert_eq!(ordered_list_prefix("1.no space"), None);
+    }
+
+    #[test]
+    fn horizontal_rule_is_detected() {
+        assert!(is_horizontal_rule("---"));
+        assert!(is_horizontal_rule("***"));
+        assert!(is_horizontal_rule("______"));
+        assert!(!is_horizontal_rule("- - -")); // not handled; still just a dash run check
+        assert!(!is_horizontal_rule("hello"));
+    }
+
+    #[test]
+    fn horizontal_rule_renders_as_a_visible_divider() {
+        let lines = markdown_to_lines("above\n---\nbelow", FG, ACCENT, MUTED, LINK);
+        assert_eq!(line_text(&lines[1]), "─".repeat(40));
+    }
+
+    #[test]
+    fn table_renders_aligned_columns_with_a_header_rule() {
+        let body = "| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bo | 7 |";
+        let lines = markdown_to_lines(body, FG, ACCENT, MUTED, LINK);
+        // header row + divider row + 2 body rows = 4 lines, no leftover
+        // raw `|---|` separator line rendered literally.
+        assert_eq!(lines.len(), 4);
+        assert!(line_text(&lines[0]).contains("Name"));
+        assert!(line_text(&lines[1]).chars().all(|c| c == '─'));
+        // Columns line up: "Alice" (5 chars) and "Bo" (2 chars) both
+        // padded to the same width as the "Name"/"Age" header cells.
+        let alice_row = line_text(&lines[2]);
+        let bo_row = line_text(&lines[3]);
+        let col_sep = " │ ";
+        let alice_col1_width = alice_row.split(col_sep).next().unwrap().chars().count();
+        let bo_col1_width = bo_row.split(col_sep).next().unwrap().chars().count();
+        assert_eq!(alice_col1_width, bo_col1_width);
+    }
+
+    #[test]
+    fn table_like_prose_without_a_real_separator_is_left_alone() {
+        // A single line with pipes (e.g. a shell example) but no valid
+        // `---`-only separator row after it must not trigger table mode.
+        let lines = markdown_to_lines("ls | grep foo | wc -l", FG, ACCENT, MUTED, LINK);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(line_text(&lines[0]), "ls | grep foo | wc -l");
+    }
+
+    #[test]
+    fn details_summary_is_shown_expanded_with_tags_stripped() {
+        let body = "<details>\n<summary>Click to expand</summary>\nhidden content\n</details>";
+        let lines = markdown_to_lines(body, FG, ACCENT, MUTED, LINK);
+        // <details>/</details> themselves produce no line; summary becomes
+        // a styled header; the body content still renders normally.
+        assert_eq!(lines.len(), 2);
+        assert_eq!(line_text(&lines[0]), "▸ Click to expand");
+        assert_eq!(line_text(&lines[1]), "hidden content");
+    }
+
+    #[test]
+    fn math_block_is_styled_distinctly_from_code_block() {
+        let body = "$$\nx = y\n$$";
+        let lines = markdown_to_lines(body, FG, ACCENT, MUTED, LINK);
+        assert_eq!(lines.len(), 3);
+        // Content line inside the math block uses `accent`, not `muted`
+        // (which code fences use) — the whole point of the distinction.
+        assert_eq!(lines[1].spans[0].style.fg, Some(ACCENT));
+    }
 }

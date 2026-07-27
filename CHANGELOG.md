@@ -39,6 +39,14 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   in the same config) used to resolve to whichever one `HashMap` iteration happened to visit last
   — different, unpredictably, between runs of the exact same config. Now sorted deterministically,
   so the outcome (while still worth fixing — `shiki doctor` reports it) is at least reproducible.
+- PREVIEW's Markdown renderer never actually rendered `**bold**`/`*italic*`/`` `code` `` (the
+  asterisks/backticks showed up literally), tables, `$$math$$` blocks, `<details>`/`<summary>`,
+  ordered lists, horizontal rules, or `[text](url)`/`![alt](url)` links/images — so several of the
+  `/`-menu's own blocks (table, math, note/warning callouts, details, link, image) looked broken
+  the moment you left edit mode, since a callout's `> **Warning:** ...` showed the bold markers
+  raw instead of bolding the text. All of the above are now recognized and styled; `<details>` is
+  shown fully expanded (a static preview pane has no fold state to toggle against) rather than
+  actually collapsing.
 
 ## [0.8.3] - 2026-07-27
 
