@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual fallback: dispatch with "Use workflow from" set to the tag ref
+  # itself (or `gh workflow run release.yml --ref vX.Y.Z`) so `github.ref_name`
+  # resolves to that tag exactly the same way a real tag push would — no
+  # separate version-input plumbing needed anywhere else in this file. Added
+  # after `v0.8.4`'s tag push (via auto-tag.yml, using RELEASE_TAG_PAT) never
+  # triggered this workflow at all — confirmed by polling the Actions API
+  # directly for several minutes, not just a webhook delay — with no clear
+  # root cause found. This exists so a tag that doesn't self-trigger for
+  # whatever reason isn't a dead end.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
