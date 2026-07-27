@@ -116,6 +116,11 @@ scoop install shiki
 (or, without adding a bucket — a one-off install that `scoop update` won't track:
 `scoop install https://raw.githubusercontent.com/sazardev/shiki/main/packaging/scoop/shiki.json`)
 
+> **Troubleshooting:** `scoop install shiki` failing with `Couldn't find manifest for 'shiki'`
+> means the `sazardev` bucket isn't added yet (run the `scoop bucket add` line above first) —
+> or, if you'd added it a while ago, Scoop's local copy of it is stale; run `scoop update` first,
+> then `scoop install shiki` again.
+
 **Prebuilt binary (Linux/Windows/macOS), no package manager:**
 
 Download the archive for your platform from the
