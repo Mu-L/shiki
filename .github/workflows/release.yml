@@ -4,16 +4,22 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual fallback: dispatch with "Use workflow from" set to the tag ref
-  # itself (or `gh workflow run release.yml --ref vX.Y.Z`) so `github.ref_name`
-  # resolves to that tag exactly the same way a real tag push would — no
-  # separate version-input plumbing needed anywhere else in this file. Added
-  # after `v0.8.4`'s tag push (via auto-tag.yml, using RELEASE_TAG_PAT) never
-  # triggered this workflow at all — confirmed by polling the Actions API
-  # directly for several minutes, not just a webhook delay — with no clear
-  # root cause found. This exists so a tag that doesn't self-trigger for
-  # whatever reason isn't a dead end.
+  # Manual fallback — added after v0.8.4's tag push (via auto-tag.yml, using
+  # RELEASE_TAG_PAT) never triggered this workflow at all, confirmed by
+  # polling the Actions API directly for several minutes (not just a webhook
+  # delay), with no clear root cause found from the outside. A `tag` input
+  # rather than relying on `--ref vX.Y.Z` alone: `workflow_dispatch` can only
+  # be dispatched against a ref whose *own* copy of this file already has the
+  # trigger, which an already-pushed tag's copy never will the first time
+  # this is needed — the whole reason a manual fallback exists at all. The
+  # `resolve-tag` job below is the one place `github.event.inputs.tag` vs.
+  # `github.ref_name` gets decided; every other job reads its output instead
+  # of branching on that itself.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.8.4 (only needed when dispatching manually instead of via an actual tag push)"
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,8 +29,18 @@ permissions:
   contents: write
 
 jobs:
+  resolve-tag:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - id: resolve
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
   build:
     name: build (${{ matrix.target }})
+    needs: resolve-tag
     strategy:
       fail-fast: false
       matrix:
@@ -61,35 +77,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stage=dist/shiki-${{ github.ref_name }}-${{ matrix.target }}
+          stage=dist/shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}
           mkdir -p "$stage"
           cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "$stage/"
           cp README.md LICENSE CHANGELOG.md "$stage/"
-          tar -C dist -czf "dist/shiki-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" \
-            "shiki-${{ github.ref_name }}-${{ matrix.target }}"
+          tar -C dist -czf "dist/shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}.tar.gz" \
+            "shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}"
 
       - name: Package (zip)
         if: matrix.ext == 'zip'
         shell: bash
         run: |
           set -euo pipefail
-          stage=dist/shiki-${{ github.ref_name }}-${{ matrix.target }}
+          stage=dist/shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}
           mkdir -p "$stage"
           cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" "$stage/"
           cp README.md LICENSE CHANGELOG.md "$stage/"
           cd dist
-          7z a "shiki-${{ github.ref_name }}-${{ matrix.target }}.zip" \
-            "shiki-${{ github.ref_name }}-${{ matrix.target }}"
+          7z a "shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}.zip" \
+            "shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: shiki-${{ matrix.target }}
-          path: dist/shiki-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.ext }}
+          path: dist/shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}.${{ matrix.ext }}
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, resolve-tag]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -100,22 +116,29 @@ jobs:
 
       - name: Flatten artifacts and generate checksums
         id: version
+        env:
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p dist
           find artifacts -type f -exec cp {} dist/ \;
           cd dist
           sha256sum * > SHA256SUMS.txt
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
         with:
+          # Explicit, not left to default to `github.ref` — that's not a
+          # tag ref at all when this runs via `workflow_dispatch` (it's
+          # whichever branch/tag `--ref` checked out), which would either
+          # create a release against the wrong tag or fail outright.
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
           files: dist/*
           generate_release_notes: true
 
   update-packaging-manifests:
     name: Update AUR/Scoop manifests from release checksums
-    needs: release
+    needs: [release, resolve-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -sSfL -o SHA256SUMS.txt \
-            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SHA256SUMS.txt"
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.resolve-tag.outputs.tag }}/SHA256SUMS.txt"
 
       - name: Update Scoop manifest
         run: |
@@ -203,7 +226,7 @@ jobs:
           # release's own uploaded assets (it's generated on the fly by
           # GitHub's codeload), so it has to be downloaded and hashed here.
           curl -sSfL -o source.tar.gz \
-            "https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+            "https://github.com/${{ github.repository }}/archive/refs/tags/${{ needs.resolve-tag.outputs.tag }}.tar.gz"
           hash=$(sha256sum source.tar.gz | awk '{print $1}')
           sed -i "s/^pkgver=.*/pkgver=${version}/" packaging/aur-src/PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" packaging/aur-src/PKGBUILD
@@ -233,7 +256,7 @@ jobs:
                  "Add a repo-scoped personal access token as RELEASE_TAG_PAT."
             exit 1
           else
-            git commit -m "packaging: update manifests for ${{ github.ref_name }}"
+            git commit -m "packaging: update manifests for ${{ needs.resolve-tag.outputs.tag }}"
             git push origin HEAD:main
           fi
 
@@ -266,7 +289,7 @@ jobs:
               if git diff --cached --quiet; then
                 echo "No AUR changes to push for ${aur_repo}"
               else
-                git commit -m "Update to ${{ github.ref_name }}"
+                git commit -m "Update to ${{ needs.resolve-tag.outputs.tag }}"
                 git push origin master
               fi
             )
@@ -274,7 +297,7 @@ jobs:
 
   update-screenshots:
     name: Regenerate marketing screenshots for the docs site
-    needs: release
+    needs: [release, resolve-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -331,7 +354,7 @@ jobs:
                  "Add a repo-scoped personal access token as RELEASE_TAG_PAT."
             exit 1
           else
-            git commit -m "docs: refresh screenshots for ${{ github.ref_name }}"
+            git commit -m "docs: refresh screenshots for ${{ needs.resolve-tag.outputs.tag }}"
             git push origin HEAD:main
           fi
 
