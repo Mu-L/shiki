@@ -4,6 +4,40 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.3] - 2026-07-27
+
+### Added
+
+- Menu `/` en el editor inline: escribir `/` como primer caracter de una linea abre un mini-menu
+  buscable (filtra al seguir escribiendo, `↑`/`↓` navega, `Enter` inserta, `Esc` cierra el menu sin
+  salir de edicion) con bloques listos para insertar — `h1`/`h2`/`h3`, bloque de codigo, bloque de
+  math, tabla, checklist, quote, divider, fecha de hoy, linea de tags, y un bloque de frontmatter
+  YAML. `/` en cualquier otra posicion de la linea (una URL, una fraccion) sigue siendo un caracter
+  normal.
+- Los comandos del menu `/` son totalmente personalizables via `[snippets.<trigger>]` en
+  `config.toml` — cada entrada puede agregar un bloque nuevo o redefinir uno existente (mismo
+  trigger, case-insensitive). Soporta `{{title}}`/`{{date}}` (igual que los templates de notas) y
+  un marcador `{{cursor}}` que indica donde queda el cursor despues de insertar.
+- Dropdown `@` en el prompt de nota nueva (`a`): escribir `@` despues del titulo (o solo, sin
+  titulo) abre un dropdown con `today`/`yesterday`/`tomorrow` (fecha calculada, sin template) mas
+  cada template disponible — filtra al escribir, `Enter` crea la nota y salta directo a edicion,
+  saltandose el flujo normal de "titulo → Enter → elegir template".
+- 9 templates nuevos ademas de los 3 existentes (`default`/`daily`/`meeting`): `bug`, `spec`,
+  `review`, `postmortem` (dev), `standup`, `retro`, `1on1`, `weekly` (productividad/reuniones) y
+  `brainstorm` (general) — se generan automaticamente en `~/.config/shiki/templates/` en el
+  proximo arranque sin tocar ningun template ya personalizado.
+- El editor inline muestra un placeholder ("Type '/' for quick blocks...") cuando la nota esta
+  vacia, para que el menu `/` sea descubrible sin tener que leer la documentacion.
+
+### Fixed
+
+- El editor inline ahora envuelve las lineas largas dentro del ancho del panel (igual que PREVIEW)
+  en vez de scrollear horizontalmente y sacarlas de la vista — `tui-textarea` no soporta wrap en
+  ninguna version publicada, asi que el render del editor ahora se calcula a mano (mismo wrap tanto
+  para dibujar como para ubicar el cursor, para que nunca puedan desincronizarse), mientras que
+  toda la edicion real (insertar/borrar/deshacer/seleccion) sigue pasando por `tui-textarea` sin
+  cambios.
+
 ## [0.8.2] - 2026-07-24
 
 ### Fixed

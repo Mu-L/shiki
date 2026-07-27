@@ -124,13 +124,67 @@ impl PendingInput {
     /// explicitly by whatever starts that particular input instead.
     pub(crate) fn title(self) -> &'static str {
         match self {
-            PendingInput::NewNote => " New note ",
+            PendingInput::NewNote => " New note (@ for quick date/template) ",
             PendingInput::NewNotebook => " New notebook ",
             PendingInput::NewFolder => " New folder ",
             PendingInput::RenameNote | PendingInput::RenameNotebook => " Rename ",
             PendingInput::Search => " Jump to note ",
             PendingInput::SetRemote => " Git remote (URL or local path) ",
             PendingInput::MoveOrCopy => " Move/copy to ",
+        }
+    }
+}
+
+/// A quick `@`-triggered shortcut typed into the `NewNote` title prompt —
+/// `today`/`yesterday`/`tomorrow` resolve to a computed date (no template),
+/// every other entry is a real `.md` file already sitting in the templates
+/// dir (same discovery `open_template_picker` does). Picking one from the
+/// dropdown finishes note creation immediately, skipping the normal
+/// "type a title, Enter, then pick a template from `show_template_picker`"
+/// two-step flow — that's the whole point of `@` being faster.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum QuickCommand {
+    Today,
+    Yesterday,
+    Tomorrow,
+    Template(String),
+}
+
+impl QuickCommand {
+    pub(crate) fn label(&self) -> String {
+        match self {
+            QuickCommand::Today => "today".to_string(),
+            QuickCommand::Yesterday => "yesterday".to_string(),
+            QuickCommand::Tomorrow => "tomorrow".to_string(),
+            QuickCommand::Template(name) => name.clone(),
+        }
+    }
+
+    /// `None` for `Template` — only the three date commands have one.
+    pub(crate) fn date(&self) -> Option<chrono::NaiveDate> {
+        let today = chrono::Local::now().date_naive();
+        match self {
+            QuickCommand::Today => Some(today),
+            QuickCommand::Yesterday => today.pred_opt(),
+            QuickCommand::Tomorrow => today.succ_opt(),
+            QuickCommand::Template(_) => None,
+        }
+    }
+
+    /// One line for the dropdown list — date commands preview the actual
+    /// resolved date (matching the `%Y-%m-%d` convention used everywhere
+    /// else dates are formatted, see `daily.rs`) so the user sees exactly
+    /// what they'll get before picking it.
+    pub(crate) fn display(&self) -> String {
+        match self {
+            QuickCommand::Template(name) => format!("{name}  (template)"),
+            _ => format!(
+                "{}  \u{2192} {}",
+                self.label(),
+                self.date()
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default()
+            ),
         }
     }
 }
@@ -232,6 +286,13 @@ pub struct App {
     pub input: InputBox,
     pub confirm: Option<confirm::ConfirmDialog>,
     pub editor: Option<InlineEditor<'static>>,
+    /// The inline editor's `/`-menu (see `slash_menu.rs`) — open only
+    /// while `Mode::Edit`'s current line reads exactly `/` up to the
+    /// cursor (checked live off `editor.textarea` itself in
+    /// `App::slash_query`, not tracked separately, so it can never
+    /// disagree with what's actually in the buffer).
+    pub(crate) show_slash_menu: bool,
+    pub(crate) slash_menu_selected: usize,
     /// Path + editor command to launch externally, picked up by `run()`
     /// between draw calls. The editor is resolved per-invocation (either the
     /// configured `general.editor` for `E`, or the detected OS favorite for
@@ -279,6 +340,12 @@ pub struct App {
     /// while the template picker is up — the note isn't actually created
     /// until a template (or "blank") is chosen.
     pub(crate) pending_new_note_title: String,
+    /// Selected row in the `@`-triggered quick-template dropdown (see
+    /// `QuickCommand`) — only meaningful while `NewNote`'s input contains an
+    /// `@`; reset to 0 on every keystroke that changes the filter, same
+    /// "never leave a stale out-of-range index" rule `which_key_selected`
+    /// already follows.
+    pub(crate) quick_template_selected: usize,
     pub show_tree: bool,
     pub(crate) tree_rows: Vec<crate::tree::TreeRow>,
     /// Index into just the `Note` rows of `tree_rows` (folder rows are
@@ -547,6 +614,8 @@ impl App {
             input: InputBox::default(),
             confirm: None,
             editor: None,
+            show_slash_menu: false,
+            slash_menu_selected: 0,
             want_external_edit: None,
             show_theme_picker: false,
             show_global_search: false,
@@ -560,6 +629,7 @@ impl App {
             template_picker_options: Vec::new(),
             template_picker_index: 0,
             pending_new_note_title: String::new(),
+            quick_template_selected: 0,
             show_tree: false,
             tree_rows: Vec::new(),
             tree_selected: 0,

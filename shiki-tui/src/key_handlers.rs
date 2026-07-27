@@ -5,14 +5,14 @@ use shiki_core::Notebook;
 use crate::app::{
     drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
     looks_like_git_url, relative_folder, shift, App, BatchOp, DeleteTarget, Focus, Mode,
-    PendingInput, SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
+    PendingInput, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
 };
 use crate::editor::InlineEditor;
 use crate::icons;
 use crate::input::InputBox;
 use crate::keybindings::{action_label, Action};
 use crate::render::{hex_to_color, panel_block};
-use crate::{confirm, layout, panel_drawer, status_bar};
+use crate::{confirm, layout, panel_drawer, slash_menu, status_bar};
 
 impl App {
     fn open_theme_picker(&mut self) {
@@ -1029,6 +1029,32 @@ impl App {
             Err(e) => self.set_status(format!("daily note error: {e}")),
         }
     }
+    /// Every `.md` file currently in the templates dir, sorted — the raw
+    /// listing shared by `open_template_picker` (wrapped in `Option` there,
+    /// with a leading "blank") and `quick_command_options` (wrapped in
+    /// `QuickCommand::Template` there, with no "blank" — `@` typing an empty
+    /// query already shows every option, a blank-note entry has nothing
+    /// distinctive to filter towards).
+    fn template_names(&self) -> Vec<String> {
+        let Ok(dir) = Config::default_templates_dir() else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let path = e.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                    return None;
+                }
+                path.file_stem().map(|s| s.to_string_lossy().to_string())
+            })
+            .collect();
+        names.sort();
+        names
+    }
     /// Opens the template picker for a note titled `title` — every `.md`
     /// file in the templates dir, plus a leading "blank" option, listed
     /// fresh each time (mirrors the tags/tree modals' "rebuild on open"
@@ -1037,25 +1063,87 @@ impl App {
     fn open_template_picker(&mut self, title: String) {
         self.pending_new_note_title = title;
         let mut options = vec![None];
-        if let Ok(dir) = Config::default_templates_dir() {
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                let mut names: Vec<String> = entries
-                    .filter_map(|e| e.ok())
-                    .filter_map(|e| {
-                        let path = e.path();
-                        if path.extension().and_then(|s| s.to_str()) != Some("md") {
-                            return None;
-                        }
-                        path.file_stem().map(|s| s.to_string_lossy().to_string())
-                    })
-                    .collect();
-                names.sort();
-                options.extend(names.into_iter().map(Some));
-            }
-        }
+        options.extend(self.template_names().into_iter().map(Some));
         self.template_picker_options = options;
         self.template_picker_index = 0;
         self.show_template_picker = true;
+    }
+    /// Full, unfiltered `@`-dropdown option list: the three relative-date
+    /// commands first (always available, don't depend on disk state), then
+    /// every real template — rebuilt on every keystroke the same way
+    /// `open_template_picker` rebuilds its own list on every open, so a
+    /// template added/removed mid-session is picked up immediately.
+    fn quick_command_options(&self) -> Vec<QuickCommand> {
+        let mut options = vec![
+            QuickCommand::Today,
+            QuickCommand::Yesterday,
+            QuickCommand::Tomorrow,
+        ];
+        options.extend(
+            self.template_names()
+                .into_iter()
+                .map(QuickCommand::Template),
+        );
+        options
+    }
+    /// The text after the *last* `@` in the `NewNote` input, if any — e.g.
+    /// `"errand @da"` yields `Some("da")`. `None` (not just an empty
+    /// string) means "no `@` typed at all yet", which is what gates the
+    /// dropdown's visibility — an empty-but-present query (`"@"` alone)
+    /// still yields `Some("")`, matching every option.
+    pub(crate) fn quick_template_query(&self) -> Option<&str> {
+        if self.pending_input != Some(PendingInput::NewNote) {
+            return None;
+        }
+        self.input.value.rsplit_once('@').map(|(_, after)| after)
+    }
+    /// `quick_command_options()` narrowed to whatever's typed after the
+    /// `@` — same case-insensitive substring match `which_key_filtered_entries`
+    /// already uses for its own typed filter.
+    pub(crate) fn quick_template_filtered(&self) -> Vec<QuickCommand> {
+        let Some(query) = self.quick_template_query() else {
+            return Vec::new();
+        };
+        let query = query.to_lowercase();
+        self.quick_command_options()
+            .into_iter()
+            .filter(|cmd| cmd.label().to_lowercase().contains(&query))
+            .collect()
+    }
+    /// Runs the chosen `@`-dropdown entry, finishing note creation right
+    /// away instead of handing off to `show_template_picker` — the title
+    /// text before the `@` becomes the note's title (for `Template`
+    /// entries; the three date commands ignore it and always use the
+    /// computed date instead, per their whole purpose).
+    fn apply_quick_template(&mut self, cmd: QuickCommand) {
+        let prefix = self
+            .input
+            .value
+            .rsplit_once('@')
+            .map(|(before, _)| before.trim().to_string())
+            .unwrap_or_default();
+        self.input.clear();
+        self.quick_template_selected = 0;
+        self.pending_input = None;
+        self.mode = Mode::Normal;
+
+        let (title, template_choice) = match &cmd {
+            QuickCommand::Today | QuickCommand::Yesterday | QuickCommand::Tomorrow => {
+                let date = cmd
+                    .date()
+                    .unwrap_or_else(|| chrono::Local::now().date_naive());
+                (date.format("%Y-%m-%d").to_string(), None)
+            }
+            QuickCommand::Template(name) => {
+                let title = if prefix.is_empty() {
+                    chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()
+                } else {
+                    prefix
+                };
+                (title, Some(name.clone()))
+            }
+        };
+        self.create_note_with_template(title, template_choice);
     }
     fn handle_template_picker_key(&mut self, key: KeyEvent) {
         match key.code {
@@ -1078,9 +1166,9 @@ impl App {
             _ => {}
         }
     }
-    /// Creates the note with the chosen template's rendered body (or an
-    /// empty one, for "blank") — the actual creation `confirm_input`'s old
-    /// `NewNote` arm used to do directly, now happening here once a
+    /// Reads the picker's current selection and hands off to
+    /// `create_note_with_template` — the actual creation `confirm_input`'s
+    /// old `NewNote` arm used to do directly, now happening once a
     /// template's actually been picked instead of always being empty.
     fn confirm_template_choice(&mut self) {
         let title = std::mem::take(&mut self.pending_new_note_title);
@@ -1090,7 +1178,15 @@ impl App {
             .cloned()
             .flatten();
         self.show_template_picker = false;
-
+        self.create_note_with_template(title, template_choice);
+    }
+    /// Creates a note titled `title` in the current folder, with the given
+    /// template's rendered body (or an empty one for `None`, "blank") — the
+    /// single shared creation path for both the `show_template_picker` flow
+    /// (`confirm_template_choice`) and the `@`-dropdown fast path
+    /// (`apply_quick_template`), so the two can't drift into creating notes
+    /// differently from each other.
+    fn create_note_with_template(&mut self, title: String, template_choice: Option<String>) {
         let body = match &template_choice {
             Some(name) => Config::default_templates_dir()
                 .ok()
@@ -1143,6 +1239,16 @@ impl App {
             );
             editor.textarea.set_cursor_line_style(
                 ratatui::style::Style::default().fg(hex_to_color(&self.theme.fg)),
+            );
+            // Only ever rendered while the note is completely empty (see
+            // `InlineEditor::render`'s placeholder branch) — the `/`-menu
+            // has no other in-app hint pointing at it, so this is its one
+            // discoverability surface, gone the instant you type anything.
+            editor.textarea.set_placeholder_text(
+                "Type '/' for quick blocks (headers, code, tables, tags, frontmatter...)",
+            );
+            editor.textarea.set_placeholder_style(
+                ratatui::style::Style::default().fg(hex_to_color(&self.theme.muted)),
             );
             self.editor = Some(editor);
             self.mode = Mode::Edit;
@@ -1600,6 +1706,55 @@ impl App {
         }
     }
     fn handle_insert_key(&mut self, key: KeyEvent) {
+        // The `@`-quick-template dropdown only ever applies to the `NewNote`
+        // prompt, and only once an `@` has actually been typed — checked
+        // first so it can intercept `Up`/`Down`/`Enter` before they'd
+        // otherwise do nothing (`Up`/`Down` aren't bound at all below) or
+        // the wrong thing (a plain `Enter` would open `show_template_picker`
+        // instead of running the already-highlighted quick command).
+        if self.quick_template_query().is_some() {
+            let filtered = self.quick_template_filtered();
+            match key.code {
+                // First `Esc` only dismisses the dropdown (drops the typed
+                // `@word`) so the user can keep editing the title; a second
+                // `Esc` (now with no `@` left) falls through to cancelling
+                // the whole prompt, same as before this feature existed.
+                KeyCode::Esc => {
+                    if let Some(pos) = self.input.value.rfind('@') {
+                        self.input.value.truncate(pos);
+                    }
+                    self.quick_template_selected = 0;
+                    return;
+                }
+                KeyCode::Enter => {
+                    if let Some(cmd) = filtered.get(self.quick_template_selected).cloned() {
+                        self.apply_quick_template(cmd);
+                    }
+                    return;
+                }
+                KeyCode::Down => {
+                    if self.quick_template_selected + 1 < filtered.len() {
+                        self.quick_template_selected += 1;
+                    }
+                    return;
+                }
+                KeyCode::Up => {
+                    self.quick_template_selected = self.quick_template_selected.saturating_sub(1);
+                    return;
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                    self.quick_template_selected = 0;
+                    return;
+                }
+                KeyCode::Char(c) => {
+                    self.input.push(c);
+                    self.quick_template_selected = 0;
+                    return;
+                }
+                _ => return,
+            }
+        }
         match key.code {
             KeyCode::Esc => {
                 self.pending_input = None;
@@ -1614,13 +1769,146 @@ impl App {
         }
     }
     fn handle_edit_key(&mut self, key: KeyEvent) {
+        if self.show_slash_menu {
+            self.handle_slash_menu_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Esc => self.save_and_exit_edit(),
             _ => {
                 if let Some(editor) = &mut self.editor {
                     editor.textarea.input(key);
                 }
+                // `/` only opens the menu when it lands as the very first
+                // character of the line (cursor was at column 0, so it's
+                // at column 1 right after) — typing it anywhere else (a
+                // fraction, a URL, mid-sentence) is just a literal slash.
+                if key.code == KeyCode::Char('/') {
+                    let at_line_start = self
+                        .editor
+                        .as_ref()
+                        .is_some_and(|e| e.textarea.cursor().1 == 1);
+                    if at_line_start {
+                        self.slash_menu_selected = 0;
+                        self.show_slash_menu = true;
+                    }
+                }
             }
+        }
+    }
+    /// The typed filter for the `/`-menu: everything after the leading `/`
+    /// up to the cursor, read live off the editor's own buffer rather than
+    /// tracked in a separate field — the same reasoning `App.show_slash_menu`'s
+    /// doc comment gives, just for the query text instead of the open/closed
+    /// state. `None` means the menu should close (the query no longer starts
+    /// with `/`, e.g. it was backspaced away).
+    pub(crate) fn slash_query(&self) -> Option<String> {
+        if !self.show_slash_menu {
+            return None;
+        }
+        let editor = self.editor.as_ref()?;
+        let (row, col) = editor.textarea.cursor();
+        if col == 0 {
+            return None;
+        }
+        let line = editor.textarea.lines().get(row)?;
+        let chars: Vec<char> = line.chars().collect();
+        if chars.first() != Some(&'/') {
+            return None;
+        }
+        Some(chars[1..col.min(chars.len())].iter().collect())
+    }
+    /// `slash_menu::all_commands` narrowed to whatever's typed after the
+    /// `/` — same case-insensitive substring match the `@` quick-template
+    /// dropdown and which-key modal both already use for their own typed
+    /// filters.
+    pub(crate) fn slash_menu_filtered(&self) -> Vec<slash_menu::SlashCommand> {
+        let Some(query) = self.slash_query() else {
+            return Vec::new();
+        };
+        let query = query.to_lowercase();
+        slash_menu::all_commands(&self.config)
+            .into_iter()
+            .filter(|cmd| {
+                cmd.trigger.to_lowercase().contains(&query)
+                    || cmd.label.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+    fn handle_slash_menu_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.show_slash_menu = false,
+            KeyCode::Up => self.slash_menu_selected = self.slash_menu_selected.saturating_sub(1),
+            KeyCode::Down => {
+                let len = self.slash_menu_filtered().len();
+                if self.slash_menu_selected + 1 < len {
+                    self.slash_menu_selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(cmd) = self
+                    .slash_menu_filtered()
+                    .get(self.slash_menu_selected)
+                    .cloned()
+                {
+                    self.show_slash_menu = false;
+                    self.apply_slash_command(&cmd);
+                }
+            }
+            KeyCode::Char(_) | KeyCode::Backspace => {
+                if let Some(editor) = &mut self.editor {
+                    editor.textarea.input(key);
+                }
+                match self.slash_query() {
+                    Some(_) => self.slash_menu_selected = 0,
+                    None => self.show_slash_menu = false,
+                }
+            }
+            _ => {}
+        }
+    }
+    /// Runs the chosen `/`-menu entry: deletes the typed `/query` (the
+    /// same range `slash_query` reads, from the start of the line up to
+    /// the cursor — `delete_line_by_head` is exactly that operation) and
+    /// inserts the command's body in its place, after substituting
+    /// `{{title}}`/`{{date}}` the same way note templates are rendered.
+    /// A `{{cursor}}` marker in the body is resolved to an absolute
+    /// `CursorMove::Jump` afterward instead of being inserted literally.
+    fn apply_slash_command(&mut self, cmd: &slash_menu::SlashCommand) {
+        let title = self
+            .selected_note()
+            .map(|n| n.frontmatter.title.clone())
+            .unwrap_or_default();
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("title", title);
+        vars.insert("date", chrono::Local::now().format("%Y-%m-%d").to_string());
+        let rendered = shiki_core::Template {
+            name: String::new(),
+            contents: cmd.body.clone(),
+        }
+        .render(&vars);
+
+        let (before, cursor_marker) = match rendered.split_once("{{cursor}}") {
+            Some((before, after)) => (before.to_string(), Some(after.to_string())),
+            None => (rendered, None),
+        };
+
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let (insert_row, _) = editor.textarea.cursor();
+        editor.textarea.delete_line_by_head();
+        match &cursor_marker {
+            Some(after) => editor.textarea.insert_str(format!("{before}{after}")),
+            None => editor.textarea.insert_str(&before),
+        };
+        if cursor_marker.is_some() {
+            let target_row = insert_row + before.matches('\n').count();
+            let target_col = before.rsplit('\n').next().unwrap_or("").chars().count();
+            editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+                target_row as u16,
+                target_col as u16,
+            ));
         }
     }
     fn handle_normal_key(&mut self, key: KeyEvent) {

@@ -201,7 +201,7 @@
       <table class="ref-table">
         <thead><tr><th>Key</th><th>Action</th></tr></thead>
         <tbody>
-          <tr><td><code>a</code></td><td>New note (empty title stamps today's date). After the title, a template picker opens — every <code>.md</code> file in <code>~/.config/shiki/templates/</code> plus a "blank" option; <code>j</code>/<code>k</code> browse, <code>Enter</code> picks one and jumps straight to editing (<code>{{title}}</code>/<code>{{date}}</code> already substituted), <code>Esc</code>/<code>q</code> cancels the note entirely</td></tr>
+          <tr><td><code>a</code></td><td>New note (empty title stamps today's date). After the title, a template picker opens — every <code>.md</code> file in <code>~/.config/shiki/templates/</code> plus a "blank" option; <code>j</code>/<code>k</code> browse, <code>Enter</code> picks one and jumps straight to editing (<code>{{title}}</code>/<code>{{date}}</code> already substituted), <code>Esc</code>/<code>q</code> cancels the note entirely. Typing <code>@</code> anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — <code>today</code>/<code>yesterday</code>/<code>tomorrow</code> (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; <code>Enter</code> creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely</td></tr>
           <tr><td><code>f</code></td><td>New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first</td></tr>
           <tr><td><code>r</code></td><td>Rename note</td></tr>
           <tr><td><code>d</code></td><td>Delete the selected note <em>or</em> folder (with confirmation) — a folder deletes everything inside it too. In <code>v</code> select mode, deletes every selected item at once. Moved to the trash rather than permanently removed, so leader+<code>u</code> can undo it</td></tr>
@@ -228,6 +228,29 @@
           <tr><td><code>L</code></td><td>Links — the selected note's outgoing <code>[[wikilinks]]</code> (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> jumps to the selected note (an unresolved outgoing link reports that instead of jumping), <code>Esc</code>/<code>q</code> closes</td></tr>
         </tbody>
       </table>
+
+      <h3>Inside the inline editor (<code>i</code>)</h3>
+      <p>
+        Long lines wrap to the panel's width, the same as PREVIEW — they never scroll off the edge
+        of the screen. A completely empty note shows a dim placeholder hint ("Type <code>/</code>
+        for quick blocks…"), gone the instant you type anything.
+      </p>
+      <p>
+        Typing <code>/</code> as the very first character of a line (nothing to its left — a
+        <code>/</code> anywhere else, e.g. mid-sentence or in a URL/fraction, is just a literal
+        slash) opens a small searchable menu right under the cursor: keep typing to filter by name,
+        <code>↑</code>/<code>↓</code> to move, <code>Enter</code> to insert the highlighted block,
+        <code>Esc</code> to dismiss the menu without leaving edit mode (a second <code>Esc</code>
+        then saves and exits, as usual). Built-in blocks: <code>h1</code>/<code>h2</code>/<code>h3</code>,
+        a code fence, a math (<code>$$…$$</code>) block, a table skeleton, a checklist item, a
+        quote, a divider, today's date, a <code>Tags:</code> line, and a YAML frontmatter skeleton.
+      </p>
+      <p>
+        Every command is customizable from <code>config.toml</code> under
+        <code>[snippets.&lt;trigger&gt;]</code> — see the config reference below. A custom entry
+        with the same trigger as a built-in (case-insensitive) replaces it instead of adding a
+        duplicate, so nothing here is off-limits to redefine.
+      </p>
     </div>
   </section>
 
@@ -450,7 +473,22 @@ remote_template = ""
 [notebooks.work]
 auto_sync = true
 auto_sync_every = 3
-auto_push = true</pre>
+auto_push = true
+
+# Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
+# default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
+# divider/date/tags/frontmatter) aren't listed here at all, only your own
+# additions/overrides. `label` falls back to the trigger when omitted; `body`
+# supports {{title}}/{{date}} (substituted the same way note templates are)
+# plus a {{cursor}} marker for where the cursor lands after insertion.
+[snippets.note]
+label = "Callout note"
+body = "> **Note:** {{cursor}}"
+
+# Same trigger as a built-in (case-insensitive) replaces it instead of
+# adding a duplicate — every command in the menu is customizable this way.
+[snippets.h1]
+body = "# [{{title}}] {{cursor}}"</pre>
       <p class="muted" style="font-size:0.9rem;">
         Every default shown above matches the current release — if this page and a fresh
         <code>shiki</code> install ever disagree, trust the install.

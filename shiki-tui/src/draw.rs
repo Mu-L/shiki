@@ -1,6 +1,6 @@
 use crate::app::{
     centered_rect, drawer_area, global_search_layout, global_search_popup_area, App, Mode,
-    UpdateState,
+    PendingInput, UpdateState,
 };
 use crate::icons;
 use crate::render::{hex_to_color, panel_block};
@@ -8,7 +8,7 @@ use crate::{
     layout, panel_drawer, panel_notebooks, panel_notes, panel_preview, panel_tags, status_bar,
     which,
 };
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -26,7 +26,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     panel_notes::render(frame, areas.notes, app);
     if app.mode == Mode::Edit {
         if let Some(editor) = &app.editor {
-            frame.render_widget(&editor.textarea, areas.preview);
+            editor.render(frame, areas.preview);
+            if app.show_slash_menu {
+                render_slash_menu(frame, areas.preview, editor, app);
+            }
         }
     } else {
         panel_preview::render(frame, areas.preview, app);
@@ -34,14 +37,59 @@ pub fn draw(frame: &mut Frame, app: &App) {
     status_bar::render(frame, areas.status_bar, app);
 
     if let Some(kind) = app.pending_input {
-        let popup_area = centered_rect(frame.area(), (frame.area().width / 2).max(30), 3);
-        frame.render_widget(Clear, popup_area);
+        let quick_matches = if kind == PendingInput::NewNote {
+            app.quick_template_filtered()
+        } else {
+            Vec::new()
+        };
+        let width = (frame.area().width / 2).max(30);
         let title = app
             .pending_input_title
             .as_deref()
             .unwrap_or_else(|| kind.title());
-        app.input
-            .render(frame, popup_area, title, hex_to_color(&app.theme.accent));
+
+        if app.quick_template_query().is_some() {
+            // Same height budget `render_template_picker` uses (option
+            // count + 2 for the list's own border, capped so a long
+            // template list can't ever push the popup off-screen), stacked
+            // under the input's own fixed 3 rows instead of replacing it —
+            // the title text stays visible and editable while the dropdown
+            // is up.
+            let list_height = (quick_matches.len() as u16 + 2).min(frame.area().height / 2);
+            let popup_area = centered_rect(frame.area(), width, 3 + list_height);
+            frame.render_widget(Clear, popup_area);
+            let [input_area, list_area] =
+                Layout::vertical([Constraint::Length(3), Constraint::Length(list_height)])
+                    .areas(popup_area);
+            app.input
+                .render(frame, input_area, title, hex_to_color(&app.theme.accent));
+
+            let items: Vec<ListItem> = quick_matches
+                .iter()
+                .map(|cmd| ListItem::new(cmd.display()))
+                .collect();
+            let highlight_symbol = format!("{} ", icons::ARROW);
+            let list_title = format!(" {}  Quick template ", icons::CALENDAR);
+            let list = List::new(items)
+                .block(panel_block(Line::from(list_title), true, &app.theme))
+                .highlight_style(
+                    Style::default()
+                        .bg(hex_to_color(&app.theme.selection))
+                        .fg(hex_to_color(&app.theme.accent))
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol(&highlight_symbol);
+            let mut state = ListState::default();
+            if !quick_matches.is_empty() {
+                state.select(Some(app.quick_template_selected));
+            }
+            frame.render_stateful_widget(list, list_area, &mut state);
+        } else {
+            let popup_area = centered_rect(frame.area(), width, 3);
+            frame.render_widget(Clear, popup_area);
+            app.input
+                .render(frame, popup_area, title, hex_to_color(&app.theme.accent));
+        }
     }
 
     if app.show_tags {
@@ -454,6 +502,67 @@ fn render_history(frame: &mut Frame, frame_area: Rect, app: &App) {
     let mut state = ListState::default();
     if !app.history_entries.is_empty() {
         state.select(Some(app.history_selected));
+    }
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+/// Anchors the `/`-menu right under the current line inside the editor's
+/// own inner area (`editor.cursor_screen_row()`, computed by
+/// `InlineEditor::render` the same pass that just ran) — falls back to
+/// showing it *above* the line instead when there isn't enough room below,
+/// e.g. typing `/` on the last visible line of a long note.
+fn render_slash_menu(
+    frame: &mut Frame,
+    area: Rect,
+    editor: &crate::editor::InlineEditor,
+    app: &App,
+) {
+    let inner = match editor.textarea.block() {
+        Some(block) => block.inner(area),
+        None => area,
+    };
+    if inner.width < 10 || inner.height < 3 {
+        return;
+    }
+    let matches = app.slash_menu_filtered();
+    let width = inner.width.min(44);
+    let max_height = inner.height.saturating_sub(1).max(3);
+    let height = (matches.len() as u16 + 2).clamp(3, max_height);
+
+    let cursor_row = editor.cursor_screen_row();
+    let below_y = inner.y + cursor_row + 1;
+    let popup_y = if below_y + height <= inner.y + inner.height {
+        below_y
+    } else {
+        inner.y + cursor_row.saturating_sub(height)
+    };
+
+    let popup_area = Rect {
+        x: inner.x,
+        y: popup_y,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, popup_area);
+
+    let items: Vec<ListItem> = matches
+        .iter()
+        .map(|cmd| ListItem::new(format!("/{}  {}", cmd.trigger, cmd.label)))
+        .collect();
+    let highlight_symbol = format!("{} ", icons::ARROW);
+    let title = format!(" {}  Slash menu ", icons::PENCIL);
+    let list = List::new(items)
+        .block(panel_block(Line::from(title), true, &app.theme))
+        .highlight_style(
+            Style::default()
+                .bg(hex_to_color(&app.theme.selection))
+                .fg(hex_to_color(&app.theme.accent))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(&highlight_symbol);
+    let mut state = ListState::default();
+    if !matches.is_empty() {
+        state.select(Some(app.slash_menu_selected));
     }
     frame.render_stateful_widget(list, popup_area, &mut state);
 }
