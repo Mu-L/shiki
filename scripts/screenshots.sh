@@ -72,6 +72,7 @@ THEMES=(
   gruvbox-dark gruvbox-light
   nord
   solarized-dark solarized-light
+  dracula one-dark monokai
   default
 )
 

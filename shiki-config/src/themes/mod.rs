@@ -1,6 +1,9 @@
 mod catppuccin;
+mod dracula;
 mod gruvbox;
+mod monokai;
 mod nord;
+mod one_dark;
 mod solarized;
 mod tokyo_night;
 
@@ -21,6 +24,9 @@ pub fn all() -> Vec<Theme> {
         nord::nord(),
         solarized::dark(),
         solarized::light(),
+        dracula::dracula(),
+        one_dark::one_dark(),
+        monokai::monokai(),
         Theme::terminal_default(),
     ]
 }

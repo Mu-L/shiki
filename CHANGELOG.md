@@ -26,6 +26,8 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   with `leader` or `quit` (always loses to them, so it can never trigger), a keybinding string that
   doesn't parse to any real key, and two `/`-menu snippet triggers that collide case-insensitively
   (e.g. `[snippets.H1]` next to `[snippets.h1]`).
+- 3 more built-in themes: **Dracula**, **One Dark**, and **Monokai** — 15 total now. Palettes taken
+  from each project's own official/canonical values, same standard as every other included theme.
 
 ### Fixed
 

@@ -58,7 +58,7 @@ switching.
 
 These update automatically after every release (`update-screenshots` job in
 [`release.yml`](.github/workflows/release.yml)), so they always reflect the current version — not
-a screenshot from three releases ago. All 12 built-in themes have a live, interactive preview on
+a screenshot from three releases ago. All 15 built-in themes have a live, interactive preview on
 the [website](https://sazardev.github.io/shiki/#themes).
 
 ## Features
@@ -76,7 +76,8 @@ the [website](https://sazardev.github.io/shiki/#themes).
   automatically every N changes), per-notebook policy overrides, robust HTTPS/SSH auth that
   reuses your system's own git credential store, and automatic fallback to the remote's actual
   default branch.
-- **12 built-in themes** (Catppuccin ×4, Tokyo Night ×3, Gruvbox ×2, Nord, Solarized ×2, and a
+- **15 built-in themes** (Catppuccin ×4, Tokyo Night ×3, Gruvbox ×2, Solarized ×2, Nord, Dracula,
+  One Dark, Monokai, and a
   terminal-native default that inherits your terminal's own palette) with a live-preview picker.
 - **Config-driven keybindings**, scoped by focus, fully remappable in `config.toml` — nothing
   hardcoded except plain navigation.

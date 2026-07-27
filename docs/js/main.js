@@ -21,6 +21,12 @@ const THEMES = [
   { id: "nord", label: "Nord", dot: "#88c0d0", screenshot: true },
   { id: "solarized-dark", label: "Solarized Dark", dot: "#268bd2", screenshot: true },
   { id: "solarized-light", label: "Solarized Light", dot: "#268bd2", screenshot: true },
+  // No captured screenshot yet — `#term-fallback`'s CSS-only mockup shows
+  // instead until `scripts/screenshots.sh`'s own THEMES array is updated
+  // and a release actually captures these three.
+  { id: "dracula", label: "Dracula", dot: "#bd93f9", screenshot: false },
+  { id: "one-dark", label: "One Dark", dot: "#61afef", screenshot: false },
+  { id: "monokai", label: "Monokai", dot: "#f92672", screenshot: false },
 ];
 
 const STORAGE_KEY = "shiki-site-theme";

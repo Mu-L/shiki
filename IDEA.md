@@ -384,8 +384,11 @@ Content in **markdown**.
 - **Catppuccin** — Mocha, Macchiato, Frappé, Latte
 - **Tokyo Night** — Storm, Night, Moon
 - **Gruvbox** — Dark, Light
-- **Nord**
 - **Solarized** — Dark, Light
+- **Nord**
+- **Dracula**
+- **One Dark**
+- **Monokai**
 - **Default** — inherits the terminal's own colors (fallback; `bg`/`fg`/`border` are
   `"reset"`, accents use the terminal's native ANSI colors) instead of imposing a
   fixed palette
