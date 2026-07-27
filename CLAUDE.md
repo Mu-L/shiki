@@ -380,6 +380,81 @@ filters the same list `current_tags` was built from). `h`/`Esc`/`Backspace` at l
 to level 1; `Esc`/`q` at level 1 closes the modal outright. `App::toggle_tags` resets both level
 and selection to the top every time it opens, so it never reopens mid-drill-down from last time.
 
+**The Settings screen (leader+`s`, `panel_settings.rs` + `App::toggle_settings`/`handle_settings_key`)
+is paged by tab, not one long scroll, and every tab is genuinely interactive — this replaced an
+earlier version where only NOTEBOOKS was, and before that, a version where the whole screen was a
+read-only summary with `i`/`E` as the only way to change anything (hand-editing raw TOML).**
+`App.settings_section: panel_settings::SettingsSection` picks the active tab; `←`/`→`
+(`App::switch_settings_section`) cycles GENERAL → THEME → GIT → NOTEBOOKS → SNIPPETS → back to
+GENERAL, always resetting `settings_selected`/`settings_notebook_drill`/`settings_snippet_drill`/
+`settings_field_selected` back to the top — switching tabs mid-drill-down doesn't leave a stale
+drill state behind in whichever tab you land on. Each tab's field order is its own small `enum`
+with an `ALL` const (`GeneralField`/`ThemeField`/`GitField`/`NotebookField`/`SnippetField`) —
+`ALL`'s order must match that tab's row-builder function exactly, since `settings_selected`
+indexes straight into `ALL` to know which field `Enter` acts on. GENERAL/GIT are single-level:
+`Enter` on a boolean (`use_favorite_editor`; GIT's `auto_commit`/`auto_push`/`sign_commits`/
+`auto_sync`) toggles it in place and `Config::save`s immediately, no confirmation, since it's one
+reversible flip; `Enter` on every other field opens the existing text-input prompt machinery
+(`PendingInput::SettingsGeneralText`/`SettingsGitText`) prefilled with the current value, resolved
+back to a concrete field via `GeneralField::ALL[settings_selected]`/`GitField::ALL[...]` once
+confirmed — not a payload on `PendingInput` itself, which stays a plain unit-variant enum
+throughout, same as every other kind.
+
+NOTEBOOKS and SNIPPETS are two levels deep instead, the same list-then-drill-in shape the tags
+modal above already established (and reuse its exact `h`/`Esc`/`Backspace`-back,
+`Esc`/`q`-close-at-level-1 convention) — `App.settings_notebook_drill`/`settings_snippet_drill`
+are each `Some(name)` while drilled in, `None` while browsing that tab's level-1 list; the two
+share one `settings_field_selected` for the level-2 row index, safely, since only one section is
+ever active at a time. NOTEBOOKS level 1 lists every real notebook
+(`panel_settings::sorted_notebook_names`, not just ones with a `[notebooks.<name>]` override — a
+notebook's git remote is worth showing even with no override at all) alongside its git remote,
+redacted via `shiki_core::git::redact_credentials` the same way logged URLs already are; level 2
+shows that remote plus the three `NotebookGitOverride` fields (`auto_push`/`auto_sync`/
+`auto_sync_every`), each falling back to `"inherit ({global value})"` when unset rather than a bare
+`false`/`0`, so it's visible whether a value is this notebook's own or just the `[git]` default
+showing through — `auto_push`/`auto_sync` cycle unset → `true` → `false` → unset again
+(`App::cycle_notebook_bool_override`, a 3-state cycle unlike GIT's plain 2-state toggle, since
+unset here means something real — "inherit" — not just "false"); `App::prune_empty_notebook_override`
+removes the notebook's `[notebooks.<name>]` table entirely once all three cycle back to unset, so
+toggling everything back to "inherit" doesn't leave a pointless empty table in `config.toml`.
+`remote`/`auto_sync_every` open the same `PendingInput` prompt pattern GENERAL/GIT's text fields
+use, reusing `shiki_core::git::set_remote`/`remote_url` — the same primitives the notebooks-panel
+`R` binding (`start_set_remote`) already uses, rather than a second remote-editing code path.
+
+SNIPPETS level 1 additionally supports `a` (new snippet: prompts for a trigger via
+`PendingInput::SettingsSnippetTrigger`, creates it with an empty label/body, and drills straight
+into level 2 so it can be filled in) and `d` (delete: `App.pending_delete_snippet` mirrors
+`pending_delete`'s shape — a bare trigger string instead of a `(DeleteTarget, PathBuf)` pair, since
+a snippet has no filesystem path — routed through the exact same confirm-dialog gate every other
+delete in this app uses). Level 2 shows `label` (a `PendingInput::SettingsSnippetLabel` text
+prompt) and `body` — `body` is the one field in all of Settings that *doesn't* use a `PendingInput`
+prompt, since a snippet body is arbitrary multi-line text: `Enter` on it instead opens the same
+`Mode::Edit`/`InlineEditor` machinery a note's own body uses, tracked via `App.editing_snippet:
+Option<String>` (checked in `save_and_exit_edit` right alongside `editing_config`, a three-way
+dispatch: config file / snippet body / note body). THEME is the odd one out structurally: `name`
+doesn't edit anything inline at all, it opens the *existing* theme picker (leader+`c`) via
+`open_theme_picker` rather than duplicating its live-preview/commit logic; `overrides` stays
+purely informational (pointed at leader+`c`/`shiki theme create --from` in a status message), since
+19 individual color slots don't fit a single-row edit.
+
+Every one of these prompts/sub-modals (`PendingInput` prompts, the theme picker, `Mode::Edit`) has
+to explicitly hide `show_settings` first and restore it after, and this is *not* optional
+boilerplate — it's required both for input dispatch and for rendering. `on_key` checks
+`show_settings` *before* `self.mode`, so an `Insert`/`Edit`-mode prompt underneath a still-`true`
+`show_settings` would never receive its keystrokes at all (they'd keep going to
+`handle_settings_key` instead); separately, in `draw()`, `panel_settings::render`'s call comes
+*after* the theme picker's but *before* `pending_input`'s and `confirm`'s, so leaving
+`show_settings` true while the theme picker is open would paint Settings right over it (the same
+"render order has to independently agree with input-dispatch order" bug already hit once for the
+history-modal/confirm nesting, and hit again for real while building this — the theme-picker case
+specifically, confirmed by testing with `show_settings` left `true` and watching the picker vanish
+under the settings popup). `App.reopen_settings_after_theme_picker` exists only to distinguish "the
+picker was opened from Settings" from "opened directly via leader+`c`" — the latter must *not*
+reopen Settings when it closes. `PendingInput` prompts and `Mode::Edit` don't need an equivalent
+flag: their close paths (`confirm_input`, `Esc` in `handle_insert_key`, `save_and_exit_edit`) know
+directly (from which `PendingInput`/`editing_snippet` was set) whether they were Settings-launched,
+so they can set `show_settings = true` unconditionally in their own branch.
+
 **Each crate has its own error type** — there is no shared error enum:
 - `shiki_core::Error`/`Result` (thiserror, in `shiki-core/src/lib.rs`)
 - `shiki_config::config::Error`/`Result` (thiserror, in `shiki-config/src/config.rs`)

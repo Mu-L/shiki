@@ -26,7 +26,7 @@ impl App {
                 if let Some(t) = self.available_themes.get(self.theme_index) {
                     self.theme = t.clone();
                 }
-                self.show_theme_picker = false;
+                self.close_theme_picker();
             }
             KeyCode::Enter => {
                 self.theme_index = self.theme_picker_index;
@@ -44,11 +44,22 @@ impl App {
                     let _ = self.config.save(&path);
                 }
                 self.set_status(format!("theme: {}", self.theme.name));
-                self.show_theme_picker = false;
+                self.close_theme_picker();
             }
             KeyCode::Char('j') | KeyCode::Down => self.preview_theme_at(1),
             KeyCode::Char('k') | KeyCode::Up => self.preview_theme_at(-1),
             _ => {}
+        }
+    }
+    /// Shared by both the picker's cancel and confirm paths — reopens
+    /// Settings only when this picker was opened *from* Settings (THEME's
+    /// `name` row setting `reopen_settings_after_theme_picker` first), never
+    /// for the normal standalone leader+`c` picker.
+    fn close_theme_picker(&mut self) {
+        self.show_theme_picker = false;
+        if self.reopen_settings_after_theme_picker {
+            self.reopen_settings_after_theme_picker = false;
+            self.show_settings = true;
         }
     }
     /// Moves the picker cursor and immediately applies that theme so the
@@ -124,14 +135,58 @@ impl App {
     fn toggle_settings(&mut self) {
         self.show_settings = !self.show_settings;
         if self.show_settings {
+            self.settings_section = crate::panel_settings::SettingsSection::General;
             self.settings_selected = 0;
+            self.settings_notebook_drill = None;
+            self.settings_snippet_drill = None;
+            self.settings_field_selected = 0;
         }
     }
+    /// Left/right always means "change tab," regardless of whether
+    /// NOTEBOOKS/SNIPPETS is currently drilled into a specific item —
+    /// checked before the drill-state branch in `handle_settings_key` so it
+    /// works from either level, and always resets back to level 1 in the
+    /// new tab rather than carrying a stale drill state into a section it
+    /// doesn't apply to.
+    fn switch_settings_section(&mut self, forward: bool) {
+        self.settings_section = if forward {
+            self.settings_section.next()
+        } else {
+            self.settings_section.prev()
+        };
+        self.settings_selected = 0;
+        self.settings_notebook_drill = None;
+        self.settings_snippet_drill = None;
+        self.settings_field_selected = 0;
+    }
+    fn settings_row_count(&self) -> usize {
+        crate::panel_settings::build(self).len()
+    }
     fn handle_settings_key(&mut self, key: KeyEvent) {
-        let len = crate::panel_settings::build(self).len();
+        use crate::panel_settings::SettingsSection;
+        match key.code {
+            KeyCode::Left => {
+                self.switch_settings_section(false);
+                return;
+            }
+            KeyCode::Right => {
+                self.switch_settings_section(true);
+                return;
+            }
+            _ => {}
+        }
+        if self.settings_notebook_drill.is_some() {
+            self.handle_settings_notebook_field_key(key);
+            return;
+        }
+        if self.settings_snippet_drill.is_some() {
+            self.handle_settings_snippet_field_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.show_settings = false,
             KeyCode::Char('j') | KeyCode::Down => {
+                let len = self.settings_row_count();
                 if self.settings_selected + 1 < len {
                     self.settings_selected += 1;
                 }
@@ -140,6 +195,7 @@ impl App {
                 self.settings_selected = self.settings_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
+                let len = self.settings_row_count();
                 self.settings_selected =
                     (self.settings_selected + PAGE_STEP as usize).min(len.saturating_sub(1));
             }
@@ -147,7 +203,40 @@ impl App {
                 self.settings_selected = self.settings_selected.saturating_sub(PAGE_STEP as usize);
             }
             KeyCode::Home => self.settings_selected = 0,
-            KeyCode::End => self.settings_selected = len.saturating_sub(1),
+            KeyCode::End => self.settings_selected = self.settings_row_count().saturating_sub(1),
+            // Every tab's `Enter`/`l` does whatever that tab's selected row
+            // calls for — toggle a boolean, open a prompt, open the theme
+            // picker, or drill into a notebook/snippet. Each section's own
+            // handler decides which of those it is; see each fn's doc
+            // comment for that section's specific field list.
+            KeyCode::Enter | KeyCode::Char('l') => match self.settings_section {
+                SettingsSection::General => self.handle_general_field_enter(),
+                SettingsSection::Theme => self.handle_theme_field_enter(),
+                SettingsSection::Git => self.handle_git_field_enter(),
+                SettingsSection::Notebooks => {
+                    let names = crate::panel_settings::sorted_notebook_names(self);
+                    if let Some(name) = names.get(self.settings_selected) {
+                        self.settings_notebook_drill = Some(name.clone());
+                        self.settings_field_selected = 0;
+                    }
+                }
+                SettingsSection::Snippets => {
+                    let triggers = crate::panel_settings::sorted_snippet_triggers(self);
+                    if let Some(trigger) = triggers.get(self.settings_selected) {
+                        self.settings_snippet_drill = Some(trigger.clone());
+                        self.settings_field_selected = 0;
+                    }
+                }
+            },
+            // SNIPPETS-only: create/delete a snippet at level 1. A no-op in
+            // every other tab (nothing else in Settings has a variable-size
+            // collection you'd want to add/remove entries from this way).
+            KeyCode::Char('a') if self.settings_section == SettingsSection::Snippets => {
+                self.start_new_snippet();
+            }
+            KeyCode::Char('d') if self.settings_section == SettingsSection::Snippets => {
+                self.start_delete_snippet();
+            }
             // Same `i`/`E` convention as editing a note: `i` respects
             // `use_favorite_editor` (native inline vs. the OS favorite),
             // `E` always uses the configured `general.editor`.
@@ -168,6 +257,312 @@ impl App {
                 self.start_external_config_edit(self.config.general.editor.clone());
             }
             _ => {}
+        }
+    }
+    /// GENERAL — `use_favorite_editor` toggles in place; the three text
+    /// fields open a single-line prompt (`PendingInput::SettingsGeneralText`,
+    /// resolved back to a field via `GeneralField::ALL[settings_selected]`
+    /// once it's confirmed).
+    fn handle_general_field_enter(&mut self) {
+        use crate::panel_settings::GeneralField;
+        let field = GeneralField::ALL[self.settings_selected];
+        if field == GeneralField::UseFavoriteEditor {
+            self.config.general.use_favorite_editor = !self.config.general.use_favorite_editor;
+            self.save_config();
+            self.set_status(format!(
+                "use_favorite_editor -> {}",
+                self.config.general.use_favorite_editor
+            ));
+            return;
+        }
+        let (label, prefill) = match field {
+            GeneralField::DefaultNotebook => (
+                "default_notebook",
+                self.config.general.default_notebook.clone(),
+            ),
+            GeneralField::Editor => ("editor", self.config.general.editor.clone()),
+            GeneralField::DailyTemplate => {
+                ("daily_template", self.config.general.daily_template.clone())
+            }
+            GeneralField::UseFavoriteEditor => unreachable!(),
+        };
+        self.show_settings = false;
+        self.pending_input_title = Some(format!(" {label} "));
+        self.start_input(PendingInput::SettingsGeneralText, prefill);
+    }
+    /// THEME — `name` opens the existing theme picker (reusing its
+    /// live-preview/commit logic rather than duplicating it); `overrides`
+    /// is informational only, since 19 individual color slots don't fit a
+    /// single-row edit.
+    fn handle_theme_field_enter(&mut self) {
+        use crate::panel_settings::ThemeField;
+        match ThemeField::ALL[self.settings_selected] {
+            ThemeField::Name => {
+                self.show_settings = false;
+                self.reopen_settings_after_theme_picker = true;
+                self.open_theme_picker();
+            }
+            ThemeField::Overrides => {
+                self.set_status(
+                    "customize individual colors with leader+c (live preview) or `shiki theme create --from <name>`"
+                        .into(),
+                );
+            }
+        }
+    }
+    /// GIT (the global `[git]` defaults) — the four booleans toggle in
+    /// place; the rest open a text/number prompt
+    /// (`PendingInput::SettingsGitText`, resolved the same way
+    /// `SettingsGeneralText` is).
+    fn handle_git_field_enter(&mut self) {
+        use crate::panel_settings::GitField;
+        let field = GitField::ALL[self.settings_selected];
+        match field {
+            GitField::AutoCommit
+            | GitField::AutoPush
+            | GitField::SignCommits
+            | GitField::AutoSync => {
+                self.toggle_git_bool(field);
+            }
+            GitField::AutoSyncEvery => {
+                let prefill = self.config.git.auto_sync_every.to_string();
+                self.show_settings = false;
+                self.pending_input_title = Some(" auto_sync_every ".to_string());
+                self.start_input(PendingInput::SettingsGitText, prefill);
+            }
+            GitField::CommitPrefix
+            | GitField::Remote
+            | GitField::Branch
+            | GitField::RemoteTemplate => {
+                let (label, prefill) = match field {
+                    GitField::CommitPrefix => {
+                        ("commit_prefix", self.config.git.commit_prefix.clone())
+                    }
+                    GitField::Remote => ("remote", self.config.git.remote.clone()),
+                    GitField::Branch => ("branch", self.config.git.branch.clone()),
+                    GitField::RemoteTemplate => {
+                        ("remote_template", self.config.git.remote_template.clone())
+                    }
+                    _ => unreachable!(),
+                };
+                self.show_settings = false;
+                self.pending_input_title = Some(format!(" {label} "));
+                self.start_input(PendingInput::SettingsGitText, prefill);
+            }
+        }
+    }
+    fn toggle_git_bool(&mut self, field: crate::panel_settings::GitField) {
+        use crate::panel_settings::GitField;
+        let (label, new_val) = match field {
+            GitField::AutoCommit => {
+                self.config.git.auto_commit = !self.config.git.auto_commit;
+                ("auto_commit", self.config.git.auto_commit)
+            }
+            GitField::AutoPush => {
+                self.config.git.auto_push = !self.config.git.auto_push;
+                ("auto_push", self.config.git.auto_push)
+            }
+            GitField::SignCommits => {
+                self.config.git.sign_commits = !self.config.git.sign_commits;
+                ("sign_commits", self.config.git.sign_commits)
+            }
+            GitField::AutoSync => {
+                self.config.git.auto_sync = !self.config.git.auto_sync;
+                ("auto_sync", self.config.git.auto_sync)
+            }
+            _ => return,
+        };
+        self.save_config();
+        self.set_status(format!("{label} -> {new_val}"));
+    }
+    /// SNIPPETS level 1's `a` — prompts for a brand-new trigger; the
+    /// snippet itself (empty label/body) is created once that's confirmed
+    /// (see `confirm_input`'s `SettingsSnippetTrigger` arm), which then
+    /// drills straight into level 2 so the label/body can be filled in
+    /// immediately.
+    fn start_new_snippet(&mut self) {
+        self.show_settings = false;
+        self.pending_input_title = Some(" New snippet trigger ".to_string());
+        self.start_input(PendingInput::SettingsSnippetTrigger, String::new());
+    }
+    /// SNIPPETS level 1's `d` — same confirm-dialog gate every other delete
+    /// in this app goes through (`pending_delete_snippet` mirrors
+    /// `pending_delete`'s shape, just keyed by trigger instead of path).
+    fn start_delete_snippet(&mut self) {
+        let triggers = crate::panel_settings::sorted_snippet_triggers(self);
+        let Some(trigger) = triggers.get(self.settings_selected).cloned() else {
+            return;
+        };
+        let message = format!("Delete snippet '{trigger}'?");
+        self.pending_delete_snippet = Some(trigger);
+        self.confirm = Some(confirm::ConfirmDialog::new(message));
+    }
+    /// SNIPPETS level 2 — browsing/editing one snippet's `label` (a text
+    /// prompt) and `body` (the full inline editor, `Mode::Edit`, since a
+    /// snippet body is arbitrary multi-line text). Same `h`/`Esc`/
+    /// `Backspace`-back convention every other level-2 view in this modal
+    /// uses.
+    fn handle_settings_snippet_field_key(&mut self, key: KeyEvent) {
+        use crate::panel_settings::SnippetField;
+        let Some(trigger) = self.settings_snippet_drill.clone() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('h') => {
+                self.settings_snippet_drill = None;
+                self.settings_field_selected = 0;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.settings_field_selected + 1 < SnippetField::ALL.len() {
+                    self.settings_field_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.settings_field_selected = self.settings_field_selected.saturating_sub(1);
+            }
+            KeyCode::Enter => match SnippetField::ALL[self.settings_field_selected] {
+                SnippetField::Label => {
+                    let prefill = self
+                        .config
+                        .snippets
+                        .get(&trigger)
+                        .and_then(|s| s.label.clone())
+                        .unwrap_or_default();
+                    self.show_settings = false;
+                    self.pending_input_title = Some(format!(" Label — '{trigger}' "));
+                    self.start_input(PendingInput::SettingsSnippetLabel, prefill);
+                }
+                SnippetField::Body => {
+                    let body = self
+                        .config
+                        .snippets
+                        .get(&trigger)
+                        .map(|s| s.body.clone())
+                        .unwrap_or_default();
+                    let mut editor = InlineEditor::from_contents(&body);
+                    let title = format!(" {}  Editing snippet body — '{trigger}' ", icons::GEAR);
+                    self.style_inline_editor(&mut editor, title);
+                    self.editor = Some(editor);
+                    self.editing_snippet = Some(trigger);
+                    self.show_settings = false;
+                    self.mode = Mode::Edit;
+                }
+            },
+            _ => {}
+        }
+    }
+    /// NOTEBOOKS level 2 — browsing/editing one notebook's remote and
+    /// sync-policy overrides. `h`/`Backspace`/`Esc` all go back to level 1
+    /// (same trio the tags modal's own level-2 uses); a *second* `Esc` from
+    /// level 1 is what actually closes the whole modal, handled by the
+    /// level-1 branch in `handle_settings_key`.
+    fn handle_settings_notebook_field_key(&mut self, key: KeyEvent) {
+        use crate::panel_settings::NotebookField;
+        let Some(name) = self.settings_notebook_drill.clone() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('h') => {
+                self.settings_notebook_drill = None;
+                self.settings_field_selected = 0;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.settings_field_selected + 1 < NotebookField::ALL.len() {
+                    self.settings_field_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.settings_field_selected = self.settings_field_selected.saturating_sub(1);
+            }
+            KeyCode::Enter => match NotebookField::ALL[self.settings_field_selected] {
+                NotebookField::Remote => {
+                    let prefill = self
+                        .notebooks
+                        .iter()
+                        .find(|nb| nb.name == name)
+                        .and_then(|nb| shiki_core::git::remote_url(&nb.path))
+                        .unwrap_or_default();
+                    self.show_settings = false;
+                    self.pending_input_title = Some(format!(" Git remote — '{name}' "));
+                    self.start_input(PendingInput::SettingsNotebookRemote, prefill);
+                }
+                NotebookField::AutoPush => {
+                    self.cycle_notebook_bool_override(&name, NotebookField::AutoPush)
+                }
+                NotebookField::AutoSync => {
+                    self.cycle_notebook_bool_override(&name, NotebookField::AutoSync)
+                }
+                NotebookField::AutoSyncEvery => {
+                    let prefill = self
+                        .config
+                        .notebooks
+                        .get(&name)
+                        .and_then(|over| over.auto_sync_every)
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+                    self.show_settings = false;
+                    self.pending_input_title =
+                        Some(format!(" Auto-sync every N changes — '{name}' "));
+                    self.start_input(PendingInput::SettingsNotebookAutoSyncEvery, prefill);
+                }
+            },
+            _ => {}
+        }
+    }
+    /// Cycles a per-notebook boolean override: unset (inherit the global
+    /// `[git]` default) → `true` → `false` → unset again — applied and
+    /// persisted immediately on `Enter`, no confirmation, since it's a
+    /// single reversible toggle rather than anything destructive.
+    fn cycle_notebook_bool_override(
+        &mut self,
+        name: &str,
+        field: crate::panel_settings::NotebookField,
+    ) {
+        use crate::panel_settings::NotebookField;
+        let over = self.config.notebooks.entry(name.to_string()).or_default();
+        let (label, new_val) = match field {
+            NotebookField::AutoPush => {
+                over.auto_push = match over.auto_push {
+                    None => Some(true),
+                    Some(true) => Some(false),
+                    Some(false) => None,
+                };
+                ("auto_push", over.auto_push)
+            }
+            NotebookField::AutoSync => {
+                over.auto_sync = match over.auto_sync {
+                    None => Some(true),
+                    Some(true) => Some(false),
+                    Some(false) => None,
+                };
+                ("auto_sync", over.auto_sync)
+            }
+            NotebookField::Remote | NotebookField::AutoSyncEvery => return,
+        };
+        self.prune_empty_notebook_override(name);
+        self.save_config();
+        let shown = new_val
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "inherit".to_string());
+        self.set_status(format!("notebook '{name}': {label} -> {shown}"));
+    }
+    /// Removes a notebook's `[notebooks.<name>]` table once every override
+    /// field in it has been cycled back to unset — otherwise cycling all
+    /// three back to "inherit" would still leave a pointless empty table in
+    /// `config.toml`.
+    fn prune_empty_notebook_override(&mut self, name: &str) {
+        if let Some(over) = self.config.notebooks.get(name) {
+            if over.auto_push.is_none()
+                && over.auto_sync.is_none()
+                && over.auto_sync_every.is_none()
+            {
+                self.config.notebooks.remove(name);
+            }
+        }
+    }
+    fn save_config(&mut self) {
+        if let Ok(path) = Config::default_path() {
+            let _ = self.config.save(&path);
         }
     }
     /// Queues `config.toml` for external editing — same
@@ -1352,6 +1747,18 @@ impl App {
             self.mode = Mode::Normal;
             return;
         }
+        if let Some(trigger) = self.editing_snippet.take() {
+            if let Some(editor) = editor {
+                if let Some(snippet) = self.config.snippets.get_mut(&trigger) {
+                    snippet.body = editor.contents();
+                }
+            }
+            self.save_config();
+            self.mode = Mode::Normal;
+            self.show_settings = true;
+            self.set_status(format!("snippet '{trigger}': body saved"));
+            return;
+        }
         if let (Some(editor), Some(mut note)) = (editor, self.selected_note().cloned()) {
             note.body = editor.contents();
             let _ = note.save();
@@ -1626,6 +2033,163 @@ impl App {
                     }
                 }
             }
+            Some(PendingInput::SettingsNotebookRemote) => {
+                self.show_settings = true;
+                if let Some(name) = self.settings_notebook_drill.clone() {
+                    if value.is_empty() {
+                        self.set_status("remote unchanged (empty)".into());
+                    } else if let Some(nb) = self.notebooks.iter().find(|n| n.name == name).cloned()
+                    {
+                        match shiki_core::git::set_remote(&nb.path, &value) {
+                            Ok(()) => {
+                                let redacted = shiki_core::git::redact_credentials(&value);
+                                self.set_status(format!(
+                                    "notebook '{name}': remote set to '{redacted}'"
+                                ));
+                            }
+                            Err(e) => self.set_status(format!("could not set remote: {e}")),
+                        }
+                    }
+                }
+            }
+            Some(PendingInput::SettingsNotebookAutoSyncEvery) => {
+                self.show_settings = true;
+                if let Some(name) = self.settings_notebook_drill.clone() {
+                    if value.is_empty() {
+                        if let Some(over) = self.config.notebooks.get_mut(&name) {
+                            over.auto_sync_every = None;
+                        }
+                        self.prune_empty_notebook_override(&name);
+                        self.save_config();
+                        self.set_status(format!("notebook '{name}': auto_sync_every -> inherit"));
+                    } else {
+                        match value.parse::<u32>() {
+                            Ok(n) => {
+                                self.config
+                                    .notebooks
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .auto_sync_every = Some(n);
+                                self.save_config();
+                                self.set_status(format!(
+                                    "notebook '{name}': auto_sync_every -> {n}"
+                                ));
+                            }
+                            Err(_) => self.set_status(format!("'{value}' isn't a whole number")),
+                        }
+                    }
+                }
+            }
+            Some(PendingInput::SettingsGeneralText) => {
+                use crate::panel_settings::GeneralField;
+                self.show_settings = true;
+                if value.is_empty() {
+                    self.set_status("unchanged (empty)".into());
+                } else {
+                    let label = match GeneralField::ALL[self.settings_selected] {
+                        GeneralField::DefaultNotebook => {
+                            self.config.general.default_notebook = value.clone();
+                            "default_notebook"
+                        }
+                        GeneralField::Editor => {
+                            self.config.general.editor = value.clone();
+                            "editor"
+                        }
+                        GeneralField::DailyTemplate => {
+                            self.config.general.daily_template = value.clone();
+                            "daily_template"
+                        }
+                        GeneralField::UseFavoriteEditor => "use_favorite_editor",
+                    };
+                    self.save_config();
+                    self.set_status(format!("{label} -> '{value}'"));
+                }
+            }
+            Some(PendingInput::SettingsGitText) => {
+                use crate::panel_settings::GitField;
+                self.show_settings = true;
+                match GitField::ALL[self.settings_selected] {
+                    GitField::AutoSyncEvery => match value.parse::<u32>() {
+                        Ok(n) => {
+                            self.config.git.auto_sync_every = n;
+                            self.save_config();
+                            self.set_status(format!("auto_sync_every -> {n}"));
+                        }
+                        Err(_) => self.set_status(format!("'{value}' isn't a whole number")),
+                    },
+                    // Empty is a meaningful value here ("no template"), so —
+                    // unlike every other text field — it's not treated as
+                    // "cancelled".
+                    GitField::RemoteTemplate => {
+                        self.config.git.remote_template = value.clone();
+                        self.save_config();
+                        self.set_status(format!("remote_template -> '{value}'"));
+                    }
+                    field @ (GitField::CommitPrefix | GitField::Remote | GitField::Branch) => {
+                        if value.is_empty() {
+                            self.set_status("unchanged (empty)".into());
+                        } else {
+                            let label = match field {
+                                GitField::CommitPrefix => {
+                                    self.config.git.commit_prefix = value.clone();
+                                    "commit_prefix"
+                                }
+                                GitField::Remote => {
+                                    self.config.git.remote = value.clone();
+                                    "remote"
+                                }
+                                GitField::Branch => {
+                                    self.config.git.branch = value.clone();
+                                    "branch"
+                                }
+                                _ => unreachable!(),
+                            };
+                            self.save_config();
+                            self.set_status(format!("{label} -> '{value}'"));
+                        }
+                    }
+                    GitField::AutoCommit
+                    | GitField::AutoPush
+                    | GitField::SignCommits
+                    | GitField::AutoSync => {}
+                }
+            }
+            Some(PendingInput::SettingsSnippetTrigger) => {
+                self.show_settings = true;
+                if value.is_empty() {
+                    self.set_status("new snippet cancelled (trigger can't be empty)".into());
+                } else if self.config.snippets.contains_key(&value) {
+                    self.set_status(format!("a snippet with trigger '{value}' already exists"));
+                } else {
+                    self.config.snippets.insert(
+                        value.clone(),
+                        shiki_config::config::SnippetConfig {
+                            label: None,
+                            body: String::new(),
+                        },
+                    );
+                    self.save_config();
+                    self.settings_snippet_drill = Some(value.clone());
+                    self.settings_field_selected = 0;
+                    self.set_status(format!(
+                        "snippet '{value}' created — enter on label/body to edit"
+                    ));
+                }
+            }
+            Some(PendingInput::SettingsSnippetLabel) => {
+                self.show_settings = true;
+                if let Some(trigger) = self.settings_snippet_drill.clone() {
+                    if let Some(snippet) = self.config.snippets.get_mut(&trigger) {
+                        snippet.label = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value.clone())
+                        };
+                    }
+                    self.save_config();
+                    self.set_status(format!("snippet '{trigger}': label -> '{value}'"));
+                }
+            }
             Some(PendingInput::MoveOrCopy) => {
                 if value.is_empty() {
                     self.set_status("move/copy cancelled (empty)".into());
@@ -1717,6 +2281,17 @@ impl App {
                     self.clear_logs();
                 } else if let Some(entries) = self.pending_batch_delete.take() {
                     self.apply_batch_delete(entries);
+                } else if let Some(trigger) = self.pending_delete_snippet.take() {
+                    self.config.snippets.remove(&trigger);
+                    self.save_config();
+                    if self.settings_snippet_drill.as_deref() == Some(trigger.as_str()) {
+                        self.settings_snippet_drill = None;
+                        self.settings_field_selected = 0;
+                    }
+                    let remaining = crate::panel_settings::sorted_snippet_triggers(self).len();
+                    self.settings_selected =
+                        self.settings_selected.min(remaining.saturating_sub(1));
+                    self.set_status(format!("deleted snippet '{trigger}'"));
                 }
             }
             _ => {
@@ -1724,6 +2299,7 @@ impl App {
                 self.pending_revert = None;
                 self.pending_clear_logs = false;
                 self.pending_batch_delete = None;
+                self.pending_delete_snippet = None;
             }
         }
         self.confirm = None;
@@ -1884,10 +2460,27 @@ impl App {
         }
         match key.code {
             KeyCode::Esc => {
-                self.pending_input = None;
+                let kind = self.pending_input.take();
                 self.pending_input_title = None;
                 self.pending_batch = None;
                 self.mode = Mode::Normal;
+                // Every `Settings*` prompt is only ever started from inside
+                // the Settings modal, which hides it first since a modal
+                // underneath an `Insert`-mode prompt would otherwise still
+                // intercept the keystrokes (`on_key` checks `show_settings`
+                // before `self.mode`) — cancelling must reopen it, same as
+                // confirming does.
+                if matches!(
+                    kind,
+                    Some(PendingInput::SettingsNotebookRemote)
+                        | Some(PendingInput::SettingsNotebookAutoSyncEvery)
+                        | Some(PendingInput::SettingsGeneralText)
+                        | Some(PendingInput::SettingsGitText)
+                        | Some(PendingInput::SettingsSnippetTrigger)
+                        | Some(PendingInput::SettingsSnippetLabel)
+                ) {
+                    self.show_settings = true;
+                }
             }
             KeyCode::Enter => self.confirm_input(),
             KeyCode::Backspace => self.input.backspace(),

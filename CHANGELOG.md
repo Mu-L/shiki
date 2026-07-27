@@ -4,6 +4,29 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.5] - 2026-07-27
+
+### Changed
+
+- Settings screen (leader+`s`) is now fully interactive instead of read-only — every tab lets you
+  edit values in place with no need to drop into `config.toml` by hand:
+  - Paged by tab (`←`/`→` switches GENERAL/THEME/GIT/NOTEBOOKS/SNIPPETS) instead of one long scroll.
+  - GENERAL/GIT: booleans (`use_favorite_editor`, `auto_commit`/`auto_push`/`sign_commits`/
+    `auto_sync`) toggle in place on `Enter`; every other field opens a prompt prefilled with its
+    current value.
+  - THEME: `name` opens the existing theme picker (live preview, same as leader+`c`); `overrides`
+    stays informational, pointing at leader+`c`/`shiki theme create --from` instead.
+  - NOTEBOOKS: the list now shows every notebook's actual git remote (redacted), not just ones with
+    a config override — previously there was no way to see, let alone change, which repo a notebook
+    was synced to from Settings at all. `Enter` drills into a notebook to edit its remote and its
+    `auto_push`/`auto_sync`/`auto_sync_every` overrides (booleans cycle inherit → true → false →
+    inherit; the notebook's `[notebooks.<name>]` table is removed automatically once every override
+    is back to inherit).
+  - SNIPPETS: `a` creates a new snippet (prompts for a trigger), `d` deletes one (with
+    confirmation); drilling into one edits its `label` and its full multi-line `body` through the
+    same inline editor a note's own body uses.
+  - `i`/`E` still jump straight to editing `config.toml` itself for anything not covered above.
+
 ## [0.8.4] - 2026-07-27
 
 ### Added
