@@ -297,7 +297,15 @@ jobs:
 
   update-screenshots:
     name: Regenerate marketing screenshots for the docs site
-    needs: [release, resolve-tag]
+    # Also needs update-packaging-manifests (not just release/resolve-tag)
+    # so it never checks out `main` and pushes in parallel with that job's
+    # own push to the same branch — hit for real on v0.8.4's release:
+    # update-packaging-manifests pushed its manifest-update commit first,
+    # and this job's checkout (taken before that push landed) was then
+    # rejected as a non-fast-forward when it tried to push its own
+    # screenshot-update commit. Running after it entirely removes the race
+    # instead of adding retry/rebase logic to paper over it.
+    needs: [release, resolve-tag, update-packaging-manifests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
