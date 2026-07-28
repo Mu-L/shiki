@@ -292,7 +292,7 @@
       <table class="ref-table">
         <thead><tr><th>Key</th><th>Action</th></tr></thead>
         <tbody>
-          <tr><td><code>a</code></td><td>New notebook. If the name entered is a git URL (<code>https://</code>, <code>git@host:...</code>, <code>ssh://</code>, <code>git://</code>) instead of a plain name, the notebook name is derived from the repo instead, and the notebook is created, its remote set, and pulled immediately — importing an existing repo is just <code>a</code> + paste URL + Enter</td></tr>
+          <tr><td><code>a</code></td><td>New notebook. A git URL (<code>https://</code>, <code>git@host:...</code>, <code>ssh://</code>, <code>git://</code>) derives the notebook name from the repo instead, creates it, sets its remote, and pulls immediately — importing an existing repo is just <code>a</code> + paste URL + Enter. A filesystem path (<code>/abs/path</code>, <code>~/docs</code>, <code>./relative</code>) adopts that existing directory as a notebook instead of creating an empty one — name derived from the last path segment; asks to <code>git init</code> first if it isn't already a repo</td></tr>
           <tr><td><code>r</code></td><td>Rename notebook</td></tr>
           <tr><td><code>d</code></td><td>Delete notebook (with confirmation)</td></tr>
           <tr><td><code>s</code></td><td>Git sync — commit (message auto-built from the diff, naming files directly for a small change, e.g. "shiki: added (First note.md)"), + push if the resolved policy's <code>auto_push</code> is on</td></tr>
@@ -335,6 +335,17 @@
           name — shiki detects it, names the notebook after the repo, and pulls its contents
           immediately. Or, from the notebook drawer (<code>leader</code> then <code>b</code>),
           click/press <code>i</code> for "Import" to do the same thing without leaving the drawer.
+        </p>
+      </div>
+
+      <div class="doc-callout">
+        <strong>How to: link an existing folder of notes (e.g. an Obsidian vault)</strong>
+        <p>
+          Press <code>a</code> (new notebook) and type a path instead of a name — an absolute
+          path (<code>/home/you/docs</code>), a home-relative one (<code>~/docs</code>), or a
+          relative one (<code>./docs</code>). shiki adopts that directory as a notebook, naming
+          it after the last path segment. If the folder isn't a git repo yet, it asks to
+          <code>git init</code> one first; existing notes already inside it show up immediately.
         </p>
       </div>
 
@@ -636,6 +647,7 @@ Content in **markdown**.
           <tr><td><code>use_favorite_editor</code></td><td><code>false</code></td><td>When true, <code>i</code> opens your OS's detected default text editor (from <code>$VISUAL</code>/<code>$EDITOR</code>, or the desktop's own file-type default) instead of the built-in inline editor — same effect as pressing <code>E</code>, just on the more convenient key. Toggle on the fly with <code>leader</code> then <code>e</code>, no editing required</td></tr>
           <tr><td><code>mouse_drag_selection</code></td><td><code>true</code></td><td>Click-and-drag over a note's body in PREVIEW selects text and copies it to the clipboard as soon as you release the mouse button — the same clipboard mechanism the logs modal's <code>y</code>/<code>c</code> uses</td></tr>
           <tr><td><code>data_dir</code></td><td>unset (platform default)</td><td>Point the <em>entire</em> notebooks root somewhere else — an absolute path to an existing folder of markdown notes (an Obsidian vault, for instance) instead of <code>~/.local/share/shiki/</code>. Every notebook without its own <code>path</code> (below) lives as a subdirectory of this</td></tr>
+          <tr><td><code>show_hints</code></td><td><code>true</code></td><td>Shows a small muted hint line under the input box for text prompts whose behavior isn't obvious from the title alone — currently just new-notebook, explaining that a git URL clones and a filesystem path adopts an existing directory</td></tr>
         </tbody>
       </table>
       <div class="doc-callout">
@@ -812,6 +824,9 @@ mouse_drag_selection = true
 # vault) to use it as the notebooks root instead of the platform default
 # (~/.local/share/shiki/). Notebooks are subdirectories of this path.
 # data_dir = "/Users/me/my-obsidian-vault"
+# When true, text-input prompts that have one (e.g. new notebook) show a
+# small hint line explaining non-obvious input, like pasting a git URL.
+show_hints = true
 
 [keybindings]
 leader = "space"

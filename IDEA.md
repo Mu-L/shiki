@@ -213,7 +213,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 
 | Key | Action |
 |---|---|
-| `a` | New notebook. If the name entered is a git URL (`https://`, `git@host:...`, `ssh://`, `git://`) instead of a plain name, the notebook name is derived from the repo instead, and the notebook is created, its remote set, and pulled immediately — importing an existing repo is just `a` + paste URL + Enter |
+| `a` | New notebook. A git URL (`https://`, `git@host:...`, `ssh://`, `git://`) derives the notebook name from the repo instead, creates it, sets its remote, and pulls immediately — importing an existing repo is just `a` + paste URL + Enter. A filesystem path (`/abs/path`, `~/docs`, `./relative`) adopts that existing directory as a notebook instead of creating an empty one — name derived from the last path segment; asks to `git init` first if it isn't already a repo |
 | `r` | Rename notebook |
 | `d` | Delete notebook (with confirmation) |
 | `s` | Git sync — commit (message auto-built from the diff, naming files directly for a small change, e.g. "shiki: added (First note.md)"), + push if the resolved policy's `auto_push` is on |

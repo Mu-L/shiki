@@ -4,6 +4,22 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.7] - 2026-07-28
+
+### Added
+
+- New-notebook (`a`) now accepts a filesystem path (`/abs/path`, `~/docs`, `./relative`) as a
+  third fast path alongside a plain name (create empty) and a git URL (clone): it adopts that
+  existing directory as a notebook instead, deriving the name from the last path segment. If the
+  directory has no `.git` yet, it asks for confirmation before initializing one, keeping the
+  existing rule that every notebook in shiki is git-managed; if it's already a repo, it's adopted
+  immediately. Registered via the same `[notebooks.<name>] path` config field the existing
+  "point at an Obsidian vault subfolder" feature already used, so it's picked up on every future
+  launch too. Existing notes already inside the adopted folder show up right away.
+- `general.show_hints` (on by default, toggleable from Settings' GENERAL tab) shows a small muted
+  hint line under the input box for prompts whose behavior isn't obvious from the title alone —
+  currently just new-notebook, explaining both the git-URL-clones and path-adopts fast paths.
+
 ## [0.8.6] - 2026-07-28
 
 ### Added
