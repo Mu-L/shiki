@@ -319,11 +319,11 @@ jobs:
         with:
           key: screenshots
 
-      - name: Install screenshot tooling (xterm, ImageMagick, xdotool, Xvfb)
+      - name: Install screenshot tooling (xterm, ImageMagick, xdotool, Xvfb, pngquant)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y xterm imagemagick xdotool xvfb
+          sudo apt-get install -y xterm imagemagick xdotool xvfb pngquant
 
       - name: Install demo-gif tooling (VHS, ttyd, ffmpeg)
         run: |
@@ -368,6 +368,30 @@ jobs:
             solarized-dark solarized-light; do
             cp "screenshots/$theme/wide-01-notebooks.png" "docs/assets/screenshots/$theme.png"
           done
+          # documentation.html's per-feature screenshot gallery — every
+          # capture, for every theme scripts/screenshots.sh generates
+          # (including Dracula/One Dark/Monokai/default, which the homepage
+          # hero loop above doesn't cover yet). A plain glob over whatever
+          # screenshots.sh actually produced, not a hardcoded file list, so a
+          # future new capture (or theme) shows up here automatically with no
+          # matching edit needed in this workflow.
+          for theme_dir in screenshots/*/; do
+            theme="$(basename "$theme_dir")"
+            mkdir -p "docs/assets/screenshots/gallery/$theme"
+            cp "$theme_dir"*.png "docs/assets/screenshots/gallery/$theme/"
+          done
+          # `import` (ImageMagick) writes full 24-bit-per-pixel PNGs, but
+          # these are terminal screenshots — a few dozen distinct colors,
+          # sharp flat-color edges, no photographic gradients — exactly what
+          # pngquant's palette quantization is for. 272 images at ~17MB
+          # became ~5MB at quality=80-95 with no visible difference
+          # (verified by eye locally); `--skip-if-larger` means a pathological
+          # input just keeps its original bytes instead of growing.
+          # Regenerating this gallery on every single release forever makes
+          # the per-release size here matter far more than a one-off image
+          # would, hence bothering to compress it at all.
+          pngquant --quality=80-95 --skip-if-larger --ext .png --force \
+            docs/assets/screenshots/gallery/*/*.png
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/assets/screenshots docs/assets/demo.gif

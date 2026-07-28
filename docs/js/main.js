@@ -64,6 +64,19 @@ function applyTheme(themeId) {
   }
   if (title) title.textContent = `shiki — theme: ${theme.id}`;
 
+  // documentation.html's per-feature screenshot gallery (only present on
+  // that page — guarded per-element, same reasoning as img/fallback/
+  // caption above). Every `img[data-shot]` shows whatever theme the
+  // visitor picked on the homepage, persisted via localStorage the same
+  // way the rest of this function already works, rather than being pinned
+  // to one hardcoded theme regardless of preference. `data-shot` holds the
+  // exact filename stem scripts/screenshots.sh writes (e.g.
+  // "wide-01-notebooks" or "stacked-overview") — no prefix assumed here,
+  // since the wide/stacked/single tiers don't share one naming pattern.
+  document.querySelectorAll("img[data-shot]").forEach((img) => {
+    img.src = `assets/screenshots/gallery/${theme.id}/${img.dataset.shot}.png`;
+  });
+
   try {
     localStorage.setItem(STORAGE_KEY, theme.id);
   } catch (e) {

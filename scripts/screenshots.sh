@@ -206,6 +206,12 @@ Product, Engineering, Design leads.
 - Meet 1:1 with your manager and skip-level
 - Present at a team demo"
 
+  # Deliberately empty body — the /-menu screenshot (below) needs a note
+  # with nothing in it, so the very first keystroke lands at column 0 of an
+  # empty line and reliably triggers the menu, instead of scripting cursor
+  # movement into the middle of a real note's content.
+  write_note personal "quick-capture.md" "Quick capture" "2026-07-20" "[]" ""
+
   for nb in personal work; do
     git -C "$DATA/$nb" add -A
     git -C "$DATA/$nb" commit -q -m "shiki: initial notes"
@@ -300,6 +306,33 @@ capture() {
     send_text " U"
     sleep 1.5
     shot "12-check-update"
+    send_key "Escape"
+    send_text " b"
+    shot "13-drawer"
+    send_key "Escape"
+    send_text " s"
+    shot "14-settings"
+    send_key "Escape"
+    # /-menu: jump to the dedicated empty note (see setup_sample_data) by
+    # title rather than by list position, so this doesn't depend on
+    # exactly where it happens to sort among the other notes. `hhh` first
+    # resets focus all the way back to NOTEBOOKS regardless of whatever
+    # panel the steps above left focus on, since backward() is a no-op
+    # once already there — cheap insurance against relying on incidental
+    # leftover focus state.
+    send_text "hhhl"
+    send_text "/"
+    send_text "quick"
+    send_key "Return"
+    send_text "i"
+    send_text "/"
+    shot "15-slash-menu"
+    # Removes the "/" and exits without saving any real change — the note
+    # must come back out exactly as empty as it went in, since setup_sample_data
+    # only runs once and this same file is reused by every theme/tier capture
+    # that follows.
+    send_key "BackSpace"
+    send_key "Escape"
     send_key "Escape"
   else
     shot "overview"

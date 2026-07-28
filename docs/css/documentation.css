@@ -107,10 +107,203 @@ pre.code {
   width: 1%;
 }
 
+.config-ref-table td:nth-child(2) {
+  color: var(--muted);
+  white-space: nowrap;
+  width: 1%;
+}
+
+/* ==========================================================================
+   Inline screenshots — a lighter card than .term-window's full titlebar
+   chrome, since these sit inline throughout the page rather than as one
+   hero image; a caption explains what's shown instead of a fake window
+   title.
+   ========================================================================== */
+
+.doc-shot-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 20px 0 32px;
+  background: var(--statusbar);
+}
+
+.doc-shot-card img {
+  display: block;
+  width: 100%;
+}
+
+.doc-shot-card figcaption {
+  padding: 10px 16px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.doc-shot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin: 20px 0 8px;
+}
+
+.doc-shot-grid .doc-shot-card {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .doc-shot-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   "How to" callouts — a recipe combining a few keybindings/config options
+   into one task, visually distinct from the surrounding reference prose.
+   ========================================================================== */
+
+.doc-callout {
+  border-left: 3px solid var(--accent);
+  background: var(--statusbar);
+  border-radius: 0 8px 8px 0;
+  padding: 16px 20px;
+  margin: 20px 0 32px;
+  font-size: 0.92rem;
+}
+
+.doc-callout strong:first-child {
+  display: block;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.doc-callout p,
+.doc-callout ol,
+.doc-callout ul {
+  margin: 8px 0;
+}
+
+.doc-callout pre.code {
+  margin: 12px 0;
+}
+
+/* ==========================================================================
+   Search / command palette
+   ========================================================================== */
+
+.doc-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 560px;
+  margin-top: 28px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--statusbar);
+}
+
+.doc-search:focus-within {
+  border-color: var(--accent);
+}
+
+.doc-search-icon {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.doc-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.92rem;
+}
+
+.doc-search input::placeholder {
+  color: var(--muted);
+}
+
+.doc-search-kbd {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: inherit;
+}
+
+.doc-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+  padding: 6px;
+}
+
+.doc-search-result {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.doc-search-result:hover,
+.doc-search-result.active {
+  background: var(--selection);
+}
+
+.doc-search-result .result-section {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.doc-search-result .result-text code {
+  color: var(--accent);
+}
+
+.doc-search-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.doc-search-highlight {
+  animation: doc-search-flash 1.6s ease-out;
+}
+
+@keyframes doc-search-flash {
+  0%, 30% {
+    background: var(--selection);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 @media (max-width: 700px) {
   .doc-toc .container {
     gap: 12px;
     overflow-x: auto;
     flex-wrap: nowrap;
+  }
+
+  .doc-search {
+    max-width: none;
   }
 }

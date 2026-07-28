@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Documentation — shiki (私記)</title>
-  <meta name="description" content="Complete reference for shiki: every keybinding, every CLI command, the full config.toml schema, note format, and included themes." />
-  <meta name="keywords" content="shiki documentation, TUI keybindings, config.toml reference, shiki CLI commands, Rust note-taking app manual" />
+  <meta name="description" content="Complete guide to shiki: how to get started from zero terminal experience, every keybinding, every CLI command, the full config.toml schema explained option by option, note format, and included themes." />
+  <meta name="keywords" content="shiki documentation, TUI keybindings, config.toml reference, shiki CLI commands, Rust note-taking app manual, terminal notes tutorial" />
   <meta name="author" content="sazardev" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://sazardev.github.io/shiki/documentation.html" />
@@ -14,7 +14,7 @@
   <meta property="og:url" content="https://sazardev.github.io/shiki/documentation.html" />
   <meta property="og:site_name" content="shiki" />
   <meta property="og:title" content="Documentation — shiki (私記)" />
-  <meta property="og:description" content="Every keybinding, every CLI command, the full config.toml schema, note format, and included themes — the complete shiki reference." />
+  <meta property="og:description" content="Every keybinding, every CLI command, the full config.toml schema explained option by option, note format, and included themes — the complete shiki guide, written for beginners too." />
   <meta property="og:image" content="https://sazardev.github.io/shiki/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -23,7 +23,7 @@
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Documentation — shiki (私記)" />
-  <meta name="twitter:description" content="Every keybinding, every CLI command, the full config.toml schema, note format, and included themes — the complete shiki reference." />
+  <meta name="twitter:description" content="Every keybinding, every CLI command, the full config.toml schema explained option by option, note format, and included themes — the complete shiki guide, written for beginners too." />
   <meta name="twitter:image" content="https://sazardev.github.io/shiki/assets/og-image.png" />
   <meta name="twitter:image:alt" content="shiki (私記) — a TUI note-taking app, shown running in a terminal window" />
 
@@ -55,18 +55,27 @@
 
   <section class="doc-hero">
     <div class="container">
-      <span class="eyebrow">Reference</span>
+      <span class="eyebrow">Reference &amp; guide</span>
       <h1>Documentation</h1>
-      <p class="muted" style="max-width: 62ch;">
-        Every keybinding, every CLI command, the full <code>config.toml</code> schema, note
-        format, and included themes — the complete reference for how shiki actually behaves,
-        kept accurate to the current release rather than a marketing summary.
+      <p class="muted" style="max-width: 66ch;">
+        Everything shiki actually does, written so it makes sense whether this is your first time
+        near a terminal or your ten-thousandth. Every keybinding, every CLI command, and every
+        <code>config.toml</code> option — what it's for, how to use it, and a real screenshot next
+        to the parts that are easier to show than to describe.
       </p>
+
+      <div class="doc-search">
+        <span class="doc-search-icon">⌕</span>
+        <input type="text" id="doc-search-input" placeholder="Search keybindings, config options, sections… (press /)" autocomplete="off" spellcheck="false" />
+        <kbd class="doc-search-kbd">/</kbd>
+      </div>
+      <div id="doc-search-results" class="doc-search-results" hidden></div>
     </div>
   </section>
 
   <nav class="doc-toc">
     <div class="container">
+      <a href="#start">Start here</a>
       <a href="#layout">Layout</a>
       <a href="#modes">Modes</a>
       <a href="#keybindings">Keybindings</a>
@@ -75,68 +84,174 @@
       <a href="#note-format">Note format</a>
       <a href="#themes-ref">Themes</a>
       <a href="#config">config.toml</a>
+      <a href="#best-practices">Best practices</a>
     </div>
   </nav>
+
+  <section id="start">
+    <div class="container">
+      <h2>Start here — no terminal experience required</h2>
+      <p style="max-width:70ch;">
+        If the word "terminal" makes you nervous, this section is for you. shiki is a program you
+        run from a terminal instead of double-clicking an icon, but once it's open, it behaves
+        like any other app: you see panels, you move a selection with your keyboard, you press
+        keys to do things. There's no command syntax to memorize to just <em>use</em> it.
+      </p>
+
+      <h3>1. Opening it</h3>
+      <p style="max-width:70ch;">
+        After installing (see the <a href="index.html#install">Install</a> section on the home
+        page), open your terminal application and type:
+      </p>
+      <pre class="code">shiki</pre>
+      <p style="max-width:70ch;">
+        and press Enter. That's the entire launch sequence — no arguments, no setup wizard. shiki
+        creates its config and data folders the first time it runs and drops you straight into the
+        interface below.
+      </p>
+
+      <h3>2. The three panels</h3>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-01-notebooks" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-01-notebooks.png" alt="shiki's three panels: Notebooks on the left, Notes in the middle, Preview on the right" />
+        <figcaption>NOTEBOOKS (left) → NOTES (middle) → PREVIEW (right). This is the whole app.</figcaption>
+      </figure>
+      <p style="max-width:70ch;">
+        Everything in shiki lives in exactly one of three columns, read left to right like a
+        sentence: pick a <strong>notebook</strong> (a folder of related notes — "personal",
+        "work", whatever you want), pick a <strong>note</strong> inside it, read/edit it in the
+        <strong>preview</strong>. The highlighted column is the one your keypresses currently
+        control.
+      </p>
+
+      <h3>3. Moving around</h3>
+      <p style="max-width:70ch;">
+        Four keys get you almost everywhere. Everything else in this page is detail on top of
+        these:
+      </p>
+      <table class="ref-table">
+        <thead><tr><th>Key</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>↓</code> / <code>↑</code></td><td>Move the selection down/up in whichever column is highlighted (also works with <code>j</code>/<code>k</code> if you're coming from Vim, but the arrow keys always work too — nothing here requires learning Vim)</td></tr>
+          <tr><td><code>→</code> / <code>Enter</code></td><td>Go into the highlighted thing — open a notebook, open a note</td></tr>
+          <tr><td><code>←</code></td><td>Back out one step</td></tr>
+          <tr><td><code>?</code></td><td>Show <em>every</em> keyboard shortcut, searchable — your safety net. If you ever forget a key mid-task, press this</td></tr>
+        </tbody>
+      </table>
+      <p style="max-width:70ch;">
+        That's genuinely enough to browse and read notes. The rest of this page is what to do once
+        you also want to <em>create</em>, <em>edit</em>, <em>search</em>, and <em>sync</em> them.
+      </p>
+
+      <h3>4. Your first note</h3>
+      <ol style="max-width:70ch;">
+        <li>With a notebook open (NOTES panel highlighted), press <code>a</code>.</li>
+        <li>Type a title, press Enter.</li>
+        <li>Pick "blank" from the template list (or any other template — see
+          <a href="#note-format">Note format</a>), press Enter.</li>
+        <li>You're now typing directly into the note. When you're done, press <code>Esc</code>
+          twice — once to leave typing mode, once to save and close.</li>
+      </ol>
+      <p style="max-width:70ch;">
+        There's no separate "save" button or command — leaving edit mode saves. Nothing is lost by
+        closing the terminal window either; the note is already a real file on disk the moment you
+        exit editing.
+      </p>
+
+      <h3>5. Quitting</h3>
+      <p style="max-width:70ch;">
+        Press <code>q</code> from the main screen. If a popup or menu is open, <code>Esc</code>
+        closes that first — <code>q</code> only quits the whole app once you're back at the plain
+        three-panel view.
+      </p>
+
+      <div class="doc-callout">
+        <strong>You will not break anything by exploring.</strong> Deleted notes go to a trash
+        folder and can be restored (<code>leader</code> then <code>u</code> — see
+        <a href="#keybindings">Keybindings</a>), every change is backed by git so nothing is ever
+        silently overwritten without a history to recover from, and <code>?</code> is always one
+        keypress away if you get lost.
+      </div>
+    </div>
+  </section>
 
   <section id="layout">
     <div class="container">
       <h2>Layout (3 panels, Yazi-inspired)</h2>
-      <div class="term-window" style="margin-bottom: 24px;">
-        <div class="term-titlebar">
-          <span class="term-dot red"></span>
-          <span class="term-dot yellow"></span>
-          <span class="term-dot green"></span>
-          <span class="term-title">shiki — personal/Book recommendations.md</span>
-        </div>
-        <img src="assets/screenshots/gruvbox-dark.png" alt="shiki's real three-pane layout: Notebooks, Notes, Preview" />
+      <p style="max-width:70ch;">
+        The layout isn't fixed-size — it reshapes itself to whatever terminal window you actually
+        have open, the same way a responsive website reflows on a phone versus a desktop monitor.
+      </p>
+      <div class="doc-shot-grid">
+        <figure class="doc-shot-card">
+          <img data-shot="wide-03-preview" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-03-preview.png" alt="Wide terminal: all three panels visible, Preview focused and expanded" />
+          <figcaption><strong>Wide</strong> (≥70 columns) — all three panels, the focused one gets the most space.</figcaption>
+        </figure>
+        <figure class="doc-shot-card">
+          <img data-shot="stacked-overview" width="540" height="760" src="assets/screenshots/gallery/gruvbox-dark/stacked-overview.png" alt="Narrow terminal: panels stacked vertically instead of side by side" />
+          <figcaption><strong>Narrow but tall, or square</strong> (46–70 columns) — same panels, stacked top-to-bottom.</figcaption>
+        </figure>
+        <figure class="doc-shot-card">
+          <img data-shot="single-overview" width="360" height="228" src="assets/screenshots/gallery/gruvbox-dark/single-overview.png" alt="Very small terminal: only one panel shown at a time, full screen" />
+          <figcaption><strong>Very small</strong> (&lt;46 columns or &lt;14 rows) — one panel at a time, full screen.</figcaption>
+        </figure>
       </div>
       <p>
         Panels behind the current focus collapse to a thin strip (Miller-columns style, like
         Yazi): browsing NOTEBOOKS shows all three panels at their normal width; moving into NOTES
         collapses NOTEBOOKS down; moving into PREVIEW collapses both NOTEBOOKS and NOTES so the
-        note has (almost) the full width to read comfortably.
+        note has (almost) the full width to read comfortably. Navigation (<code>h</code>/<code>l</code>/<code>tab</code>)
+        works identically no matter which of the three tiers above you're currently in — resizing
+        your terminal window mid-session just reflows the same panels live, nothing resets.
       </p>
-      <p>This layout is responsive to the terminal's actual size, not just one fixed arrangement:</p>
-      <ul>
-        <li><strong>Wide</strong> (≥70 columns): the 3-column layout above.</li>
-        <li><strong>Narrow but tall, or square</strong> (46–70 columns wide): the same panels, same
-          focused/collapsed proportions, just stacked top-to-bottom instead of side-by-side — a
-          portrait window or a many-way terminal split still gets a usable full-width panel instead
-          of three unreadably thin columns.</li>
-        <li><strong>Very small</strong> (&lt;46 columns or &lt;14 rows): only the focused panel is
-          shown, full screen — no collapsed siblings at all. <code>h</code>/<code>l</code>/<code>tab</code>
-          still move between panels exactly as always; at this size that just means switching which
-          one is on screen, one at a time.</li>
-      </ul>
     </div>
   </section>
 
   <section id="modes">
     <div class="container">
       <h2>Modes (vi-like)</h2>
+      <p style="max-width:70ch;">
+        shiki has four modes — think of a mode as "what your keyboard currently means." The
+        footer at the bottom of the screen always tells you which one you're in (it stays blank
+        for NORMAL, since that's where you spend most of your time and doesn't need announcing).
+      </p>
       <table class="ref-table">
         <thead><tr><th>Mode</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>NORMAL</code></td><td>Navigation, single-key shortcuts</td></tr>
-          <tr><td><code>INSERT</code></td><td>Typing in search / input</td></tr>
-          <tr><td><code>EDIT</code></td><td>Inline editor active (tui-textarea)</td></tr>
-          <tr><td><code>VISUAL</code></td><td>Multi-note selection</td></tr>
+          <tr><td><code>NORMAL</code></td><td>The default. Every key is a shortcut (navigation, opening things, deleting, etc.) — nothing you press here types text</td></tr>
+          <tr><td><code>INSERT</code></td><td>Typing into a one-line prompt: naming a new note, a search query, a git remote URL. <code>Esc</code> cancels, <code>Enter</code> confirms</td></tr>
+          <tr><td><code>EDIT</code></td><td>Writing the actual body of a note (the inline editor). Every key types text, same as any plain text editor — <code>Esc</code> twice saves and exits</td></tr>
+          <tr><td><code>VISUAL</code></td><td>Selecting multiple notes/folders at once, to delete, move, or copy them together</td></tr>
         </tbody>
       </table>
+      <p class="muted" style="max-width:70ch; font-size:0.9rem;">
+        If you've used Vim before, this will feel familiar (NORMAL/INSERT/VISUAL map directly).
+        If you haven't, the practical rule is simpler: NORMAL is for moving around and pressing
+        shortcuts, EDIT and INSERT are for typing, and <code>Esc</code> always gets you back out.
+      </p>
     </div>
   </section>
 
   <section id="keybindings">
     <div class="container">
       <h2>Keybindings</h2>
-      <p class="muted" style="max-width: 68ch;">
+      <p class="muted" style="max-width: 70ch;">
         Keybindings aren't one flat list — they're scoped to <em>what's focused</em>, so the same
-        physical key can mean something different (but locally sensible) in each panel. Navigation
-        is hardcoded (not configurable, since it behaves the same everywhere); everything else lives
-        in its own editable <code>config.toml</code> table: <code>[keybindings.global]</code> (needs
-        the leader key first), <code>[keybindings.notebooks]</code>, <code>[keybindings.notes]</code>,
-        <code>[keybindings.preview]</code>.
+        physical key can mean something different (but locally sensible) in each panel: <code>a</code>
+        creates a notebook while NOTEBOOKS is focused, but a note while NOTES is focused. Navigation
+        is hardcoded (it behaves the same everywhere, so there's nothing to configure); everything
+        else lives in its own editable <code>config.toml</code> table — see
+        <a href="#config">config.toml</a> below if you ever want to rebind something to a key that
+        feels more natural to you.
       </p>
+      <p class="muted" style="max-width:70ch;">
+        You do not need to memorize any of the tables below. Press <code>?</code> at any time for
+        a live, searchable version of everything that's actually bound right now — it's generated
+        straight from your own config, so it can never show you a binding that doesn't really work.
+      </p>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-04-which-key" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-04-which-key.png" alt="The which-key modal: a searchable, full-screen list of every active keybinding" />
+        <figcaption><code>?</code> — every binding, searchable. Type to filter, Enter runs it directly.</figcaption>
+      </figure>
 
       <h3>Navigation (hardcoded, works everywhere)</h3>
       <table class="ref-table">
@@ -169,7 +284,7 @@
           <tr><td><code>e</code></td><td>Toggle <code>general.use_favorite_editor</code> on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. <code>nvim</code>) when on, <code>native</code> (the built-in inline editor) when off</td></tr>
           <tr><td><code>U</code></td><td>Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and Enter downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it</td></tr>
           <tr><td><code>u</code></td><td>Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (<code>~/.config/shiki/trash/</code>) back to exactly where it came from. A single level of undo, not a full history: only the <em>most recent</em> delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything</td></tr>
-          <tr><td><code>s</code></td><td>Settings — near-full-screen, paged by tab (<code>←</code>/<code>→</code> switches GENERAL/THEME/GIT/NOTEBOOKS/SNIPPETS, <code>j</code>/<code>k</code> moves within one). Doesn't repeat the keybindings tables — <code>?</code> (which-key) already covers those live. Every tab is editable with <code>Enter</code>: GENERAL/GIT booleans (<code>use_favorite_editor</code>, <code>auto_commit</code>/<code>auto_push</code>/<code>sign_commits</code>/<code>auto_sync</code>) toggle in place and save immediately; every other GENERAL/GIT field opens a prompt prefilled with its current value; THEME's <code>name</code> opens the theme picker (live preview, same as leader+<code>c</code>) and <code>overrides</code> stays informational; NOTEBOOKS lists every notebook's actual git remote (redacted) and drills into one to edit its remote plus its <code>auto_push</code>/<code>auto_sync</code>/<code>auto_sync_every</code> overrides (booleans cycle inherit → true → false → inherit); SNIPPETS supports <code>a</code> (new snippet) and <code>d</code> (delete, with confirmation), and drilling into one edits its <code>label</code> and its full multi-line <code>body</code> through the same inline editor a note's own body uses. <code>i</code>/<code>E</code> still jump straight to editing <code>config.toml</code> itself for anything not covered above (inline or externally, same convention as editing a note); on save, the config is re-read, re-applied, and takes effect immediately (no restart) — an invalid edit is reported and neither written nor applied, keeping the previous config running. <code>h</code>/<code>Esc</code>/<code>Backspace</code> backs out of a drilled-into notebook/snippet a level; <code>Esc</code>/<code>q</code> at the top level closes</td></tr>
+          <tr><td><code>s</code></td><td>Settings — near-full-screen, paged by tab. See <a href="#settings-deep-dive">the Settings deep dive</a> below</td></tr>
         </tbody>
       </table>
 
@@ -187,7 +302,7 @@
           <tr><td><code>R</code></td><td>Set the notebook's git remote (URL or local path)</td></tr>
         </tbody>
       </table>
-      <p class="muted" style="max-width:68ch; font-size:0.88rem;">
+      <p class="muted" style="max-width:70ch; font-size:0.88rem;">
         Beyond manual <code>s</code>, a notebook can sync <strong>itself</strong> in the background:
         <code>[git] auto_sync = true</code> (off by default) syncs automatically every
         <code>auto_sync_every</code> note changes (new/edited/renamed/deleted/moved), not just on
@@ -197,6 +312,31 @@
         for anything left unset. A failed push never blocks or loses anything — the commit already
         happened locally either way, and the next sync attempt just tries the push again.
       </p>
+
+      <div class="doc-callout">
+        <strong>How to: put your notes on GitHub/GitLab (git sync)</strong>
+        <ol>
+          <li>Create an empty repository on GitHub/GitLab (don't add a README — an empty repo).</li>
+          <li>Select your notebook, press <code>R</code>, paste the repo's URL, Enter.</li>
+          <li>Press <code>u</code> to commit everything you have and push it right now.</li>
+          <li>Optional: turn on <code>auto_sync</code> (globally in <code>[git]</code>, or just for
+            this notebook under <code>[notebooks.&lt;name&gt;]</code>) so it keeps syncing itself
+            every few edits, with no further action from you.</li>
+        </ol>
+        That's the entire setup — no separate git client, no manual <code>git add</code>/<code>commit</code>/<code>push</code>,
+        ever. Every note file you can already see with a normal file browser is real, and
+        <code>git log</code> in that folder shows exactly what shiki committed and when.
+      </div>
+
+      <div class="doc-callout">
+        <strong>How to: bring in an existing repo of notes</strong>
+        <p>
+          Press <code>a</code> (new notebook) and paste the repo's git URL instead of typing a
+          name — shiki detects it, names the notebook after the repo, and pulls its contents
+          immediately. Or, from the notebook drawer (<code>leader</code> then <code>b</code>),
+          click/press <code>i</code> for "Import" to do the same thing without leaving the drawer.
+        </p>
+      </div>
 
       <h3><code>[keybindings.notes]</code> — active while NOTES is focused</h3>
       <table class="ref-table">
@@ -218,6 +358,10 @@
           <tr><td><code>y</code></td><td>Select-mode only: copies every selected note/folder to a prompted target (same <code>notebook/path</code> syntax as <code>m</code>), leaving the originals in place</td></tr>
         </tbody>
       </table>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-10-tree-view" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-10-tree-view.png" alt="Tree view: every folder and note in the notebook shown as one expanded list" />
+        <figcaption><code>T</code> in NOTES — the whole notebook's structure at a glance.</figcaption>
+      </figure>
 
       <h3><code>[keybindings.preview]</code> — active while PREVIEW is focused</h3>
       <table class="ref-table">
@@ -229,6 +373,10 @@
           <tr><td><code>L</code></td><td>Links — the selected note's outgoing <code>[[wikilinks]]</code> (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> jumps to the selected note (an unresolved outgoing link reports that instead of jumping), <code>Esc</code>/<code>q</code> closes</td></tr>
         </tbody>
       </table>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-11-history" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-11-history.png" alt="Note history modal: every git commit that touched this note, newest first" />
+        <figcaption><code>H</code> in PREVIEW — real git history for one note, browsable and revertible.</figcaption>
+      </figure>
 
       <h3>Inside the inline editor (<code>i</code>)</h3>
       <p>
@@ -242,24 +390,53 @@
         slash) opens a small searchable menu right under the cursor: keep typing to filter by name,
         <code>↑</code>/<code>↓</code> to move, <code>Enter</code> to insert the highlighted block,
         <code>Esc</code> to dismiss the menu without leaving edit mode (a second <code>Esc</code>
-        then saves and exits, as usual). Built-in blocks: <code>h1</code>/<code>h2</code>/<code>h3</code>,
+        then saves and exits, as usual).
+      </p>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-15-slash-menu" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-15-slash-menu.png" alt="The /-menu open inside the inline editor, listing every quick-insert block" />
+        <figcaption>Type <code>/</code> at the start of a line — every built-in block, filterable, plus anything you've added yourself.</figcaption>
+      </figure>
+      <p>
+        Built-in blocks: <code>h1</code>/<code>h2</code>/<code>h3</code>,
         a code fence, a math (<code>$$…$$</code>) block, a table skeleton, a checklist item, a
         quote, a divider, today's date, a <code>Tags:</code> line, a YAML frontmatter skeleton, a
         bullet/numbered list item, a link, an image, a note/warning callout, and a collapsible
         (<code>&lt;details&gt;</code>) section.
       </p>
-      <p>
-        Every command is customizable from <code>config.toml</code> under
-        <code>[snippets.&lt;trigger&gt;]</code> — see the config reference below. A custom entry
-        with the same trigger as a built-in (case-insensitive) replaces it instead of adding a
-        duplicate, so nothing here is off-limits to redefine.
-      </p>
+      <div class="doc-callout">
+        <strong>How to: add your own <code>/</code>-command</strong>
+        <p>
+          Every command above is just a config entry — nothing about them is hardcoded or special.
+          Open <code>config.toml</code> and add:
+        </p>
+        <pre class="code">[snippets.callout]
+label = "Info callout"
+body = "&gt; **Info:** {{cursor}}"</pre>
+        <p>
+          Now typing <code>/callout</code> in the editor offers "Info callout," and inserting it
+          drops in <code>&gt; **Info:** </code> with your cursor placed right where
+          <code>{{cursor}}</code> was. <code>{{title}}</code>/<code>{{date}}</code> work the same
+          way note templates already do. Using the exact trigger of a built-in (e.g.
+          <code>[snippets.h1]</code>, case-insensitive) <em>replaces</em> that built-in instead of
+          adding a duplicate — so if you don't like how <code>/h1</code> behaves by default,
+          redefine it instead of avoiding it. See <a href="#config-snippets">the config
+          reference</a> for every field a snippet entry supports.
+        </p>
+      </div>
     </div>
   </section>
 
   <section id="cli">
     <div class="container">
       <h2>CLI commands</h2>
+      <p style="max-width:70ch;">
+        Everything above is the full-screen interface, launched by running <code>shiki</code> with
+        no arguments. But <code>shiki</code> is also a normal command-line tool — every one of these
+        runs, prints something (or opens your editor), and returns you straight to your shell.
+        Useful for scripting, a quick capture without opening the full UI, or wiring into something
+        else (a cron job for daily notes, a keyboard shortcut that runs <code>shiki daily</code>,
+        etc.).
+      </p>
       <pre class="code">shiki                     # launch TUI
 shiki new &lt;title&gt;         # create note + open $EDITOR
 shiki daily               # create/open today's daily note
@@ -278,12 +455,30 @@ shiki theme list          # list built-in themes, marking the active one
 shiki theme set &lt;name&gt;    # switch theme (persisted to config.toml)
 shiki theme create [--from &lt;name&gt;]  # scaffold all 19 color overrides from a real palette
 shiki doctor              # environment check: config, data dir, git, editor, terminal, keybindings, snippets</pre>
+      <div class="doc-callout">
+        <strong>Something feels wrong? Run <code>shiki doctor</code> first.</strong>
+        <p>
+          It checks your config file, data directory, git installation, editor, terminal color
+          support, and keybindings for common mistakes (two shortcuts bound to the same key,
+          a config path that doesn't resolve, etc.) — and it's designed to still work and explain
+          what's wrong even when your <code>config.toml</code> itself is broken, which is exactly
+          the situation you're in when you'd reach for a diagnostic command in the first place.
+        </p>
+      </div>
     </div>
   </section>
 
   <section id="filesystem">
     <div class="container">
       <h2>Filesystem layout</h2>
+      <p style="max-width:70ch;">
+        shiki stores two kinds of things in two different, standard locations (respecting
+        <code>$XDG_CONFIG_HOME</code>/<code>$XDG_DATA_HOME</code> if you have them set — most
+        people don't, so the defaults below are what you'll actually see): your <strong>notes</strong>
+        (the data directory) and shiki's own <strong>settings</strong> (the config directory).
+        Everything is plain files — no database, no hidden binary format. You can open, copy, or
+        back up any of it with a normal file manager, and nothing breaks if you do.
+      </p>
 
       <h3>Data (<code>~/.local/share/shiki/</code>)</h3>
       <pre class="code">~/.local/share/shiki/
@@ -301,12 +496,18 @@ shiki doctor              # environment check: config, data dir, git, editor, te
 │   └── architecture.md
 └── projects/
     └── ...</pre>
-      <p class="muted" style="max-width:68ch; font-size:0.9rem;">
+      <p class="muted" style="max-width:70ch; font-size:0.9rem;">
         Frontmatter is optional on read: a plain <code>.md</code> file with no <code>---</code>
         block (from <code>nb</code>, an existing repo, or anywhere else) still shows up as a note
         — its title comes from the first <code># heading</code> or the filename, its date from
         the file's mtime. It only gains real frontmatter once you touch it through shiki
         (rename/edit); until then it's left exactly as it was on disk.
+      </p>
+      <p class="muted" style="max-width:70ch; font-size:0.9rem;">
+        Don't want your notes under <code>~/.local/share/shiki/</code> at all — say, you already
+        keep everything in an Obsidian vault? Set <code>general.data_dir</code> (whole vault) or a
+        per-notebook <code>path</code> (one specific folder) in <code>config.toml</code> — see
+        <a href="#config-general">the config reference</a>.
       </p>
 
       <h3>Config (<code>~/.config/shiki/</code>)</h3>
@@ -334,6 +535,13 @@ shiki doctor              # environment check: config, data dir, git, editor, te
   <section id="note-format">
     <div class="container">
       <h2>Note format (Markdown + YAML frontmatter)</h2>
+      <p style="max-width:70ch;">
+        Every note is a plain <code>.md</code> file. The block between the two <code>---</code>
+        lines at the top ("frontmatter") is metadata — title, date, tags — read by shiki to build
+        the notes list, tag index, and wikilinks. You never have to write it by hand: creating a
+        note through <code>a</code> fills it in for you, and the <code>/frontmatter</code> snippet
+        inserts a blank skeleton if you ever need one inside the editor.
+      </p>
       <pre class="code">---
 title: My note
 date: 2026-07-22
@@ -351,12 +559,23 @@ Content in **markdown**.
 - Code: `let x = 1;`
 
 [[wikilink]] to another note — navigable from the TUI.</pre>
+      <p style="max-width:70ch;">
+        <code>[[double brackets]]</code> anywhere in the body link to another note by title —
+        PREVIEW renders them, and <code>L</code> (PREVIEW scope) shows both the links a note makes
+        and every other note linking back to it. A link to a note that doesn't exist (yet) isn't
+        an error; it just won't resolve until you create one with that title.
+      </p>
     </div>
   </section>
 
   <section id="themes-ref">
     <div class="container">
       <h2>Included themes</h2>
+      <p style="max-width:70ch;">
+        Pick one from the live, interactive switcher on the
+        <a href="index.html#themes">home page</a> — this page already matches whatever you chose
+        there, including every screenshot above.
+      </p>
       <ul>
         <li><strong>Catppuccin</strong> — Mocha, Macchiato, Frappé, Latte</li>
         <li><strong>Tokyo Night</strong> — Storm, Night, Moon</li>
@@ -370,7 +589,7 @@ Content in **markdown**.
           <code>bg</code>/<code>fg</code>/<code>border</code> are <code>"reset"</code>, accents use
           the terminal's native ANSI colors) instead of imposing a fixed palette</li>
       </ul>
-      <p class="muted" style="max-width:68ch;">
+      <p class="muted" style="max-width:70ch;">
         Each theme defines 19 configurable color slots: <code>bg</code>, <code>fg</code>,
         <code>accent</code>, <code>selection</code>, <code>border</code>, <code>statusbar</code>,
         <code>highlight</code>, <code>error</code>, <code>warning</code>, <code>success</code>,
@@ -379,14 +598,204 @@ Content in **markdown**.
         <code>tag</code>, <code>muted</code>. Slots accept <code>#rrggbb</code> hex, the terminal's
         native ANSI names (<code>red</code>, <code>blue</code>, <code>cyan</code>,
         <code>darkgray</code>, …), or <code>"reset"</code> to inherit the terminal's own default for
-        that slot. See the live theme switcher on the <a href="index.html#themes">home page</a>.
+        that slot.
       </p>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-05-theme-picker" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-05-theme-picker.png" alt="The theme picker modal with a live preview while browsing" />
+        <figcaption><code>leader</code> then <code>c</code> — browse with live preview, Enter to keep it, Esc to cancel back to whatever was active before.</figcaption>
+      </figure>
     </div>
   </section>
 
   <section id="config">
     <div class="container">
-      <h2>Full <code>config.toml</code> reference</h2>
+      <h2><code>config.toml</code> — every option, explained</h2>
+      <p style="max-width:70ch;">
+        One file controls everything about how shiki behaves. It lives at
+        <code>~/.config/shiki/config.toml</code>, is created with sensible defaults the first time
+        you run shiki, and is plain <a href="https://toml.io">TOML</a> — a config format that
+        reads like a slightly stricter INI file, no braces or indentation rules to fight. You can
+        edit it by hand in any text editor, or from inside shiki itself: <code>leader</code> then
+        <code>s</code> opens Settings, where most fields are editable without ever opening the raw
+        file (see <a href="#settings-deep-dive">the Settings deep dive</a>). Either way, a saved
+        change takes effect immediately — no restart.
+      </p>
+      <p class="muted" style="max-width:70ch; font-size:0.88rem;">
+        Every field below is optional. A brand-new <code>config.toml</code> — or one missing a
+        table entirely — falls back to the default shown for that field, so you only ever need to
+        write down the handful of things you actually want different from the defaults.
+      </p>
+
+      <h3 id="config-general"><code>[general]</code> — overall behavior</h3>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>default_notebook</code></td><td><code>"personal"</code></td><td>Which notebook CLI commands act on when you don't pass <code>-n &lt;name&gt;</code> (e.g. plain <code>shiki new</code>, <code>shiki list</code>)</td></tr>
+          <tr><td><code>editor</code></td><td><code>$EDITOR</code>, then <code>"nvim"</code></td><td>The external editor <code>E</code> opens. Any shell command works, including one with flags, e.g. <code>"code --wait"</code></td></tr>
+          <tr><td><code>daily_template</code></td><td><code>"daily"</code></td><td>Which template (by filename, without <code>.md</code>) <code>t</code>/<code>shiki daily</code> uses for a new daily note</td></tr>
+          <tr><td><code>use_favorite_editor</code></td><td><code>false</code></td><td>When true, <code>i</code> opens your OS's detected default text editor (from <code>$VISUAL</code>/<code>$EDITOR</code>, or the desktop's own file-type default) instead of the built-in inline editor — same effect as pressing <code>E</code>, just on the more convenient key. Toggle on the fly with <code>leader</code> then <code>e</code>, no editing required</td></tr>
+          <tr><td><code>mouse_drag_selection</code></td><td><code>true</code></td><td>Click-and-drag over a note's body in PREVIEW selects text and copies it to the clipboard as soon as you release the mouse button — the same clipboard mechanism the logs modal's <code>y</code>/<code>c</code> uses</td></tr>
+          <tr><td><code>data_dir</code></td><td>unset (platform default)</td><td>Point the <em>entire</em> notebooks root somewhere else — an absolute path to an existing folder of markdown notes (an Obsidian vault, for instance) instead of <code>~/.local/share/shiki/</code>. Every notebook without its own <code>path</code> (below) lives as a subdirectory of this</td></tr>
+        </tbody>
+      </table>
+      <div class="doc-callout">
+        <strong>How to: use your existing Obsidian vault (or any markdown folder)</strong>
+        <p>Two ways, depending on how much of it you want shiki to see:</p>
+        <ul>
+          <li><strong>The whole vault</strong> — set <code>data_dir</code> to the vault's path.
+            Every top-level folder in it becomes a notebook.</li>
+          <li><strong>Just one folder inside it</strong> — leave <code>data_dir</code> unset and
+            give <em>that one notebook</em> a <code>path</code> instead (see
+            <a href="#config-notebooks">per-notebook overrides</a> below). Different notebooks can
+            point at completely different folders this way, mixed with normal shiki-managed ones.</li>
+        </ul>
+        <p>Either way: no file is moved, copied, or converted. shiki just reads and writes exactly
+          where you pointed it.</p>
+      </div>
+
+      <h3 id="config-keybindings"><code>[keybindings]</code> and its sub-tables — rebinding shortcuts</h3>
+      <p style="max-width:70ch;">
+        Every key in every table you saw in <a href="#keybindings">Keybindings</a> above is one
+        line here. Change the value, save, and the new key works immediately — the which-key
+        modal (<code>?</code>) always reflects your actual config, so it can never show a binding
+        that's since been changed or removed.
+      </p>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>leader</code></td><td><code>"space"</code></td><td>The prefix for every <code>[keybindings.global]</code> action — press this, then the action's own key</td></tr>
+          <tr><td><code>quit</code></td><td><code>"q"</code></td><td>Quits the app from the main screen</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="max-width:70ch; font-size:0.88rem;">
+        <code>[keybindings.global]</code>, <code>[keybindings.notebooks]</code>,
+        <code>[keybindings.notes]</code>, and <code>[keybindings.preview]</code> each hold one key
+        per action from their matching table above — the full list of fields is in the
+        <a href="#config-full">complete reference</a> at the bottom of this section, since it's
+        long and purely mechanical (one line per row you already saw). Matching is on the physical
+        key only, not Shift/Ctrl/Alt — an uppercase letter like <code>T</code> is written as
+        <code>"T"</code>, not with a separate modifier flag.
+      </p>
+
+      <h3 id="config-theme"><code>[theme]</code> — colors</h3>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td><code>"gruvbox-dark"</code></td><td>Which built-in theme to use as the base (<code>shiki theme list</code> shows every name)</td></tr>
+          <tr><td><code>[theme.overrides]</code></td><td>all unset</td><td>Override any of the 19 color slots (see <a href="#themes-ref">Included themes</a>) individually — anything left unset falls back to <code>name</code>'s own value for that slot</td></tr>
+        </tbody>
+      </table>
+      <pre class="code">[theme]
+name = "gruvbox-dark"
+
+[theme.overrides]
+accent = "blue"
+bg = "#1e1e2e"</pre>
+      <p style="max-width:70ch;">
+        Don't want to hand-type 19 hex codes to build a custom palette from scratch? Run
+        <code>shiki theme create [--from &lt;name&gt;]</code> — it copies every one of a real
+        theme's own values into <code>[theme.overrides]</code> as a starting point, so you're
+        editing "this palette, but with two colors changed" instead of starting from a blank file.
+      </p>
+
+      <h3 id="config-git"><code>[git]</code> — sync</h3>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>auto_commit</code></td><td><code>true</code></td><td>Whether <code>s</code> (manual sync) commits pending changes before attempting a push</td></tr>
+          <tr><td><code>auto_push</code></td><td><code>false</code></td><td>Whether a sync also pushes, once it has a remote to push to</td></tr>
+          <tr><td><code>commit_prefix</code></td><td><code>"shiki: "</code></td><td>Text prepended to every auto-generated commit message</td></tr>
+          <tr><td><code>remote</code></td><td><code>"origin"</code></td><td>Which git remote name to push/pull</td></tr>
+          <tr><td><code>branch</code></td><td><code>"main"</code></td><td>Which branch to push/pull — pull falls back automatically to whatever the remote's actual default branch is if this one doesn't exist there, so a repo whose default is <code>master</code> still works with no config change</td></tr>
+          <tr><td><code>sign_commits</code></td><td><code>false</code></td><td>GPG-sign commits shiki makes, using your existing git signing setup</td></tr>
+          <tr><td><code>auto_sync</code></td><td><code>false</code></td><td>Sync automatically in the background as you work, not only when you press <code>s</code>/<code>u</code> — see <code>auto_sync_every</code></td></tr>
+          <tr><td><code>auto_sync_every</code></td><td><code>5</code></td><td>How many note changes (created/edited/renamed/deleted/moved) trigger one automatic sync, when <code>auto_sync</code> is on</td></tr>
+          <tr><td><code>remote_template</code></td><td><code>""</code> (off)</td><td>Auto-configure a new plain-named notebook's remote using <code>{notebook}</code> as a placeholder, e.g. <code>"git@git.example.com:notes/{notebook}.git"</code> — the remote still needs to already exist on that server; this only saves you from typing <code>R</code> by hand every time</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="config-notebooks"><code>[notebooks.&lt;name&gt;]</code> — per-notebook overrides</h3>
+      <p style="max-width:70ch;">
+        Every field above in <code>[git]</code> is a <em>global default</em>. Any individual
+        notebook can override just the ones it needs — a scratch notebook with no remote stays
+        untouched while a real work notebook auto-syncs every couple of edits, without one global
+        setting forcing the same policy onto both.
+      </p>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>auto_push</code></td><td>inherits <code>[git]</code></td><td>Override just for this notebook</td></tr>
+          <tr><td><code>auto_sync</code></td><td>inherits <code>[git]</code></td><td>Override just for this notebook</td></tr>
+          <tr><td><code>auto_sync_every</code></td><td>inherits <code>[git]</code></td><td>Override just for this notebook</td></tr>
+          <tr><td><code>path</code></td><td>unset (lives under the data directory)</td><td>An absolute path to an existing directory on disk — this notebook lives there instead of under <code>data_dir</code>/the default data directory. Must be absolute; a relative value is ignored (<code>shiki doctor</code> warns if one is found) rather than silently resolved against whatever directory the process happened to be launched from</td></tr>
+        </tbody>
+      </table>
+      <pre class="code">[notebooks.work]
+auto_sync = true
+auto_sync_every = 3
+auto_push = true
+
+[notebooks.alcateia]
+path = "/Users/me/obsidian-vaults/alcateia"
+auto_sync = true</pre>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-13-drawer" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-13-drawer.png" alt="The notebook drawer showing every notebook's git status" />
+        <figcaption><code>leader</code> then <code>b</code> — every notebook's sync status at a glance, color-coded.</figcaption>
+      </figure>
+
+      <h3 id="config-snippets"><code>[snippets.&lt;trigger&gt;]</code> — custom <code>/</code>-menu commands</h3>
+      <p style="max-width:70ch;">
+        Empty by default — the 19 built-in commands (<code>h1</code>/<code>h2</code>/<code>h3</code>/
+        <code>code</code>/<code>math</code>/<code>table</code>/<code>check</code>/<code>quote</code>/
+        <code>divider</code>/<code>date</code>/<code>tags</code>/<code>frontmatter</code>/<code>bullet</code>/
+        <code>numbered</code>/<code>link</code>/<code>image</code>/<code>note</code>/<code>warning</code>/
+        <code>details</code>) aren't listed in your config at all unless you're overriding one; only
+        your own additions show up here.
+      </p>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>label</code></td><td>the trigger itself</td><td>The text shown in the <code>/</code>-menu list</td></tr>
+          <tr><td><code>body</code></td><td><em>(required)</em></td><td>What gets inserted. Supports <code>{{title}}</code>/<code>{{date}}</code> (same substitution as note templates) and a <code>{{cursor}}</code> marker for where the cursor should land after insertion</td></tr>
+        </tbody>
+      </table>
+      <pre class="code">[snippets.callout]
+label = "Info callout"
+body = "> **Info:** {{cursor}}"
+
+# Same trigger as a built-in (case-insensitive) replaces it instead of
+# adding a duplicate — every command in the menu is customizable this way.
+[snippets.h1]
+body = "# [{{title}}] {{cursor}}"</pre>
+      <p style="max-width:70ch; font-size:0.9rem;" class="muted">
+        Settings' SNIPPETS tab (<code>leader</code> then <code>s</code>) can create, edit, and
+        delete these without ever opening the raw file — see below.
+      </p>
+
+      <h3 id="settings-deep-dive">The Settings screen — editing all of the above without touching the file</h3>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-14-settings" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-14-settings.png" alt="The Settings screen, GENERAL tab, showing editable config fields" />
+        <figcaption><code>leader</code> then <code>s</code> — every option above, editable in place.</figcaption>
+      </figure>
+      <p style="max-width:70ch;">
+        <code>←</code>/<code>→</code> switches between five tabs — GENERAL, THEME, GIT, NOTEBOOKS,
+        SNIPPETS — mirroring the sections above one for one. <code>j</code>/<code>k</code> moves
+        within a tab, <code>Enter</code> edits or toggles the highlighted row (a true/false field
+        flips immediately and saves; anything else opens a one-line prompt prefilled with its
+        current value), and <code>Esc</code>/<code>q</code> closes. NOTEBOOKS and SNIPPETS are two
+        levels deep — <code>Enter</code> drills into a specific notebook or snippet,
+        <code>h</code>/<code>Esc</code>/<code>Backspace</code> backs out one level. A change here
+        is saved to the real <code>config.toml</code> immediately; an invalid edit is reported and
+        rejected without touching the file, so the app you're currently running never breaks
+        itself out from under you.
+      </p>
+
+      <h3 id="config-full">Full raw reference</h3>
+      <p class="muted" style="max-width:70ch; font-size:0.9rem;">
+        Everything above, as one complete, valid <code>config.toml</code> — copy whichever parts
+        you want, or generate this exact structure (fully commented) yourself by running shiki
+        once with no existing config file.
+      </p>
       <pre class="code">[general]
 default_notebook = "personal"
 editor = "nvim"
@@ -524,6 +933,43 @@ body = "# [{{title}}] {{cursor}}"</pre>
     </div>
   </section>
 
+  <section id="best-practices">
+    <div class="container">
+      <h2>Best practices &amp; ideas</h2>
+      <p style="max-width:70ch;">
+        None of this is required — shiki works fine note-by-note with zero configuration. These
+        are just patterns that tend to work well once you have more than a handful of notes.
+      </p>
+      <ul style="max-width:70ch;">
+        <li><strong>One notebook per "area of life," not per project.</strong> "personal" and
+          "work" scale better than a notebook per project, since <code>tags</code> and folders
+          already give you finer organization inside a notebook — a new git repo per project is
+          usually more overhead than it's worth.</li>
+        <li><strong>Let <code>auto_sync</code> do the git work.</strong> Turning it on with a
+          reasonable <code>auto_sync_every</code> (3–5) means you basically never think about
+          committing — just write, and it catches up in the background.</li>
+        <li><strong>Use daily notes as a landing pad, not a filing system.</strong> Capture things
+          in today's note (<code>t</code>) as they happen; when something turns out to matter,
+          give it its own note and <code>[[link]]</code> back to the day you first wrote it.</li>
+        <li><strong>Tags for "what kind," folders for "where it belongs."</strong> A tag like
+          <code>#recipe</code> cuts across folders (global search and the tags panel find it
+          anywhere); a folder like <code>projects/website/</code> is about location, browsable
+          from the tree view.</li>
+        <li><strong>Snippets are for structure you'd otherwise retype.</strong> If you catch
+          yourself typing the same callout/checklist shape more than twice, that's the signal to
+          turn it into a <code>[snippets.&lt;trigger&gt;]</code> entry instead.</li>
+        <li><strong>Treat git history as permanent when writing notes with sensitive info.</strong>
+          A revert (<code>r</code> in the history modal) restores old content — it doesn't erase
+          the fact that content once existed. Don't put anything in a synced, pushed notebook you
+          wouldn't want in a permanent record.</li>
+        <li><strong><code>shiki doctor</code> before opening an issue.</strong> It catches the most
+          common self-inflicted config mistakes (colliding keybindings, a malformed key string, a
+          non-absolute notebook <code>path</code>) directly, often faster than describing the
+          symptom.</li>
+      </ul>
+    </div>
+  </section>
+
   <footer class="site-footer">
     <div class="container">
       <div class="footer-links">
@@ -537,5 +983,6 @@ body = "# [{{title}}] {{cursor}}"</pre>
   </footer>
 
   <script src="js/main.js"></script>
+  <script src="js/documentation.js"></script>
 </body>
 </html>
