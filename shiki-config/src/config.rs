@@ -42,6 +42,12 @@ pub struct General {
     /// `#[serde(default)]`, which would resolve a missing key to `false`.
     #[serde(default = "default_mouse_drag_selection")]
     pub mouse_drag_selection: bool,
+    /// Optional override for the notebooks data directory. When set, Shiki
+    /// will look for (and create) notebooks under this path instead of the
+    /// platform default (~/.local/share/shiki/). Useful for pointing Shiki
+    /// at an existing Obsidian vault or any other directory of markdown notes.
+    #[serde(default)]
+    pub data_dir: Option<String>,
 }
 
 impl Default for General {
@@ -52,6 +58,7 @@ impl Default for General {
             daily_template: default_daily_template(),
             use_favorite_editor: false,
             mouse_drag_selection: true,
+            data_dir: None,
         }
     }
 }
@@ -958,7 +965,10 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # - use_favorite_editor: when true, `i` opens the OS's detected favorite/
 #   default editor instead of the built-in one, same as `E` but auto-resolved.
 # - mouse_drag_selection: when true, click-and-drag over a note's body in
-#   PREVIEW selects text and copies it to the clipboard on release."
+#   PREVIEW selects text and copies it to the clipboard on release.
+# - data_dir: optional path override for the notebooks directory. Point this
+#   at an existing Obsidian vault or any markdown folder to use it as the
+#   notebooks root. Unset defaults to the platform data directory."
         }
         "[keybindings]" => {
             "\
