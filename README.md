@@ -70,6 +70,9 @@ the [website](https://sazardev.github.io/shiki/#themes).
 - **Notebooks are independent git repos** — plain directories under the hood, each its own repo,
   with folders nested to any depth (`nb`-style). Frontmatter is optional on read, so a plain
   Markdown file dropped in from elsewhere still shows up.
+- **Bring your own notes directory** — `[general] data_dir` points the whole notebooks root at an
+  existing folder (e.g. an Obsidian vault), and `[notebooks.<name>] path` points an individual
+  notebook at any directory independent of that, with no migration, symlinks, or duplicated files.
 - **Real per-note version history** (not a separate versioning system): every commit that changed
   a specific note, browsable and revertible straight from the TUI.
 - **Full git workflow per notebook**: manual sync/push/pull, `auto_sync` (commit + push
@@ -81,6 +84,9 @@ the [website](https://sazardev.github.io/shiki/#themes).
   terminal-native default that inherits your terminal's own palette) with a live-preview picker.
 - **Config-driven keybindings**, scoped by focus, fully remappable in `config.toml` — nothing
   hardcoded except plain navigation.
+- **Mouse drag-to-select and copy** in PREVIEW — drag over a note's rendered body to highlight and
+  copy the selected rows to the clipboard (OSC 52) on release; toggleable via
+  `general.mouse_drag_selection`.
 - **Global fuzzy search** across every notebook, plus in-notebook fuzzy jump.
 - **Notebook tree view**, tags panel, daily notes with templates, moving notes between notebooks,
   cycling sort order, an optional date column in the notes list.

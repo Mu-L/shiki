@@ -4,6 +4,33 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [0.8.6] - 2026-07-28
+
+### Added
+
+- Configurable notebooks root directory and per-notebook custom paths, so shiki can point at an
+  existing collection of markdown notes (e.g. an Obsidian vault) instead of only ever living
+  under its own data directory:
+  - `[general] data_dir` overrides the default notebooks root — every notebook without its own
+    `path` lives under this directory instead of the platform default.
+  - `[notebooks.<name>] path` points an individual notebook at any absolute directory on disk,
+    independent of `data_dir` — multiple notebooks can each link to different external directory
+    trees (e.g. separate Obsidian vault subfolders) without moving or symlinking a single file.
+  - `shiki doctor` warns when a configured `path` isn't absolute, since a relative one would
+    otherwise resolve against whatever directory the process happened to be launched from
+    (terminal vs. desktop entry vs. cron) rather than a stable location.
+- Mouse drag-to-select and copy in PREVIEW: click-and-drag over a note's rendered body highlights
+  the dragged rows (using the theme's `selection` color) and copies them to the clipboard
+  (OSC 52) the instant the mouse button is released — no extra keypress needed, same mechanism
+  the logs modal's `y`/`c` already uses. Toggle via the new `general.mouse_drag_selection` config
+  key (`true` by default), also editable from Settings' GENERAL tab.
+
+### Fixed
+
+- Renaming a notebook with a custom `path` used to silently move its directory into shiki's own
+  data directory instead of keeping it where it actually lived (e.g. inside an Obsidian vault) —
+  it now stays in place unless the new name has its own configured `path`.
+
 ## [0.8.5] - 2026-07-27
 
 ### Changed

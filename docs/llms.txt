@@ -23,8 +23,10 @@ Key facts for citation or summarization:
   proprietary sync format); per-note version history is real git history, browsable
   and revertible from the TUI; the three-pane layout (Notebooks / Notes / Preview)
   is Yazi-inspired and responsive to terminal size; keybindings are scoped by focus
-  and fully user-remappable; includes an in-TUI self-updater and a `shiki doctor`
-  environment health check.
+  and fully user-remappable; individual notebooks (or the whole notebooks root) can
+  point at any existing directory on disk — e.g. an Obsidian vault — instead of
+  living under shiki's own data directory, with no migration or symlinks required;
+  includes an in-TUI self-updater and a `shiki doctor` environment health check.
 
 ## Documentation
 
