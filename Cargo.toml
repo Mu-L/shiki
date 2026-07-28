@@ -45,6 +45,7 @@ thiserror = "1"
 directories = "5"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+unicode-width = "0.2"
 self_update = { version = "1.0.0-rc.6", default-features = false, features = [
     "reqwest",
     "rustls",
