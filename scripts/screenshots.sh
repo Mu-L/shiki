@@ -45,13 +45,21 @@ done
 
 # A Nerd Font is required for the UI's icons to render as glyphs instead of
 # boxes/mojibake — reuse whatever's already installed rather than assuming
-# a specific one. `grep -m1` (not `| head -1`) stops reading after the first
-# match, so grep exits cleanly on its own instead of relying on `head`
-# closing the pipe — a real CI failure hit and fixed here: with enough
-# matching `fc-list` lines (more style variants bundled in a newer
-# nerd-fonts release than before), `head -1` closing early sent grep a
-# SIGPIPE, and `set -o pipefail` turned that into a hard script failure.
-NERD_FONT="$(fc-list | grep -im1 "nerd font mono" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
+# a specific one. `fc-list` is captured into a variable *before* grep ever
+# runs, rather than piped straight into it — a previous version of this
+# line (`fc-list | grep -im1 ... | head -1`) sent `head` closing the pipe
+# early a SIGPIPE under `set -o pipefail`, which was "fixed" by switching to
+# `grep -m1` (it stops reading after its own first match instead of relying
+# on `head` to do it) — except `grep -m1` closing the pipe early is exactly
+# as capable of SIGPIPE'ing `fc-list` itself once there are enough matching
+# lines, which is a real, reproducible failure on a machine with a large
+# installed Nerd Font family (confirmed: `fc-list | grep -im1 ...` alone
+# exits 141 here). Capturing to a variable first means `fc-list` always
+# runs to completion on its own terms, with nothing downstream that can
+# close its pipe early — the actual fix, not just a different flavor of
+# the same race.
+FC_LIST_OUTPUT="$(fc-list)"
+NERD_FONT="$(grep -im1 "nerd font mono" <<< "$FC_LIST_OUTPUT" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
 NERD_FONT="${NERD_FONT:-monospace}"
 
 BIN="$ROOT/target/release/shiki"

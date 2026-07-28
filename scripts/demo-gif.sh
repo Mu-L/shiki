@@ -11,13 +11,16 @@
 # fully-interactive Settings screen (v0.8.5 — every tab, including creating
 # a brand-new `/`-menu snippet from inside it), and live-cycling into the
 # 3 newest built-in themes (Dracula/One Dark/Monokai, v0.8.4) — not just
-# read-only navigation. Re-run this after each release that touches the
-# TUI's actual workflow (new panels, new keybindings, new modals); it's
-# cheap to regenerate and a stale demo showing a workflow that no longer
-# matches the real app is worse than no demo at all — see the fixed
-# Phase 10 bug below for exactly that happening once already (the `a`/
-# NewNote flow grew a template-picker step in v0.8.1 and this script kept
-# assuming the old direct-to-editor behavior for several releases after).
+# read-only navigation. Runs automatically on every release now
+# (release.yml's update-screenshots job calls this right alongside
+# scripts/screenshots.sh, committing docs/assets/demo.gif back to `main`
+# the same way it already did for the per-theme screenshots), so the demo
+# can't go stale from here on — before this it was a manual "re-run after
+# any workflow change" step, which is exactly how the fixed Phase 10 bug
+# below happened once already: the `a`/NewNote flow grew a template-picker
+# step in v0.8.1 and this script kept assuming the old direct-to-editor
+# behavior for several releases after, because nobody remembered to re-run
+# it by hand.
 #
 # Uses VHS (https://github.com/charmbracelet/vhs): a `.tape` file is a
 # literal, deterministic keystroke script, so the same recording comes out
@@ -27,9 +30,9 @@
 # Usage: scripts/demo-gif.sh [output-path]
 #   Defaults to docs/assets/demo.gif.
 #
-# Requires (local dev machine or CI — see release.yml's update-screenshots
-# job for the CI install list): vhs, ttyd, ffmpeg (vhs's own runtime deps),
-# and a Nerd Font (same requirement as scripts/screenshots.sh, same
+# Requires (local dev machine, or CI — see release.yml's update-screenshots
+# job for the exact install commands): vhs, ttyd, ffmpeg (vhs's own runtime
+# deps), and a Nerd Font (same requirement as scripts/screenshots.sh, same
 # fc-list auto-detection).
 #
 #   Arch/CachyOS:   sudo pacman -S vhs
@@ -52,13 +55,15 @@ for tool in vhs ttyd ffmpeg; do
   }
 done
 
-# `grep -m1` (not `| head -1`) stops reading after the first match, so grep
-# exits cleanly on its own instead of relying on `head` closing the pipe —
-# `head -1` closing early while grep still had more matching lines to write
-# sent grep a SIGPIPE, which a real CI run of scripts/screenshots.sh's
-# identical line turned into a hard failure under `set -o pipefail`; fixed
-# there and mirrored here before this script hits the same thing.
-NERD_FONT="$(fc-list | grep -im1 "nerd font mono" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
+# fc-list is captured to a variable before grep ever runs, not piped
+# straight into it — see scripts/screenshots.sh's identical line for why:
+# a live `fc-list | grep -m1 ...` pipe can still SIGPIPE fc-list itself
+# once there are enough matching lines (reproduced directly on a machine
+# with a large installed Nerd Font family), the same failure a previous,
+# `head -1`-based version of this line had, just from a different command
+# closing the pipe early.
+FC_LIST_OUTPUT="$(fc-list)"
+NERD_FONT="$(grep -im1 "nerd font mono" <<< "$FC_LIST_OUTPUT" | cut -d: -f2 | sed 's/^ *//' | cut -d, -f1)"
 NERD_FONT="${NERD_FONT:-monospace}"
 
 BIN="$ROOT/target/release/shiki"

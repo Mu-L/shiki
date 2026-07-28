@@ -296,7 +296,7 @@ jobs:
           done
 
   update-screenshots:
-    name: Regenerate marketing screenshots for the docs site
+    name: Regenerate marketing screenshots and demo GIF for the docs site
     # Also needs update-packaging-manifests (not just release/resolve-tag)
     # so it never checks out `main` and pushes in parallel with that job's
     # own push to the same branch — hit for real on v0.8.4's release:
@@ -325,6 +325,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xterm imagemagick xdotool xvfb
 
+      - name: Install demo-gif tooling (VHS, ttyd, ffmpeg)
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+          sudo apt-get update
+          sudo apt-get install -y vhs ffmpeg
+          # ttyd has no apt package — vhs's own README points at its GitHub
+          # release binaries instead.
+          curl -fsSL -o /tmp/ttyd https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64
+          chmod +x /tmp/ttyd
+          sudo mv /tmp/ttyd /usr/local/bin/ttyd
+
       - name: Install a Nerd Font (for the TUI's icon glyphs)
         run: |
           set -euo pipefail
@@ -337,7 +351,10 @@ jobs:
       - name: Generate screenshots
         run: bash scripts/screenshots.sh
 
-      - name: Update docs site screenshots
+      - name: Generate demo GIF
+        run: bash scripts/demo-gif.sh
+
+      - name: Update docs site screenshots and demo GIF
         id: update
         env:
           HAS_PAT: ${{ secrets.RELEASE_TAG_PAT }}
@@ -353,16 +370,16 @@ jobs:
           done
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/assets/screenshots
+          git add docs/assets/screenshots docs/assets/demo.gif
           if git diff --cached --quiet; then
-            echo "No screenshot changes to commit"
+            echo "No screenshot/demo-gif changes to commit"
           elif [ -z "$HAS_PAT" ]; then
             echo "::error::RELEASE_TAG_PAT secret is not set — main requires a pull" \
                  "request, so pushing with the default GITHUB_TOKEN would be rejected." \
                  "Add a repo-scoped personal access token as RELEASE_TAG_PAT."
             exit 1
           else
-            git commit -m "docs: refresh screenshots for ${{ needs.resolve-tag.outputs.tag }}"
+            git commit -m "docs: refresh screenshots and demo gif for ${{ needs.resolve-tag.outputs.tag }}"
             git push origin HEAD:main
           fi
 

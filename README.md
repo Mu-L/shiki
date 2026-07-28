@@ -33,7 +33,9 @@ Three notebooks, ~30 notes, folders nested two levels deep — a scripted, repro
 ([`scripts/demo-gif.sh`](scripts/demo-gif.sh), recorded with [VHS](https://github.com/charmbracelet/vhs))
 covering global and in-notebook fuzzy search, tags, real multi-select (batch delete), creating and
 moving folders, writing a full note from scratch in the inline editor, a git commit, and live theme
-switching.
+switching. Regenerated automatically after every release (same `update-screenshots` job in
+[`release.yml`](.github/workflows/release.yml) that refreshes the screenshots below), so it's
+always recorded against that release's own binary — not a workflow from several versions ago.
 
 ## Screenshots
 
