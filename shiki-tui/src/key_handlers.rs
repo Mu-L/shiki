@@ -5,14 +5,15 @@ use shiki_core::Notebook;
 use crate::app::{
     drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
     looks_like_git_url, relative_folder, shift, App, BatchOp, DeleteTarget, Focus, Mode,
-    PendingInput, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
+    PendingInput, PreviewSelection, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg,
+    UpdateState, PAGE_STEP,
 };
 use crate::editor::InlineEditor;
 use crate::icons;
 use crate::input::InputBox;
 use crate::keybindings::{action_label, Action};
 use crate::render::{hex_to_color, panel_block};
-use crate::{confirm, layout, panel_drawer, slash_menu, status_bar};
+use crate::{confirm, layout, panel_drawer, panel_preview, slash_menu, status_bar};
 
 impl App {
     fn open_theme_picker(&mut self) {
@@ -259,10 +260,10 @@ impl App {
             _ => {}
         }
     }
-    /// GENERAL — `use_favorite_editor` toggles in place; the three text
-    /// fields open a single-line prompt (`PendingInput::SettingsGeneralText`,
-    /// resolved back to a field via `GeneralField::ALL[settings_selected]`
-    /// once it's confirmed).
+    /// GENERAL — `use_favorite_editor`/`mouse_drag_selection` toggle in
+    /// place; the three text fields open a single-line prompt
+    /// (`PendingInput::SettingsGeneralText`, resolved back to a field via
+    /// `GeneralField::ALL[settings_selected]` once it's confirmed).
     fn handle_general_field_enter(&mut self) {
         use crate::panel_settings::GeneralField;
         let field = GeneralField::ALL[self.settings_selected];
@@ -275,6 +276,15 @@ impl App {
             ));
             return;
         }
+        if field == GeneralField::MouseDragSelection {
+            self.config.general.mouse_drag_selection = !self.config.general.mouse_drag_selection;
+            self.save_config();
+            self.set_status(format!(
+                "mouse_drag_selection -> {}",
+                self.config.general.mouse_drag_selection
+            ));
+            return;
+        }
         let (label, prefill) = match field {
             GeneralField::DefaultNotebook => (
                 "default_notebook",
@@ -284,7 +294,7 @@ impl App {
             GeneralField::DailyTemplate => {
                 ("daily_template", self.config.general.daily_template.clone())
             }
-            GeneralField::UseFavoriteEditor => unreachable!(),
+            GeneralField::UseFavoriteEditor | GeneralField::MouseDragSelection => unreachable!(),
         };
         self.show_settings = false;
         self.pending_input_title = Some(format!(" {label} "));
@@ -1227,11 +1237,21 @@ impl App {
         (index < self.global_search_results.len()).then_some(index)
     }
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
-        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-            return;
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.on_mouse_down(mouse.column, mouse.row);
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.on_mouse_drag(mouse.column, mouse.row);
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.on_mouse_up(),
+            _ => {}
         }
+    }
+
+    fn on_mouse_down(&mut self, column: u16, row: u16) {
         if self.show_global_search {
-            if let Some(index) = self.global_search_hit_at(mouse.column, mouse.row) {
+            if let Some(index) = self.global_search_hit_at(column, row) {
                 if let Some(hit) = self.global_search_results.get(index).copied() {
                     self.jump_to_global_hit(hit.index);
                 }
@@ -1240,12 +1260,7 @@ impl App {
         }
         if self.show_drawer {
             let area = drawer_area(self.last_frame_area);
-            let hit = panel_drawer::drawer_hit_at(
-                self.drawer_statuses.len(),
-                area,
-                mouse.column,
-                mouse.row,
-            );
+            let hit = panel_drawer::drawer_hit_at(self.drawer_statuses.len(), area, column, row);
             match hit {
                 Some(panel_drawer::DrawerHit::Notebook(index)) => {
                     self.drawer_selected = index;
@@ -1261,10 +1276,113 @@ impl App {
             }
             return;
         }
+
+        if self.can_start_preview_selection() {
+            let preview = layout::split(self.last_frame_area, self.focus).preview;
+            let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
+            if let Some(hit) =
+                panel_preview::preview_row_at(preview, self.preview_scroll, row_count, column, row)
+            {
+                self.preview_selection = Some(PreviewSelection {
+                    anchor_row: hit,
+                    current_row: hit,
+                });
+                return;
+            }
+        }
+
         let footer = layout::split(self.last_frame_area, self.focus).status_bar;
-        if status_bar::coffee_hit_at(footer, mouse.column, mouse.row) {
+        if status_bar::coffee_hit_at(footer, column, row) {
             self.open_coffee_link();
         }
+    }
+
+    fn on_mouse_drag(&mut self, column: u16, row: u16) {
+        if self.preview_selection.is_none() {
+            return;
+        }
+        let preview = layout::split(self.last_frame_area, self.focus).preview;
+        let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
+        let scroll = self.preview_scroll;
+        // Dragging outside the panel clamps to its nearest edge instead of
+        // losing the selection — no auto-scroll in v1 (see wrap.rs's own
+        // doc comment for why the panel is pre-wrapped in the first place;
+        // an edge-triggered auto-scroll would need a repeat-tick mechanism
+        // this app's synchronous poll loop doesn't have anywhere).
+        // `.max(left)`/`.max(top)` guard against a terminal resize shrinking
+        // the panel mid-drag to where the naive upper bound would fall
+        // below the lower one — `u16::clamp` panics if min > max.
+        let left = preview.x + 1;
+        let right = (preview.x + preview.width).saturating_sub(2).max(left);
+        let top = preview.y + 1;
+        let bottom = (preview.y + preview.height).saturating_sub(2).max(top);
+        let clamped_column = column.clamp(left, right);
+        let clamped_row = row.clamp(top, bottom);
+        if let Some(hit) =
+            panel_preview::preview_row_at(preview, scroll, row_count, clamped_column, clamped_row)
+        {
+            if let Some(selection) = &mut self.preview_selection {
+                selection.current_row = hit;
+            }
+        }
+    }
+
+    fn on_mouse_up(&mut self) {
+        let Some(selection) = self.preview_selection.take() else {
+            return;
+        };
+        let Some(lines) = self.note_preview_lines() else {
+            return;
+        };
+        let start = selection.anchor_row.min(selection.current_row);
+        let end = selection
+            .anchor_row
+            .max(selection.current_row)
+            .min(lines.len().saturating_sub(1));
+        let text = lines[start..=end]
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let count = end - start + 1;
+        crate::clipboard::copy(&text);
+        self.set_status(format!(
+            "copied {count} line{} to clipboard",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
+
+    /// Guards `on_mouse_down`'s preview-selection branch: the feature is off
+    /// in config, we're editing the note inline (the preview `Rect` belongs
+    /// to the editor then, not `panel_preview::render`), or some modal is
+    /// currently covering PREVIEW. `show_global_search`/`show_drawer` are
+    /// deliberately not repeated here — `on_mouse_down` already returns
+    /// early for both before this guard is ever reached. Mirrors the rest
+    /// of the overlay flags `draw.rs` layers on top of the 3-pane layout —
+    /// a click reaching any of these shouldn't be reinterpreted as a
+    /// PREVIEW text selection.
+    fn can_start_preview_selection(&self) -> bool {
+        self.config.general.mouse_drag_selection
+            && self.mode != Mode::Edit
+            && !self.show_slash_menu
+            && self.pending_input.is_none()
+            && !self.show_tags
+            && !self.show_theme_picker
+            && !self.show_template_picker
+            && !self.show_global_search
+            && !self.show_logs
+            && !self.show_tree
+            && !self.show_links
+            && !self.show_history
+            && !self.show_update
+            && !self.show_settings
+            && !self.show_which_key
+            && self.confirm.is_none()
     }
     /// Best-effort: a browser failing to launch (no GUI, headless SSH
     /// session, etc.) shouldn't do anything worse than a status message —
@@ -2100,6 +2218,7 @@ impl App {
                             "daily_template"
                         }
                         GeneralField::UseFavoriteEditor => "use_favorite_editor",
+                        GeneralField::MouseDragSelection => "mouse_drag_selection",
                     };
                     self.save_config();
                     self.set_status(format!("{label} -> '{value}'"));
