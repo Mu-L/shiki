@@ -48,6 +48,16 @@ pub struct General {
     /// at an existing Obsidian vault or any other directory of markdown notes.
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// When true, text-input prompts that have one (currently just
+    /// `NewNotebook` — see `PendingInput::hint`) show a small muted line
+    /// under the input box explaining non-obvious input (e.g. that pasting a
+    /// git URL clones instead of creating a plain notebook). Defaults to
+    /// `true` since the whole point is surfacing a feature that isn't
+    /// otherwise discoverable; existing configs missing this key still parse
+    /// via `default_true`, same as every other bool added after this file's
+    /// initial fields.
+    #[serde(default = "default_true")]
+    pub show_hints: bool,
 }
 
 impl Default for General {
@@ -59,6 +69,7 @@ impl Default for General {
             use_favorite_editor: false,
             mouse_drag_selection: true,
             data_dir: None,
+            show_hints: true,
         }
     }
 }
@@ -1002,7 +1013,9 @@ fn section_comment(line: &str) -> Option<&'static str> {
 #   PREVIEW selects text and copies it to the clipboard on release.
 # - data_dir: optional path override for the notebooks directory. Point this
 #   at an existing Obsidian vault or any markdown folder to use it as the
-#   notebooks root. Unset defaults to the platform data directory."
+#   notebooks root. Unset defaults to the platform data directory.
+# - show_hints: when true, text-input prompts that have one (e.g. new
+#   notebook) show a small hint line explaining non-obvious input."
         }
         "[keybindings]" => {
             "\

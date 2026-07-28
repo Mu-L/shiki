@@ -63,15 +63,17 @@ pub enum GeneralField {
     DailyTemplate,
     UseFavoriteEditor,
     MouseDragSelection,
+    ShowHints,
 }
 
 impl GeneralField {
-    pub const ALL: [GeneralField; 5] = [
+    pub const ALL: [GeneralField; 6] = [
         GeneralField::DefaultNotebook,
         GeneralField::Editor,
         GeneralField::DailyTemplate,
         GeneralField::UseFavoriteEditor,
         GeneralField::MouseDragSelection,
+        GeneralField::ShowHints,
     ];
 }
 
@@ -200,6 +202,7 @@ fn general_rows(app: &App) -> Vec<Line<'static>> {
             "mouse_drag_selection",
             cfg.general.mouse_drag_selection.to_string(),
         ),
+        row_line(app, "show_hints", cfg.general.show_hints.to_string()),
     ]
 }
 
