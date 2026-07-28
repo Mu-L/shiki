@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::note::{Frontmatter, Note};
@@ -251,9 +252,15 @@ impl Notebook {
 }
 
 /// Manages the collection of notebooks under the data directory (`~/.local/share/shiki/`).
+///
+/// Notebooks can live either under `root` (the default data directory) or at
+/// custom absolute paths configured in `[notebooks.<name>] path = "..."`.
 #[derive(Debug, Clone)]
 pub struct NotebookStore {
     pub root: PathBuf,
+    /// Custom absolute paths keyed by notebook name — these override the
+    /// default `root/<name>` location for individual notebooks.
+    pub custom_paths: HashMap<String, PathBuf>,
 }
 
 /// Rejects names that would escape `root` when joined as a path component —
@@ -272,25 +279,56 @@ fn validate_name(name: &str) -> Result<()> {
 
 impl NotebookStore {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            custom_paths: HashMap::new(),
+        }
+    }
+
+    pub fn new_with_custom_paths(root: PathBuf, custom_paths: HashMap<String, PathBuf>) -> Self {
+        Self { root, custom_paths }
+    }
+
+    /// Returns the path for a notebook, checking custom paths first.
+    fn path_for(&self, name: &str) -> Option<PathBuf> {
+        self.custom_paths
+            .get(name)
+            .cloned()
+            .or_else(|| Some(self.root.join(name)))
     }
 
     pub fn list(&self) -> Result<Vec<Notebook>> {
-        if !self.root.exists() {
-            return Ok(Vec::new());
+        let mut notebooks: Vec<Notebook> = Vec::new();
+        // Collect names from custom paths to avoid duplicates
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 1. Custom-path notebooks
+        for (name, path) in &self.custom_paths {
+            if path.is_dir() {
+                seen.insert(name.clone());
+                notebooks.push(Notebook::new(name.clone(), path.clone()));
+            }
         }
-        let mut notebooks: Vec<Notebook> = std::fs::read_dir(&self.root)?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .map(|p| {
-                let name = p
+
+        // 2. Subdirectories under the root data dir
+        if self.root.exists() {
+            for entry in std::fs::read_dir(&self.root)? {
+                let entry = entry?;
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let name = path
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                Notebook::new(name, p)
-            })
-            .collect();
+                // Don't add a notebook twice if a custom path uses the same name
+                if seen.insert(name.clone()) {
+                    notebooks.push(Notebook::new(name, path));
+                }
+            }
+        }
+
         notebooks.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(notebooks)
     }
@@ -309,7 +347,9 @@ impl NotebookStore {
 
     pub fn get(&self, name: &str) -> Result<Notebook> {
         validate_name(name)?;
-        let path = self.root.join(name);
+        let path = self
+            .path_for(name)
+            .ok_or_else(|| Error::NotebookNotFound(name.to_string()))?;
         if !path.is_dir() {
             return Err(Error::NotebookNotFound(name.to_string()));
         }
@@ -317,9 +357,13 @@ impl NotebookStore {
     }
 
     /// Creates a new notebook with its own git repo.
+    /// If a custom path is configured for this notebook name, creates it
+    /// there; otherwise creates it under the default data directory.
     pub fn create(&self, name: &str) -> Result<Notebook> {
         validate_name(name)?;
-        let path = self.root.join(name);
+        let path = self
+            .path_for(name)
+            .ok_or_else(|| Error::NotebookNotFound(name.to_string()))?;
         if path.exists() {
             return Err(Error::NotebookExists(name.to_string()));
         }
@@ -331,7 +375,10 @@ impl NotebookStore {
     pub fn rename(&self, old_name: &str, new_name: &str) -> Result<Notebook> {
         validate_name(old_name)?;
         validate_name(new_name)?;
-        let old_path = self.root.join(old_name);
+        // For custom-path notebooks, rename by moving the directory itself
+        let old_path = self
+            .path_for(old_name)
+            .ok_or_else(|| Error::NotebookNotFound(old_name.to_string()))?;
         if !old_path.is_dir() {
             return Err(Error::NotebookNotFound(old_name.to_string()));
         }
@@ -345,7 +392,9 @@ impl NotebookStore {
 
     pub fn delete(&self, name: &str) -> Result<()> {
         validate_name(name)?;
-        let path = self.root.join(name);
+        let path = self
+            .path_for(name)
+            .ok_or_else(|| Error::NotebookNotFound(name.to_string()))?;
         if !path.is_dir() {
             return Err(Error::NotebookNotFound(name.to_string()));
         }

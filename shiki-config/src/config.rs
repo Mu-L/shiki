@@ -744,11 +744,21 @@ fn default_branch() -> String {
 /// field left unset here falls back to the global `[git]` default (see
 /// `Config::sync_for`), so most notebooks need no `[notebooks.<name>]`
 /// table at all.
+///
+/// A `path` field can also be set to point this notebook at an arbitrary
+/// directory on disk (e.g. an Obsidian vault subfolder) instead of the
+/// default location under the data directory.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotebookGitOverride {
     pub auto_push: Option<bool>,
     pub auto_sync: Option<bool>,
     pub auto_sync_every: Option<u32>,
+    /// Optional absolute path override for this notebook's directory.
+    /// When set, the notebook lives at this path instead of under the
+    /// data directory — useful for linking existing directories (e.g.
+    /// Obsidian vault subfolders) as independent notebooks.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 /// `[git]` settings resolved for one specific notebook — see `Config::sync_for`.
@@ -835,6 +845,21 @@ impl Config {
                 .and_then(|o| o.auto_sync_every)
                 .unwrap_or(self.git.auto_sync_every),
         }
+    }
+    /// Returns a map of notebook names to their custom absolute paths,
+    /// as configured in `[notebooks.<name>] path = "..."`.
+    /// Notebooks without a custom path are not included — they use the
+    /// default location under the data directory instead.
+    pub fn notebook_custom_paths(&self) -> std::collections::HashMap<String, std::path::PathBuf> {
+        self.notebooks
+            .iter()
+            .filter_map(|(name, overrides)| {
+                overrides
+                    .path
+                    .as_ref()
+                    .map(|p| (name.clone(), std::path::PathBuf::from(p)))
+            })
+            .collect()
     }
 }
 
@@ -1007,7 +1032,13 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # [notebooks.work]
 # auto_sync = true
 # auto_sync_every = 3
-# auto_push = true"
+# auto_push = true
+#
+# Each notebook can have its own path (an existing directory on disk)
+# instead of living under the default data directory:
+# [notebooks.obsidian]
+# path = \"/Users/me/Documents/Obsidian/Work\"
+# auto_sync = true"
         }
         "[snippets]" => {
             "\

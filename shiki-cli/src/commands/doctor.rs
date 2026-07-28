@@ -205,7 +205,8 @@ pub fn run() -> Result<()> {
         }
     }
 
-    let store = NotebookStore::new(data_dir.clone());
+    let custom_paths = config.notebook_custom_paths();
+    let store = NotebookStore::new_with_custom_paths(data_dir.clone(), custom_paths);
     match store.list() {
         Ok(notebooks) if notebooks.is_empty() => r.warn(
             "notebooks",

@@ -115,7 +115,8 @@ impl Context {
             .as_ref()
             .map(PathBuf::from)
             .unwrap_or_else(|| Config::default_data_dir().expect("valid data dir"));
-        let store = NotebookStore::new(data_dir);
+        let custom_paths = config.notebook_custom_paths();
+        let store = NotebookStore::new_with_custom_paths(data_dir, custom_paths);
         Ok(Self { config, store })
     }
 
