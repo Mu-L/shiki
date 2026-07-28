@@ -2346,6 +2346,7 @@ dependencies = [
  "chrono",
  "comrak",
  "crossterm",
+ "directories",
  "ratatui",
  "shiki-config",
  "shiki-core",

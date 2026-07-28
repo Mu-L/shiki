@@ -178,7 +178,8 @@ impl PendingInput {
         match self {
             PendingInput::NewNotebook => Some(
                 "A name creates a new local notebook. Paste a repo URL (https://, git@, ssh://) \
-                 to clone it instead — make sure you're logged in first if it's private.",
+                 to clone it instead — make sure you're logged in first if it's private. A path \
+                 (/abs, ~/docs, ./relative) adopts that existing directory instead.",
             ),
             _ => None,
         }
@@ -551,6 +552,10 @@ pub struct App {
     /// dialog is up — mirrors `pending_delete`'s pattern so `y`/`n` in
     /// `handle_confirm_key` can handle either kind of pending action.
     pub(crate) pending_revert: Option<(std::path::PathBuf, String)>,
+    /// `(name, path)` staged while the `confirm` dialog asks whether to
+    /// `git init` a directory being adopted as a notebook (see
+    /// `adopt_notebook_from_path`) — same pattern as `pending_revert`.
+    pub(crate) pending_notebook_adopt: Option<(String, std::path::PathBuf)>,
     /// Cache for the footer's "{n} changes" indicator: `(note path, revision
     /// count)` for whichever note was last checked, so `run()` calling this
     /// every draw tick only actually re-walks history when the selected
@@ -810,6 +815,7 @@ impl App {
             history_selected: 0,
             history_viewing: None,
             pending_revert: None,
+            pending_notebook_adopt: None,
             history_count_cache: None,
             folder_preview_cache: None,
             note_preview_cache: None,
@@ -1100,6 +1106,73 @@ impl App {
                 "created '{name}' and set remote, but pull failed: {e}"
             )),
         }
+    }
+
+    /// New-notebook fast path for pointing at an existing directory on disk
+    /// (`/abs/path`, `~/docs`, `./relative`) instead of creating a fresh
+    /// empty one or cloning a URL — derives the name from the last path
+    /// segment (same idea as `notebook_name_from_git_url`), and, if the
+    /// directory has no `.git` yet, asks for confirmation before
+    /// initializing one rather than silently adopting a non-git-managed
+    /// folder: every other notebook in this app is git-managed from
+    /// creation, and letting one in without a repo would break sync/push/
+    /// pull the moment something tried to act on it.
+    pub(crate) fn adopt_notebook_from_path(&mut self, raw: &str) {
+        let path = expand_home(raw);
+        if !path.is_dir() {
+            self.set_status(format!("'{}' is not a directory", path.display()));
+            return;
+        }
+        let Some(name) = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .filter(|n| !n.is_empty())
+        else {
+            self.set_status(format!(
+                "could not derive a notebook name from '{}'",
+                path.display()
+            ));
+            return;
+        };
+        if self.store.get(&name).is_ok() {
+            self.set_status(format!("notebook '{name}' already exists"));
+            return;
+        }
+        if path.join(".git").is_dir() {
+            self.finish_notebook_adopt(name, path, "adopted");
+        } else {
+            self.pending_notebook_adopt = Some((name, path.clone()));
+            self.confirm = Some(crate::confirm::ConfirmDialog::new(format!(
+                "'{}' has no git repo — initialize one and adopt it as a notebook?",
+                path.display()
+            )));
+        }
+    }
+
+    /// Shared tail of adoption — used both when `.git` was already there
+    /// (no confirmation needed) and after `handle_confirm_key` just ran
+    /// `git::init_repo` on a confirmed one. Registers the custom path both
+    /// in the live `NotebookStore` (so it shows up without restarting) and
+    /// in `config.toml`'s `[notebooks.<name>] path = "..."` — the same field
+    /// `Config::notebook_custom_paths` already reads for the pre-existing
+    /// "point at an Obsidian vault subfolder" use case, so nothing new had
+    /// to be added on the config side for this to persist across restarts.
+    pub(crate) fn finish_notebook_adopt(
+        &mut self,
+        name: String,
+        path: std::path::PathBuf,
+        verb: &str,
+    ) {
+        self.store.custom_paths.insert(name.clone(), path.clone());
+        self.config.notebooks.entry(name.clone()).or_default().path =
+            Some(path.to_string_lossy().to_string());
+        self.save_config();
+        self.reload_notebooks();
+        if let Some(idx) = self.notebooks.iter().position(|n| n.name == name) {
+            self.selected_notebook = idx;
+            self.reload_notes();
+        }
+        self.set_status(format!("{verb} '{name}' from {}", path.display()));
     }
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
@@ -1542,6 +1615,33 @@ pub(crate) fn looks_like_git_url(s: &str) -> bool {
         || s.starts_with("git@")
         || s.starts_with("ssh://")
         || s.starts_with("git://")
+}
+
+/// Whether the new-notebook input looks like a filesystem path to adopt
+/// rather than a plain name to create or a git URL to clone — `/absolute`,
+/// `~`/`~/...` (home-relative), or `./relative`. None of these prefixes
+/// overlap with `looks_like_git_url`'s, and a plain notebook name can never
+/// start with `/` either (`validate_name` rejects any name containing one),
+/// so checking this after `looks_like_git_url` is unambiguous.
+pub(crate) fn looks_like_path(s: &str) -> bool {
+    s.starts_with('/') || s.starts_with('~') || s.starts_with("./")
+}
+
+/// Expands a leading `~` (or `~/...`) to the user's home directory; anything
+/// else — including a plain `/absolute` or `./relative` path — is returned
+/// unchanged for the caller to resolve against the current directory itself.
+pub(crate) fn expand_home(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix('~') {
+        if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) {
+            let rest = rest.strip_prefix('/').unwrap_or(rest);
+            return if rest.is_empty() {
+                home
+            } else {
+                home.join(rest)
+            };
+        }
+    }
+    std::path::PathBuf::from(path)
 }
 
 /// Notebook name derived from a git URL's repo name — the last path

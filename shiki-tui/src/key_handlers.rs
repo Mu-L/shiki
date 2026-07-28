@@ -4,8 +4,8 @@ use shiki_core::Notebook;
 
 use crate::app::{
     drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
-    looks_like_git_url, relative_folder, shift, App, BatchOp, DeleteTarget, Focus, Mode,
-    PendingInput, PreviewSelection, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg,
+    looks_like_git_url, looks_like_path, relative_folder, shift, App, BatchOp, DeleteTarget, Focus,
+    Mode, PendingInput, PreviewSelection, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg,
     UpdateState, PAGE_STEP,
 };
 use crate::editor::InlineEditor;
@@ -578,7 +578,7 @@ impl App {
             }
         }
     }
-    fn save_config(&mut self) {
+    pub(crate) fn save_config(&mut self) {
         if let Ok(path) = Config::default_path() {
             let _ = self.config.save(&path);
         }
@@ -2044,6 +2044,12 @@ impl App {
                 // URL + `p` as four separate steps.
                 if !value.is_empty() && looks_like_git_url(&value) {
                     self.create_notebook_from_url(&value);
+                } else if !value.is_empty() && looks_like_path(&value) {
+                    // Pointing at `/abs/path`, `~/docs`, or `./relative`
+                    // adopts that existing directory as a notebook instead
+                    // of creating a new empty one — see
+                    // `adopt_notebook_from_path`.
+                    self.adopt_notebook_from_path(&value);
                 } else {
                     // Same fast path as NewNote: Enter on an empty name
                     // doesn't cancel, it just picks a default so something
@@ -2420,6 +2426,16 @@ impl App {
                     self.settings_selected =
                         self.settings_selected.min(remaining.saturating_sub(1));
                     self.set_status(format!("deleted snippet '{trigger}'"));
+                } else if let Some((name, path)) = self.pending_notebook_adopt.take() {
+                    match shiki_core::git::init_repo(&path) {
+                        Ok(_) => {
+                            self.finish_notebook_adopt(name, path, "initialized git and adopted")
+                        }
+                        Err(e) => self.set_status(format!(
+                            "could not initialize git at '{}': {e}",
+                            path.display()
+                        )),
+                    }
                 }
             }
             _ => {
@@ -2428,6 +2444,7 @@ impl App {
                 self.pending_clear_logs = false;
                 self.pending_batch_delete = None;
                 self.pending_delete_snippet = None;
+                self.pending_notebook_adopt = None;
             }
         }
         self.confirm = None;
