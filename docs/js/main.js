@@ -296,6 +296,128 @@ async function loadLatestRelease() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Contributors — pulled live from the GitHub API (commits, PRs, issues) so
+// this list can never go stale or need hand-editing, same "fetch on load"
+// approach as the changelog/release sections above. The repo owner and any
+// AI/bot commit authors are deliberately excluded: this section exists to
+// thank *outside* contributors, not the maintainer or their tooling. A
+// contributor who's only filed an issue (no commits/PRs yet) still earns a
+// spot — reporting a real bug is a contribution too.
+// ---------------------------------------------------------------------------
+
+const CONTRIBUTORS_EXCLUDE = new Set(["sazardev", "claude"]);
+const MIN_AVATAR_PX = 64;
+const MAX_AVATAR_PX = 128;
+
+function isExcludedContributor(login, type) {
+  if (type === "Bot") return true;
+  const lower = login.toLowerCase();
+  return CONTRIBUTORS_EXCLUDE.has(lower) || lower.endsWith("[bot]");
+}
+
+async function fetchGithubJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function loadContributors() {
+  const grid = document.getElementById("contributors-grid");
+  if (!grid) return; // this script is shared across pages — not every page has this section
+  const section = document.getElementById("contributors");
+
+  try {
+    // A single page of 100 comfortably covers every commit author, PR, and
+    // issue this repo has today — not worth paginating until it actually
+    // needs it.
+    const [contributors, pulls, issues] = await Promise.all([
+      fetchGithubJson("https://api.github.com/repos/sazardev/shiki/contributors?per_page=100"),
+      fetchGithubJson("https://api.github.com/repos/sazardev/shiki/pulls?state=all&per_page=100"),
+      fetchGithubJson("https://api.github.com/repos/sazardev/shiki/issues?state=all&per_page=100"),
+    ]);
+
+    const people = new Map(); // login -> { avatar_url, html_url, commits, prs, issues }
+
+    for (const c of contributors) {
+      if (isExcludedContributor(c.login, c.type)) continue;
+      people.set(c.login, {
+        avatar_url: c.avatar_url,
+        html_url: c.html_url,
+        commits: c.contributions,
+        prs: 0,
+        issues: 0,
+      });
+    }
+    for (const pr of pulls) {
+      const u = pr.user;
+      if (!u || isExcludedContributor(u.login, u.type)) continue;
+      const entry = people.get(u.login) || {
+        avatar_url: u.avatar_url,
+        html_url: u.html_url,
+        commits: 0,
+        prs: 0,
+        issues: 0,
+      };
+      entry.prs += 1;
+      people.set(u.login, entry);
+    }
+    for (const issue of issues) {
+      if (issue.pull_request) continue; // the issues endpoint also returns PRs
+      const u = issue.user;
+      if (!u || isExcludedContributor(u.login, u.type)) continue;
+      const entry = people.get(u.login) || {
+        avatar_url: u.avatar_url,
+        html_url: u.html_url,
+        commits: 0,
+        prs: 0,
+        issues: 0,
+      };
+      entry.issues += 1;
+      people.set(u.login, entry);
+    }
+
+    if (people.size === 0) {
+      if (section) section.hidden = true;
+      return;
+    }
+
+    const entries = Array.from(people.entries()).map(([login, v]) => ({
+      login,
+      ...v,
+      score: v.commits + v.prs + v.issues,
+    }));
+    entries.sort((a, b) => b.score - a.score);
+
+    const minScore = Math.min(...entries.map((e) => e.score));
+    const maxScore = Math.max(...entries.map((e) => e.score));
+
+    grid.innerHTML = entries
+      .map((e) => {
+        const size =
+          maxScore === minScore
+            ? MAX_AVATAR_PX
+            : Math.round(
+                MIN_AVATAR_PX + ((e.score - minScore) / (maxScore - minScore)) * (MAX_AVATAR_PX - MIN_AVATAR_PX)
+              );
+        const parts = [];
+        if (e.commits > 0) parts.push(`${e.commits} commit${e.commits === 1 ? "" : "s"}`);
+        if (e.prs > 0) parts.push(`${e.prs} PR${e.prs === 1 ? "" : "s"}`);
+        if (e.issues > 0) parts.push(`${e.issues} issue${e.issues === 1 ? "" : "s"}`);
+        return `
+          <a class="contributor" href="${e.html_url}" target="_blank" rel="noopener">
+            <img class="contributor-avatar" src="${e.avatar_url}" alt="${e.login}"
+                 width="${size}" height="${size}" loading="lazy" />
+            <span class="contributor-name">@${e.login}</span>
+            <span class="contributor-stats">${parts.join(" · ")}</span>
+          </a>`;
+      })
+      .join("");
+  } catch (err) {
+    grid.innerHTML = `<p class="contributors-error">Couldn't load contributors right now — see the full list on <a href="https://github.com/sazardev/shiki/graphs/contributors">GitHub</a>.</p>`;
+  }
+}
+
 function initCopyButtons() {
   document.querySelectorAll(".copy-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -324,5 +446,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   loadChangelog();
   loadLatestRelease();
+  loadContributors();
   initCopyButtons();
 });

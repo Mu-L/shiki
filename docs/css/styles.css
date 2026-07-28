@@ -723,6 +723,56 @@ code, .code {
 }
 
 /* ==========================================================================
+   Contributors
+   ========================================================================== */
+
+.contributors-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 28px;
+  margin-top: 36px;
+}
+
+.contributor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 140px;
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.contributor-avatar {
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  object-fit: cover;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.contributor:hover .contributor-avatar {
+  border-color: var(--accent);
+  transform: translateY(-3px);
+}
+
+.contributor-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.contributor-stats {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.contributors-loading, .contributors-error {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* ==========================================================================
    Changelog
    ========================================================================== */
 
