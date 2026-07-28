@@ -756,7 +756,9 @@ pub struct NotebookGitOverride {
     /// Optional absolute path override for this notebook's directory.
     /// When set, the notebook lives at this path instead of under the
     /// data directory — useful for linking existing directories (e.g.
-    /// Obsidian vault subfolders) as independent notebooks.
+    /// Obsidian vault subfolders) as independent notebooks. Must be
+    /// absolute — see `Config::notebook_custom_paths` for why a relative
+    /// value is ignored rather than honored.
     #[serde(default)]
     pub path: Option<String>,
 }
@@ -850,14 +852,21 @@ impl Config {
     /// as configured in `[notebooks.<name>] path = "..."`.
     /// Notebooks without a custom path are not included — they use the
     /// default location under the data directory instead.
+    ///
+    /// A configured `path` that isn't absolute is also excluded (falling
+    /// back to the default location) rather than honored as-is: a relative
+    /// path here would resolve against whatever directory the `shiki`
+    /// process happens to be launched from, which is different depending on
+    /// whether it's started from a terminal, a desktop entry, or a cron job
+    /// — not the stable, predictable location this feature is meant to
+    /// provide. `shiki doctor` separately flags any notebook with a
+    /// non-absolute `path` so this doesn't fail silently.
     pub fn notebook_custom_paths(&self) -> std::collections::HashMap<String, std::path::PathBuf> {
         self.notebooks
             .iter()
             .filter_map(|(name, overrides)| {
-                overrides
-                    .path
-                    .as_ref()
-                    .map(|p| (name.clone(), std::path::PathBuf::from(p)))
+                let path = std::path::PathBuf::from(overrides.path.as_ref()?);
+                path.is_absolute().then(|| (name.clone(), path))
             })
             .collect()
     }
@@ -1084,6 +1093,38 @@ mod tests {
     #[test]
     fn completely_empty_file_parses_to_all_defaults() {
         Config::parse("").expect("an empty config.toml must parse to all defaults");
+    }
+
+    #[test]
+    fn notebook_custom_paths_ignores_relative_paths_but_keeps_absolute_ones() {
+        let mut config = Config::default();
+        config.notebooks.insert(
+            "work".to_string(),
+            NotebookGitOverride {
+                path: Some("relative/vault/work".to_string()),
+                ..Default::default()
+            },
+        );
+        #[cfg(windows)]
+        let absolute = "C:\\vaults\\personal";
+        #[cfg(not(windows))]
+        let absolute = "/vaults/personal";
+        config.notebooks.insert(
+            "personal".to_string(),
+            NotebookGitOverride {
+                path: Some(absolute.to_string()),
+                ..Default::default()
+            },
+        );
+
+        let custom_paths = config.notebook_custom_paths();
+
+        assert_eq!(custom_paths.len(), 1, "the relative path must be excluded");
+        assert_eq!(
+            custom_paths.get("personal"),
+            Some(&std::path::PathBuf::from(absolute))
+        );
+        assert!(!custom_paths.contains_key("work"));
     }
 
     #[test]

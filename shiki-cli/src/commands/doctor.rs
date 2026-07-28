@@ -230,6 +230,7 @@ pub fn run() -> Result<()> {
 
     check_keybinding_health(&config, &mut r);
     check_snippet_health(&config, &mut r);
+    check_notebook_path_health(&config, &mut r);
 
     println!("\n{} ok, {} warning(s), {} failed", r.ok, r.warn, r.fail);
     if r.fail > 0 {
@@ -429,6 +430,33 @@ fn check_keybinding_health(config: &Config, r: &mut Report) {
 /// `[snippets.h1]` parses fine and silently collapses to just one of them
 /// (`all_commands` sorts deterministically so *which* one is at least
 /// reproducible, but it's still almost certainly not what was intended).
+/// `Config::notebook_custom_paths` silently drops any `[notebooks.<name>]
+/// path = "..."` that isn't absolute (see its doc comment for why) — this
+/// surfaces that instead of leaving the affected notebook falling back to
+/// the default location with no explanation.
+fn check_notebook_path_health(config: &Config, r: &mut Report) {
+    let relative: Vec<&str> = config
+        .notebooks
+        .iter()
+        .filter_map(|(name, overrides)| {
+            let path = overrides.path.as_ref()?;
+            (!PathBuf::from(path).is_absolute()).then_some(name.as_str())
+        })
+        .collect();
+    if relative.is_empty() {
+        return;
+    }
+    let mut names = relative;
+    names.sort_unstable();
+    r.warn(
+        "notebook paths",
+        format!(
+            "non-absolute `path` ignored (falling back to the default location) for: {}",
+            names.join(", ")
+        ),
+    );
+}
+
 fn check_snippet_health(config: &Config, r: &mut Report) {
     if config.snippets.is_empty() {
         return;
