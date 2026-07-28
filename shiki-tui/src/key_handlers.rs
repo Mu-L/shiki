@@ -260,8 +260,8 @@ impl App {
             _ => {}
         }
     }
-    /// GENERAL — `use_favorite_editor`/`mouse_drag_selection` toggle in
-    /// place; the three text fields open a single-line prompt
+    /// GENERAL — `use_favorite_editor`/`mouse_drag_selection`/`show_hints`
+    /// toggle in place; the three text fields open a single-line prompt
     /// (`PendingInput::SettingsGeneralText`, resolved back to a field via
     /// `GeneralField::ALL[settings_selected]` once it's confirmed).
     fn handle_general_field_enter(&mut self) {
@@ -285,6 +285,12 @@ impl App {
             ));
             return;
         }
+        if field == GeneralField::ShowHints {
+            self.config.general.show_hints = !self.config.general.show_hints;
+            self.save_config();
+            self.set_status(format!("show_hints -> {}", self.config.general.show_hints));
+            return;
+        }
         let (label, prefill) = match field {
             GeneralField::DefaultNotebook => (
                 "default_notebook",
@@ -294,7 +300,9 @@ impl App {
             GeneralField::DailyTemplate => {
                 ("daily_template", self.config.general.daily_template.clone())
             }
-            GeneralField::UseFavoriteEditor | GeneralField::MouseDragSelection => unreachable!(),
+            GeneralField::UseFavoriteEditor
+            | GeneralField::MouseDragSelection
+            | GeneralField::ShowHints => unreachable!(),
         };
         self.show_settings = false;
         self.pending_input_title = Some(format!(" {label} "));
@@ -2219,6 +2227,7 @@ impl App {
                         }
                         GeneralField::UseFavoriteEditor => "use_favorite_editor",
                         GeneralField::MouseDragSelection => "mouse_drag_selection",
+                        GeneralField::ShowHints => "show_hints",
                     };
                     self.save_config();
                     self.set_status(format!("{label} -> '{value}'"));

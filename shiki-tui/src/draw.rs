@@ -12,7 +12,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::widgets::{Clear, List, ListItem, ListState};
+use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 use shiki_core::TagIndex;
 
@@ -84,6 +84,30 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 state.select(Some(app.quick_template_selected));
             }
             frame.render_stateful_widget(list, list_area, &mut state);
+        } else if let Some(hint) = kind.hint().filter(|_| app.config.general.show_hints) {
+            // Stacked under the input box's own fixed 3 rows, same idea as
+            // the quick-template dropdown above — the hint is informational
+            // only, so it never affects input handling, just what's drawn.
+            let hint_height = hint_line_count(hint, width.saturating_sub(2));
+            let popup_area = centered_rect(frame.area(), width, 3 + 1 + hint_height);
+            frame.render_widget(Clear, popup_area);
+            let [input_area, _spacer, hint_area] = Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Length(1),
+                Constraint::Length(hint_height),
+            ])
+            .areas(popup_area);
+            app.input
+                .render(frame, input_area, title, hex_to_color(&app.theme.accent));
+            let hint_paragraph = Paragraph::new(hint)
+                .style(
+                    Style::default()
+                        .fg(hex_to_color(&app.theme.muted))
+                        .add_modifier(Modifier::ITALIC),
+                )
+                .alignment(ratatui::layout::Alignment::Center)
+                .wrap(Wrap { trim: true });
+            frame.render_widget(hint_paragraph, hint_area);
         } else {
             let popup_area = centered_rect(frame.area(), width, 3);
             frame.render_widget(Clear, popup_area);
@@ -158,6 +182,26 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(Clear, popup_area);
         dialog.render(frame, popup_area, hex_to_color(&app.theme.warning));
     }
+}
+
+/// Greedy word-wrap line count for a `PendingInput` hint, so the popup can
+/// be sized to fit it exactly before `Paragraph`'s own `Wrap` does the real
+/// wrapping at render time.
+fn hint_line_count(text: &str, width: u16) -> u16 {
+    let width = width.max(1) as usize;
+    let mut lines: u16 = 1;
+    let mut current = 0usize;
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        let sep = if current == 0 { 0 } else { 1 };
+        if current + sep + word_len > width {
+            lines += 1;
+            current = word_len;
+        } else {
+            current += sep + word_len;
+        }
+    }
+    lines
 }
 
 fn render_theme_picker(frame: &mut Frame, frame_area: Rect, app: &App) {

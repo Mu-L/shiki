@@ -427,6 +427,9 @@ mouse_drag_selection = true
 # vault) to use it as the notebooks root instead of the platform default
 # (~/.local/share/shiki/). Notebooks are subdirectories of this path.
 # data_dir = "/Users/me/my-obsidian-vault"
+# When true, text-input prompts that have one (e.g. new notebook) show a
+# small hint line explaining non-obvious input, like pasting a git URL.
+show_hints = true
 
 [keybindings]
 leader = "space"

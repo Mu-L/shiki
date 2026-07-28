@@ -168,6 +168,21 @@ impl PendingInput {
             PendingInput::MoveOrCopy => " Move/copy to ",
         }
     }
+
+    /// Small muted line rendered under the input box, `None` for every
+    /// variant except the ones whose valid input isn't obvious from the
+    /// title alone — e.g. `NewNotebook` silently accepts a git URL instead
+    /// of a plain name (see `App::confirm_input`'s `looks_like_git_url`
+    /// branch), which nothing else in the modal hints at.
+    pub(crate) fn hint(self) -> Option<&'static str> {
+        match self {
+            PendingInput::NewNotebook => Some(
+                "A name creates a new local notebook. Paste a repo URL (https://, git@, ssh://) \
+                 to clone it instead — make sure you're logged in first if it's private.",
+            ),
+            _ => None,
+        }
+    }
 }
 
 /// A quick `@`-triggered shortcut typed into the `NewNote` title prompt —
