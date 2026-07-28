@@ -5,9 +5,19 @@
 # the app handling real volume, not a 3-note toy example. Beyond browsing/
 # reading, the tour also exercises real editing actions: global search
 # with an actual cross-notebook jump, tags, multi-select (batch delete),
-# folder create + folder move, writing a full multi-section note from
-# scratch in the inline editor, and a git commit — not just read-only
-# navigation.
+# folder create + folder move, writing a full multi-section note using the
+# inline editor's `/`-menu (v0.8.3+) for headings/bullets/checklist items
+# instead of hand-typed markdown, a git commit, a full tour of the now
+# fully-interactive Settings screen (v0.8.5 — every tab, including creating
+# a brand-new `/`-menu snippet from inside it), and live-cycling into the
+# 3 newest built-in themes (Dracula/One Dark/Monokai, v0.8.4) — not just
+# read-only navigation. Re-run this after each release that touches the
+# TUI's actual workflow (new panels, new keybindings, new modals); it's
+# cheap to regenerate and a stale demo showing a workflow that no longer
+# matches the real app is worse than no demo at all — see the fixed
+# Phase 10 bug below for exactly that happening once already (the `a`/
+# NewNote flow grew a template-picker step in v0.8.1 and this script kept
+# assuming the old direct-to-editor behavior for several releases after).
 #
 # Uses VHS (https://github.com/charmbracelet/vhs): a `.tape` file is a
 # literal, deterministic keystroke script, so the same recording comes out
@@ -880,40 +890,69 @@ Sleep 400ms
 Enter
 Sleep 700ms
 
-# --- Phase 10: create a real note and write a full, multi-section body
-# in the inline editor, not just a title — "a" (NewNote) drops straight
-# into Mode::Edit on an empty body (confirm_input's NewNote arm calls
-# start_edit_inline() itself). Typed keys go straight into tui-textarea;
-# Enter inserts a real newline the same as any other forwarded key, and
-# Escape saves + exits back to Mode::Normal. TypingSpeed is cranked way up
-# for just this block — at the demo's normal 30ms/char this much text
-# would take the better part of a minute, working against the "shiki is
-# fast" point the whole recording is trying to make.
+# --- Phase 10: create a real note and write a full, multi-section body,
+# using the inline editor's `/`-menu (v0.8.3+) for headings/bullets/a
+# checklist item instead of hand-typing that markdown. Two real behaviors
+# to get right here, both verified against the current source before
+# scripting them (an earlier version of this exact phase silently broke
+# because it assumed the pre-v0.8.1 flow — see the file header):
+#   1. "a" (NewNote) no longer drops straight into Mode::Edit — confirming
+#      the title now opens a template picker first (`open_template_picker`,
+#      added in v0.8.1) with "blank" pre-selected at index 0. A second
+#      `Enter` is required to actually confirm "blank" and land in the
+#      inline editor; without it, every subsequent keystroke here would be
+#      silently swallowed by the picker's own limited key handling instead
+#      of typed into the note.
+#   2. `/` only opens the quick-block menu when it's the very first
+#      character of the *current line* (`at_line_start` checks the cursor
+#      is at column 1 right after inserting it) — each `/xyz` below is
+#      therefore typed at the start of a fresh line, never mid-sentence.
+#      Typing the trigger narrows `slash_menu_filtered()` same as the
+#      which-key/global-search filters already do; `Enter` applies the
+#      single remaining match and replaces the typed `/xyz` with the
+#      command's real body, cursor included.
+# TypingSpeed is cranked way up for just this block — at the demo's normal
+# 30ms/char this much text would take the better part of a minute, working
+# against the "shiki is fast" point the whole recording is trying to make.
 Set TypingSpeed 6ms
 Type "a"
 Sleep 400ms
 Type "Release day retrospective"
 Sleep 400ms
 Enter
+Sleep 500ms
+Enter
 Sleep 600ms
-Type "# What shipped today"
+Type "/h1"
+Sleep 500ms
+Enter
+Type "What shipped today"
 Enter
 Enter
 Type "Spent the day wiring up the expanded demo recording -- way more surface"
 Enter
-Type "area than the first pass: folder moves, batch deletes, a freshly written"
+Type "area than the first pass: settings, snippets, new themes, folder moves,"
 Enter
-Type "note (this one), and an actual git commit at the end."
-Enter
-Enter
-Type "## What went well"
+Type "batch deletes, a freshly written note (this one), and a git commit."
 Enter
 Enter
-Type "- Multi-select finally gets used for something real instead of just"
+Type "/h2"
+Sleep 400ms
+Enter
+Type "What went well"
+Enter
+Enter
+Type "/bullet"
+Sleep 400ms
+Enter
+Type "Multi-select finally gets used for something real instead of just"
 Enter
 Type "  toggling on and off with nothing to show for it."
 Enter
-Type "- Moving a folder into a different parent worked first try once the"
+Type "/bullet"
+Sleep 300ms
+Enter
+Type "Moving a folder into a different parent worked first try once the"
 Enter
 Type "  destination path was right."
 Enter
@@ -931,9 +970,12 @@ Enter
 Type "## Tomorrow"
 Enter
 Enter
+Type "/check"
+Sleep 400ms
+Enter
 Type "Wire this whole thing into CI so it regenerates automatically per"
 Enter
-Type "release, same as the screenshots already do."
+Type "  release, same as the screenshots already do."
 Sleep 900ms
 Set TypingSpeed 30ms
 Escape
@@ -947,19 +989,143 @@ Sleep 700ms
 # the resolved-policy behavior manual `s` always respects (unlike `u`,
 # which force-pushes regardless).
 Type "s"
-Sleep 1300ms
+Sleep 1800ms
 
-# --- Phase 12: theme picker, live-cycle a few palettes fast — another
-# leader binding, reachable regardless of focus.
+# --- Phase 12: Settings screen (leader+`s`, v0.8.5) — every tab is
+# genuinely interactive now, not read-only like the first cut in v0.8.4.
+# `Left`/`Right` always switches tabs regardless of how deep a drill-down
+# is (checked before the drill-state branch in `handle_settings_key`),
+# demonstrated below by jumping straight from NOTEBOOKS level 2 to SNIPPETS
+# without backing out first. Every toggle exercised here is flipped back to
+# its starting value before moving on (use_favorite_editor, auto_push, the
+# notebook's own auto_push override) so this phase leaves no side effect
+# behind except the one it's actually meant to: a real new `/`-menu
+# snippet, created from scratch entirely from within Settings.
+Space
+Type "s"
+Sleep 700ms
+
+# GENERAL: down to use_favorite_editor (row 4 of 4) and flip it on, then
+# off again — booleans toggle in place on `Enter`, no confirmation needed.
+Down@200ms 3
+Sleep 500ms
+Enter
+Sleep 600ms
+Enter
+Sleep 600ms
+
+# THEME: `name` opens the exact same theme picker leader+`c` does (not a
+# duplicate) — browse a couple of entries live, then `Esc` cancels back to
+# the committed theme and reopens Settings automatically on THEME
+# (`reopen_settings_after_theme_picker`).
+Right
+Sleep 600ms
+Enter
+Sleep 600ms
+Down@200ms 2
+Sleep 600ms
+Escape
+Sleep 600ms
+
+# GIT: toggle the global auto_push default on/off in place, then open (and
+# cancel) commit_prefix to show a text field's prompt-prefilled-with-the-
+# current-value behavior. Every tab switch below gets a full 600ms+ settle
+# before the next keystroke, not just a quick 300-400ms — this phase
+# follows right on the heels of Phase 11's background git-sync thread
+# finishing up, and on one run a `Down` racing that transition landed the
+# following `Enter` on row 0 (auto_commit) instead of row 1 (auto_push),
+# silently flipping the wrong boolean; same "give a transition a full
+# settle cycle" fix already applied to the tags-modal close in Phase 6,
+# just needed more headroom here since a background thread is involved
+# too, not only modal-open/close rendering.
+Right
+Sleep 600ms
+Down@200ms 1
+Sleep 500ms
+Enter
+Sleep 600ms
+Enter
+Sleep 600ms
+Down@200ms 1
+Sleep 500ms
+Enter
+Sleep 600ms
+Escape
+Sleep 600ms
+
+# NOTEBOOKS: level 1 lists every real notebook with its actual git remote
+# (redacted) — drill into "personal" (alphabetically first), cycle its
+# auto_push override through the full inherit -> true -> false -> inherit
+# 3-state sequence (3 Enters, landing back at unset), then jump straight to
+# SNIPPETS with `Right` instead of backing out of the drill first.
+Right
+Sleep 600ms
+Enter
+Sleep 600ms
+Down@200ms 1
+Sleep 500ms
+Enter
+Sleep 500ms
+Enter
+Sleep 500ms
+Enter
+Sleep 600ms
+
+# SNIPPETS: create a brand-new `/`-menu command from scratch — "a" prompts
+# for a trigger and drills straight into the new (empty) snippet; "enter"
+# on label opens a text prompt; "enter" on body opens the very same inline
+# editor a note's own body uses (`Mode::Edit`, tracked via
+# `App.editing_snippet` instead of a note path). Once saved, this snippet
+# is a real, usable `/review` entry in every note's `/`-menu from now on.
+Right
+Sleep 600ms
+Type "a"
+Sleep 500ms
+Type "review"
+Sleep 500ms
+Enter
+Sleep 600ms
+Enter
+Sleep 500ms
+Type "PR review checklist"
+Sleep 500ms
+Enter
+Sleep 600ms
+Down@200ms 1
+Sleep 500ms
+Enter
+Sleep 700ms
+Type "- [ ] Approach makes sense"
+Enter
+Type "- [ ] Tests added or updated"
+Enter
+Type "- [ ] Docs / CHANGELOG updated"
+Sleep 700ms
+Escape
+Sleep 700ms
+Escape
+Sleep 600ms
+
+# --- Phase 13: theme picker, standalone (leader+`c`) — live-cycle through
+# the 3 newest built-in themes (Dracula, One Dark, Monokai — v0.8.4 grew
+# the set from 12 to 15) before cancelling back to the notebook's actual
+# gruvbox-dark. `available_themes` order comes straight from
+# `shiki-config/src/themes/mod.rs`'s `all()`, checked directly rather than
+# guessed: gruvbox-dark sits at index 7, so 5 Downs lands on dracula (12),
+# then one more each for one-dark (13) and monokai (14).
 Space
 Type "c"
 Sleep 500ms
-Down@200ms 3
-Sleep 900ms
+Down@200ms 5
+Sleep 500ms
+Down@200ms 1
+Sleep 500ms
+Down@200ms 1
+Sleep 700ms
 Escape
 Sleep 500ms
 
-# --- Phase 13: which-key / command palette, quick glimpse.
+# --- Phase 14: which-key / command palette, quick glimpse.
 Type "?"
 Sleep 900ms
 Escape
