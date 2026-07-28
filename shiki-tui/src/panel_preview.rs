@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, Focus};
@@ -25,13 +25,16 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     };
     let block = panel_block(title, focused, &app.theme);
 
-    let lines = match (app.selected_note(), app.selected_folder()) {
+    let mut lines = match (app.selected_note(), app.selected_folder()) {
         // Both branches read from an `App`-level cache
         // (`note_preview_lines`/`folder_preview_lines`) that only re-does
         // the real work — `markdown_to_lines`'s full pass over the note
         // body, or `format_folder_entries`'s per-row `format!` calls —
         // when the selection or theme colors actually changed, not on
-        // every one of these render calls.
+        // every one of these render calls. `note_preview_lines` is already
+        // pre-wrapped to the panel's content width (see
+        // `App::refresh_note_preview_cache`), so this `Paragraph` displays
+        // rows verbatim instead of asking ratatui to wrap them again.
         (Some(_), _) => borrow_lines(app.note_preview_lines().unwrap_or(&[])),
         (None, Some(_)) => borrow_lines(app.folder_preview_lines().unwrap_or(&[])),
         (None, None) => vec![Line::from(Span::styled(
@@ -40,11 +43,55 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         ))],
     };
 
+    // Drag-selection highlight — only meaningful over a note's own body,
+    // never the folder-peek/empty-notebook placeholders, since
+    // `preview_selection` is only ever populated by a click that already
+    // hit-tested against `note_preview_lines`.
+    if let (Some(_), Some(selection)) = (app.selected_note(), &app.preview_selection) {
+        let start = selection.anchor_row.min(selection.current_row);
+        let end = selection.anchor_row.max(selection.current_row);
+        let selection_bg = hex_to_color(&app.theme.selection);
+        for line in lines.iter_mut().take(end + 1).skip(start) {
+            for span in &mut line.spans {
+                span.style = span.style.bg(selection_bg);
+            }
+        }
+    }
+
     let paragraph = Paragraph::new(lines)
         .block(block)
-        .wrap(Wrap { trim: false })
         .scroll((app.preview_scroll, 0));
     frame.render_widget(paragraph, area);
+}
+
+/// Maps a mouse event at `(column, row)` to a document-row index into the
+/// panel's pre-wrapped rows (see `App::refresh_note_preview_cache`), or
+/// `None` if the position falls on/outside the panel's border, or past the
+/// last real row. `scroll` is `App::preview_scroll`; `row_count` is
+/// `app.note_preview_lines().len()`, so dragging past the end of a short
+/// note doesn't resolve to a phantom trailing row. Plain function of
+/// coordinates/counts, not `&App`, same convention as
+/// `panel_drawer::drawer_hit_at`/`status_bar::coffee_hit_at`.
+pub fn preview_row_at(
+    area: Rect,
+    scroll: u16,
+    row_count: usize,
+    column: u16,
+    row: u16,
+) -> Option<usize> {
+    let content_left = area.x + 1;
+    let content_right = area.x + area.width.saturating_sub(1);
+    let content_top = area.y + 1;
+    let content_bottom = area.y + area.height.saturating_sub(1);
+    if column < content_left
+        || column >= content_right
+        || row < content_top
+        || row >= content_bottom
+    {
+        return None;
+    }
+    let doc_row = scroll as usize + (row - content_top) as usize;
+    (doc_row < row_count).then_some(doc_row)
 }
 
 /// What's inside a selected-but-not-entered folder, so landing on it already
@@ -80,4 +127,47 @@ pub(crate) fn format_folder_entries(
         )));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn area() -> Rect {
+        Rect::new(0, 0, 20, 10)
+    }
+
+    #[test]
+    fn top_left_content_cell_hits_row_zero() {
+        let a = area();
+        assert_eq!(preview_row_at(a, 0, 5, a.x + 1, a.y + 1), Some(0));
+    }
+
+    #[test]
+    fn scroll_offsets_the_hit_row() {
+        let a = area();
+        assert_eq!(preview_row_at(a, 3, 20, a.x + 1, a.y + 1), Some(3));
+        assert_eq!(preview_row_at(a, 3, 20, a.x + 1, a.y + 2), Some(4));
+    }
+
+    #[test]
+    fn clicking_the_border_misses() {
+        let a = area();
+        assert_eq!(preview_row_at(a, 0, 5, a.x, a.y + 1), None);
+        assert_eq!(preview_row_at(a, 0, 5, a.x + 1, a.y), None);
+        assert_eq!(preview_row_at(a, 0, 5, a.x + a.width - 1, a.y + 1), None);
+        assert_eq!(preview_row_at(a, 0, 5, a.x + 1, a.y + a.height - 1), None);
+    }
+
+    #[test]
+    fn past_the_last_row_misses() {
+        let a = area();
+        assert_eq!(preview_row_at(a, 0, 3, a.x + 1, a.y + 4), None);
+    }
+
+    #[test]
+    fn empty_document_never_hits() {
+        let a = area();
+        assert_eq!(preview_row_at(a, 0, 0, a.x + 1, a.y + 1), None);
+    }
 }

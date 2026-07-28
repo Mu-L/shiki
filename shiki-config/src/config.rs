@@ -36,6 +36,12 @@ pub struct General {
     /// instead of using a fixed `editor` command.
     #[serde(default)]
     pub use_favorite_editor: bool,
+    /// When true, click-and-drag over a note's body in PREVIEW selects text
+    /// and copies it to the clipboard (OSC 52) on release. Defaults to
+    /// `true`, so this needs the named-default-fn form rather than bare
+    /// `#[serde(default)]`, which would resolve a missing key to `false`.
+    #[serde(default = "default_mouse_drag_selection")]
+    pub mouse_drag_selection: bool,
 }
 
 impl Default for General {
@@ -45,6 +51,7 @@ impl Default for General {
             editor: default_editor(),
             daily_template: default_daily_template(),
             use_favorite_editor: false,
+            mouse_drag_selection: true,
         }
     }
 }
@@ -55,6 +62,10 @@ fn default_notebook_name() -> String {
 
 fn default_editor() -> String {
     std::env::var("EDITOR").unwrap_or_else(|_| "nvim".into())
+}
+
+fn default_mouse_drag_selection() -> bool {
+    true
 }
 
 fn default_daily_template() -> String {
@@ -945,7 +956,9 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # - editor: the external editor for `E` — defaults to $EDITOR, then \"nvim\".
 # - daily_template: which template (by filename, without .md) daily notes use.
 # - use_favorite_editor: when true, `i` opens the OS's detected favorite/
-#   default editor instead of the built-in one, same as `E` but auto-resolved."
+#   default editor instead of the built-in one, same as `E` but auto-resolved.
+# - mouse_drag_selection: when true, click-and-drag over a note's body in
+#   PREVIEW selects text and copies it to the clipboard on release."
         }
         "[keybindings]" => {
             "\

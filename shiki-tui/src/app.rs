@@ -251,6 +251,19 @@ pub(crate) enum BatchOp {
     Copy,
 }
 
+/// A mouse drag-to-select in progress (or just released) over PREVIEW's
+/// note body — `Option<T>` shape, not a bare field, since it's transient
+/// state that only exists between a `Down` and its matching `Up`, same
+/// convention as `pending_batch`/`pending_delete`/`sync_in_flight` rather
+/// than `visual_anchor`'s mode-scoped one (this isn't tied to `Mode::Visual`).
+/// Both rows are document-row indices into `note_preview_lines()`, already
+/// resolved via `panel_preview::preview_row_at` at hit-test time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PreviewSelection {
+    pub(crate) anchor_row: usize,
+    pub(crate) current_row: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeleteTarget {
     Note,
@@ -463,6 +476,9 @@ pub struct App {
     /// Vertical scroll offset for the preview pane (only moves while
     /// PREVIEW has focus, since there's no list to navigate there).
     pub preview_scroll: u16,
+    /// A mouse drag-to-select in progress over PREVIEW's note body, if any
+    /// — see `PreviewSelection`. `None` outside of an active drag.
+    pub(crate) preview_selection: Option<PreviewSelection>,
     /// Terminal area as of the last draw — reused to hit-test mouse clicks
     /// against the same popup layout that was actually rendered.
     pub(crate) last_frame_area: Rect,
@@ -541,7 +557,8 @@ pub struct App {
     /// picker live-previews by mutating `self.theme` while browsing, and a
     /// stale-colored cache hit would show the wrong theme until the note
     /// changed.
-    pub(crate) note_preview_cache: Option<(std::path::PathBuf, [Color; 4], Vec<Line<'static>>)>,
+    pub(crate) note_preview_cache:
+        Option<(std::path::PathBuf, [Color; 4], u16, Vec<Line<'static>>)>,
     pub show_update: bool,
     pub update_state: Option<UpdateState>,
     /// Set while a background thread is checking/installing, so `run()`'s
@@ -750,6 +767,7 @@ impl App {
             link_selected: 0,
             leader_pending: false,
             preview_scroll: 0,
+            preview_selection: None,
             last_frame_area: Rect::default(),
             available_themes,
             theme_index,
@@ -1342,10 +1360,15 @@ impl App {
 
     /// Keeps the PREVIEW panel's note view up to date without re-running
     /// `markdown_to_lines` (a full line-by-line scan of the note body) on
-    /// every draw tick — only when the selected note or the active theme's
-    /// colors have actually changed since the last check. Called once per
-    /// `run()` loop iteration, right before drawing, same spot as
-    /// `refresh_history_cache`/`refresh_folder_preview_cache`.
+    /// every draw tick — only when the selected note, the active theme's
+    /// colors, or the panel's content width have actually changed since the
+    /// last check. Called once per `run()` loop iteration, right before
+    /// drawing, same spot as `refresh_history_cache`/`refresh_folder_preview_cache`.
+    /// The cache stores rows already wrapped to `width` (`crate::wrap::wrap_lines`)
+    /// rather than raw `markdown_to_lines` output — see `panel_preview::render`,
+    /// which relies on that to display rows verbatim and to make
+    /// `preview_scroll`/mouse hit-testing operate on exact row boundaries
+    /// instead of `Paragraph`'s own internal (and unexposed) wrapping.
     fn refresh_note_preview_cache(&mut self) {
         let Some(note) = self.selected_note() else {
             self.note_preview_cache = None;
@@ -1358,26 +1381,32 @@ impl App {
             hex_to_color(&self.theme.muted),
             hex_to_color(&self.theme.link),
         ];
+        let width = layout::split(self.last_frame_area, self.focus)
+            .preview
+            .width
+            .saturating_sub(2);
         if self
             .note_preview_cache
             .as_ref()
-            .is_some_and(|(p, c, _)| *p == path && *c == colors)
+            .is_some_and(|(p, c, w, _)| *p == path && *c == colors && *w == width)
         {
             return;
         }
         let body = note.body.clone();
         let lines =
             crate::render::markdown_to_lines(&body, colors[0], colors[1], colors[2], colors[3]);
-        self.note_preview_cache = Some((path, colors, lines));
+        let lines = crate::wrap::wrap_lines(&lines, width);
+        self.note_preview_cache = Some((path, colors, width, lines));
     }
 
-    /// The cached formatted lines for whichever note is currently selected,
-    /// for the PREVIEW panel — `None` if no note is selected or the cache
-    /// hasn't caught up yet (the very next draw tick fills it in).
+    /// The cached, pre-wrapped formatted lines for whichever note is
+    /// currently selected, for the PREVIEW panel — `None` if no note is
+    /// selected or the cache hasn't caught up yet (the very next draw tick
+    /// fills it in).
     pub(crate) fn note_preview_lines(&self) -> Option<&[Line<'static>]> {
         self.note_preview_cache
             .as_ref()
-            .map(|(_, _, lines)| lines.as_slice())
+            .map(|(_, _, _, lines)| lines.as_slice())
     }
 
     /// The cached revision count for whichever note is currently selected,

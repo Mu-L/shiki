@@ -22,5 +22,6 @@ pub mod status_bar;
 pub(crate) mod sync;
 pub mod tree;
 pub mod which;
+pub mod wrap;
 
 pub use app::App;
