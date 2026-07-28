@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use crossterm::event::KeyCode;
@@ -111,13 +112,23 @@ pub fn run() -> Result<()> {
     };
     let config = config.unwrap_or_default();
 
-    match Config::default_data_dir() {
-        Ok(dir) if dir.exists() => r.pass("data dir", dir.display()),
-        Ok(dir) => r.warn(
+    let data_dir = config
+        .general
+        .data_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| Config::default_data_dir().ok());
+    let Some(data_dir) = data_dir else {
+        r.fail("data dir", "could not determine default data directory");
+        return Ok(());
+    };
+    if data_dir.exists() {
+        r.pass("data dir", data_dir.display());
+    } else {
+        r.warn(
             "data dir",
-            format!("{} \u{2014} not created yet", dir.display()),
-        ),
-        Err(e) => r.fail("data dir", e),
+            format!("{} — not created yet", data_dir.display()),
+        );
     }
 
     match Config::default_templates_dir() {
@@ -194,28 +205,27 @@ pub fn run() -> Result<()> {
         }
     }
 
-    if let Ok(data_dir) = Config::default_data_dir() {
-        let store = NotebookStore::new(data_dir);
-        match store.list() {
-            Ok(notebooks) if notebooks.is_empty() => r.warn(
+    let custom_paths = config.notebook_custom_paths();
+    let store = NotebookStore::new_with_custom_paths(data_dir.clone(), custom_paths);
+    match store.list() {
+        Ok(notebooks) if notebooks.is_empty() => r.warn(
+            "notebooks",
+            "none yet — `shiki notebook create <name>`, or `a` in the TUI",
+        ),
+        Ok(notebooks) => {
+            let with_remote = notebooks
+                .iter()
+                .filter(|nb| shiki_core::git::remote_url(&nb.path).is_some())
+                .count();
+            r.pass(
                 "notebooks",
-                "none yet \u{2014} `shiki notebook create <name>`, or `a` in the TUI",
-            ),
-            Ok(notebooks) => {
-                let with_remote = notebooks
-                    .iter()
-                    .filter(|nb| shiki_core::git::remote_url(&nb.path).is_some())
-                    .count();
-                r.pass(
-                    "notebooks",
-                    format!(
-                        "{} found, {with_remote} with a git remote configured",
-                        notebooks.len()
-                    ),
-                );
-            }
-            Err(e) => r.fail("notebooks", e),
+                format!(
+                    "{} found, {with_remote} with a git remote configured",
+                    notebooks.len()
+                ),
+            );
         }
+        Err(e) => r.fail("notebooks", e),
     }
 
     check_keybinding_health(&config, &mut r);

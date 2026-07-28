@@ -422,6 +422,11 @@ use_favorite_editor = false
 # copies it to the clipboard (OSC 52, same mechanism as the logs modal's
 # `y`/`c`) as soon as the mouse button is released.
 mouse_drag_selection = true
+# Optional override for the notebooks root directory. Set this to an
+# absolute path to an existing folder of markdown notes (e.g. an Obsidian
+# vault) to use it as the notebooks root instead of the platform default
+# (~/.local/share/shiki/). Notebooks are subdirectories of this path.
+# data_dir = "/Users/me/my-obsidian-vault"
 
 [keybindings]
 leader = "space"
@@ -506,6 +511,16 @@ remote_template = ""
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.
+#
+# Each notebook can also have an independent `path`, pointing it at any
+# existing directory on disk instead of the default location under the
+# data directory. Useful for linking Obsidian vault subfolders or other
+# existing markdown collections as notebooks without moving files.
+[notebooks.alcateia]
+path = "/Users/me/obsidian-vaults/alcateia"
+# Standard git overrides work alongside path:
+auto_sync = true
+
 [notebooks.work]
 auto_sync = true
 auto_sync_every = 3

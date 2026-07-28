@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use shiki_config::Config;
 use shiki_core::NotebookStore;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -108,8 +109,14 @@ impl Context {
         let config = Config::load_or_init(&config_path)?;
         let templates_dir = Config::default_templates_dir()?;
         shiki_core::templates::ensure_defaults(&templates_dir)?;
-        let data_dir = Config::default_data_dir()?;
-        let store = NotebookStore::new(data_dir);
+        let data_dir = config
+            .general
+            .data_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| Config::default_data_dir().expect("valid data dir"));
+        let custom_paths = config.notebook_custom_paths();
+        let store = NotebookStore::new_with_custom_paths(data_dir, custom_paths);
         Ok(Self { config, store })
     }
 
