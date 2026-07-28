@@ -375,14 +375,26 @@ impl NotebookStore {
     pub fn rename(&self, old_name: &str, new_name: &str) -> Result<Notebook> {
         validate_name(old_name)?;
         validate_name(new_name)?;
-        // For custom-path notebooks, rename by moving the directory itself
         let old_path = self
             .path_for(old_name)
             .ok_or_else(|| Error::NotebookNotFound(old_name.to_string()))?;
         if !old_path.is_dir() {
             return Err(Error::NotebookNotFound(old_name.to_string()));
         }
-        let new_path = self.root.join(new_name);
+        // `new_name` might have its own configured custom path — honor that
+        // first. Otherwise, if `old_name` itself lived at a custom path,
+        // rename it in place (as a sibling of `old_path`) rather than
+        // defaulting to `root.join(new_name)`, which would silently move a
+        // notebook out of wherever it actually lived (e.g. an Obsidian
+        // vault) and into shiki's own data directory.
+        let new_path = match self.custom_paths.get(new_name) {
+            Some(configured) => configured.clone(),
+            None if self.custom_paths.contains_key(old_name) => old_path
+                .parent()
+                .map(|parent| parent.join(new_name))
+                .unwrap_or_else(|| self.root.join(new_name)),
+            None => self.root.join(new_name),
+        };
         if new_path.exists() {
             return Err(Error::NotebookExists(new_name.to_string()));
         }
@@ -525,5 +537,65 @@ mod tests {
         a.delete_folder_at(Path::new("scratch")).unwrap();
 
         assert!(!a.path.join("scratch").exists());
+    }
+
+    #[test]
+    fn rename_a_custom_path_notebook_stays_in_place_instead_of_moving_into_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("data-dir");
+        let vault = tmp.path().join("vault");
+        let work = vault.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+
+        let mut custom_paths = HashMap::new();
+        custom_paths.insert("work".to_string(), work.clone());
+        let store = NotebookStore::new_with_custom_paths(root.clone(), custom_paths);
+
+        let renamed = store.rename("work", "work2").unwrap();
+
+        assert_eq!(renamed.path, vault.join("work2"));
+        assert!(
+            vault.join("work2").is_dir(),
+            "renamed notebook should stay next to where it lived, not move into root"
+        );
+        assert!(!work.exists(), "old directory should be gone after rename");
+        assert!(
+            !root.join("work2").exists(),
+            "rename must not relocate a custom-path notebook into the default data dir"
+        );
+    }
+
+    #[test]
+    fn rename_a_custom_path_notebook_honors_the_new_names_own_custom_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("data-dir");
+        let old_location = tmp.path().join("old-vault").join("work");
+        let new_location = tmp.path().join("new-vault").join("work2");
+        std::fs::create_dir_all(&old_location).unwrap();
+        std::fs::create_dir_all(new_location.parent().unwrap()).unwrap();
+
+        let mut custom_paths = HashMap::new();
+        custom_paths.insert("work".to_string(), old_location.clone());
+        custom_paths.insert("work2".to_string(), new_location.clone());
+        let store = NotebookStore::new_with_custom_paths(root, custom_paths);
+
+        let renamed = store.rename("work", "work2").unwrap();
+
+        assert_eq!(renamed.path, new_location);
+        assert!(new_location.is_dir());
+        assert!(!old_location.exists());
+    }
+
+    #[test]
+    fn rename_a_root_notebook_still_lands_under_root_as_before() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("data-dir");
+        let store = NotebookStore::new(root.clone());
+        store.create("work").unwrap();
+
+        let renamed = store.rename("work", "work2").unwrap();
+
+        assert_eq!(renamed.path, root.join("work2"));
+        assert!(root.join("work2").is_dir());
     }
 }
