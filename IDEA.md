@@ -259,11 +259,12 @@ sync attempt (manual or automatic) just tries the push again.
 | `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `r` reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
 | `L` | Links — the selected note's outgoing `[[wikilinks]]` (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` jumps to the selected note (an unresolved outgoing link reports that instead of jumping), `Esc`/`q` closes |
 
-Mouse: click-and-drag over a note's rendered body selects the dragged rows (highlighted with the
-theme's `selection` color) and copies them to the clipboard the moment the button is released — no
-extra keypress needed, same OSC 52 mechanism as the logs modal's `y`/`c`. Controlled by
-`general.mouse_drag_selection` (on by default; toggle it in Settings' GENERAL tab or in
-`config.toml`).
+Mouse: a plain click over a note's rendered body jumps straight into the inline editor with the
+cursor on the clicked line — a mouse-only alternative to `i`/vim motions. Click-and-drag instead
+selects the dragged rows (highlighted with the theme's `selection` color) and copies them to the
+clipboard the moment the button is released — no extra keypress needed, same OSC 52 mechanism as
+the logs modal's `y`/`c`. Both are controlled by `general.mouse_drag_selection` (on by default;
+toggle it in Settings' GENERAL tab or in `config.toml`).
 
 #### Inside the inline editor (`i`)
 
