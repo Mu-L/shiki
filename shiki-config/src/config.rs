@@ -1069,8 +1069,10 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # - daily_template: which template (by filename, without .md) daily notes use.
 # - use_favorite_editor: when true, `i` opens the OS's detected favorite/
 #   default editor instead of the built-in one, same as `E` but auto-resolved.
-# - mouse_drag_selection: when true, click-and-drag over a note's body in
-#   PREVIEW selects text and copies it to the clipboard on release.
+# - mouse_drag_selection: when true, a mouse click over a note's body in
+#   PREVIEW jumps straight into edit mode with the cursor on the clicked
+#   line (a mouse-only alternative to `i`/vim motions); click-and-drag
+#   instead selects text and copies it to the clipboard on release.
 # - data_dir: optional path override for the notebooks directory. Point this
 #   at an existing Obsidian vault or any markdown folder to use it as the
 #   notebooks root. Unset defaults to the platform data directory.

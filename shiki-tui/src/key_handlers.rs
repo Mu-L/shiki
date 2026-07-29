@@ -1413,6 +1413,7 @@ impl App {
                 self.preview_selection = Some(PreviewSelection {
                     anchor_row: hit,
                     current_row: hit,
+                    dragged: false,
                 });
                 return;
             }
@@ -1434,6 +1435,11 @@ impl App {
         if self.preview_selection.is_none() {
             return;
         }
+        // Any `Drag` event at all — even one that lands back on the anchor
+        // row — means this is a real drag gesture, not a plain click; see
+        // `PreviewSelection::dragged`'s own doc comment for why that
+        // distinction is what `on_mouse_up` branches on.
+        self.preview_selection.as_mut().unwrap().dragged = true;
         let preview = layout::split(self.last_frame_area, self.focus).preview;
         let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
         let scroll = self.preview_scroll;
@@ -1465,6 +1471,10 @@ impl App {
         let Some(selection) = self.preview_selection.take() else {
             return;
         };
+        if !selection.dragged {
+            self.enter_edit_at_preview_row(selection.anchor_row);
+            return;
+        }
         let Some(lines) = self.note_preview_lines() else {
             return;
         };
@@ -1489,6 +1499,31 @@ impl App {
             "copied {count} line{} to clipboard",
             if count == 1 { "" } else { "s" }
         ));
+    }
+
+    /// A plain (non-dragged) left-click on a PREVIEW row — a mouse-only way
+    /// into `Mode::Edit` for anyone not reaching for `i`/vim motions to get
+    /// there: click the line you're reading, land in the editor with the
+    /// cursor already on it. Only the *row* is trustworthy — PREVIEW shows
+    /// rendered Markdown (headers/bold/tables reformatted, syntax stripped),
+    /// so the clicked screen column doesn't correspond to a raw source
+    /// column at all. `note_preview_source_line` only tracks which source
+    /// line a rendered (and wrapped) row came from, not which column within
+    /// it, so the cursor always lands at column 0 of that line rather than
+    /// guessing a column that would frequently be wrong once any Markdown
+    /// syntax on the line had been stripped or a table reformatted it.
+    fn enter_edit_at_preview_row(&mut self, row: usize) {
+        let Some(target_line) = self.note_preview_source_line(row) else {
+            return;
+        };
+        self.start_edit_inline();
+        if let Some(editor) = &mut self.editor {
+            let max_row = editor.textarea.lines().len().saturating_sub(1);
+            let target = target_line.min(max_row) as u16;
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(target, 0));
+        }
     }
 
     /// Alt+Click (`config.editor.multi_cursor`): adds a plain cursor at
@@ -1613,15 +1648,22 @@ impl App {
             doc_col as u16,
         ));
     }
-    /// Guards `on_mouse_down`'s preview-selection branch: the feature is off
-    /// in config, we're editing the note inline (the preview `Rect` belongs
-    /// to the editor then, not `panel_preview::render`), or some modal is
-    /// currently covering PREVIEW. `show_global_search`/`show_drawer` are
-    /// deliberately not repeated here — `on_mouse_down` already returns
-    /// early for both before this guard is ever reached. Mirrors the rest
-    /// of the overlay flags `draw.rs` layers on top of the 3-pane layout —
-    /// a click reaching any of these shouldn't be reinterpreted as a
-    /// PREVIEW text selection.
+    /// Guards `on_mouse_down`'s preview-selection branch — which now covers
+    /// two gestures a released `PreviewSelection` can resolve to (see its
+    /// own doc comment): drag-to-select-and-copy, and a plain click into
+    /// `Mode::Edit`. One config flag (`mouse_drag_selection`) still governs
+    /// both, since they're really "mouse text interaction in PREVIEW" as a
+    /// single feature, not two independently toggleable ones — turning it
+    /// off means a click in PREVIEW does nothing at all, same as before
+    /// click-to-edit existed. Also off while we're already editing the note
+    /// inline (the preview `Rect` belongs to the editor then, not
+    /// `panel_preview::render`), or some modal is currently covering
+    /// PREVIEW. `show_global_search`/`show_drawer` are deliberately not
+    /// repeated here — `on_mouse_down` already returns early for both
+    /// before this guard is ever reached. Mirrors the rest of the overlay
+    /// flags `draw.rs` layers on top of the 3-pane layout — a click
+    /// reaching any of these shouldn't be reinterpreted as a PREVIEW
+    /// gesture.
     fn can_start_preview_selection(&self) -> bool {
         self.config.general.mouse_drag_selection && self.mode != Mode::Edit && self.no_modal_open()
     }

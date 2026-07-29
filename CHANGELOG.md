@@ -38,6 +38,11 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   not one step per cursor. Esc collapses back to a single cursor first (VS Code's own
   convention); a second Esc then saves and exits as usual. Secondary cursors render as a solid
   accent-colored block, distinct from the primary's plain reverse-video.
+- A plain (non-dragged) mouse click on a PREVIEW row now jumps straight into `Mode::Edit` with the
+  cursor on that clicked line — a mouse-only alternative to `i`/vim motions for anyone reading a
+  note who wants to start editing it. Click-and-drag still selects text and copies it to the
+  clipboard on release, same as before; only the plain-click case changed, gated behind the same
+  existing `mouse_drag_selection` toggle. Contributed by @elsieej (#23).
 
 ### Fixed
 

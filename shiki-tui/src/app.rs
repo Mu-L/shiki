@@ -267,17 +267,24 @@ pub(crate) enum BatchOp {
     Copy,
 }
 
-/// A mouse drag-to-select in progress (or just released) over PREVIEW's
-/// note body — `Option<T>` shape, not a bare field, since it's transient
-/// state that only exists between a `Down` and its matching `Up`, same
-/// convention as `pending_batch`/`pending_delete`/`sync_in_flight` rather
-/// than `visual_anchor`'s mode-scoped one (this isn't tied to `Mode::Visual`).
+/// A mouse gesture in progress (or just released) over PREVIEW's note
+/// body — `Option<T>` shape, not a bare field, since it's transient state
+/// that only exists between a `Down` and its matching `Up`, same convention
+/// as `pending_batch`/`pending_delete`/`sync_in_flight` rather than
+/// `visual_anchor`'s mode-scoped one (this isn't tied to `Mode::Visual`).
 /// Both rows are document-row indices into `note_preview_lines()`, already
-/// resolved via `panel_preview::preview_row_at` at hit-test time.
+/// resolved via `panel_preview::preview_row_at` at hit-test time. Doubles as
+/// the state for two distinct gestures: a plain click (`dragged` stays
+/// `false`, `anchor_row == current_row` at release) enters `Mode::Edit` at
+/// that row (see `App::enter_edit_at_preview_row`); an actual click-and-drag
+/// (`dragged` set the moment any `Drag` event arrives) selects and copies
+/// the spanned rows to the clipboard on release, same as before this
+/// struct's `dragged` field existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PreviewSelection {
     pub(crate) anchor_row: usize,
     pub(crate) current_row: usize,
+    pub(crate) dragged: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,6 +293,19 @@ pub(crate) enum DeleteTarget {
     Folder,
     Notebook,
 }
+
+/// `(note path, [fg, accent, muted, link], content width, formatted lines,
+/// source-line-per-row)` — see `App::note_preview_cache`'s own doc comment
+/// for what each element means. Named only to keep clippy's
+/// `type_complexity` lint quiet; still just a plain tuple everywhere it's
+/// used.
+type NotePreviewCache = (
+    std::path::PathBuf,
+    [Color; 4],
+    u16,
+    Vec<Line<'static>>,
+    Vec<usize>,
+);
 
 /// Which of the find/replace bar's two fields is currently typed into —
 /// `Tab` switches between them.
@@ -635,17 +655,20 @@ pub struct App {
     /// folder has changed, not on every idle redraw.
     pub(crate) folder_preview_cache: Option<(std::path::PathBuf, [Color; 4], Vec<Line<'static>>)>,
     /// Cache for the PREVIEW panel's note view: `(note path, [fg, accent,
-    /// muted, link], formatted lines)` for whichever note was last
-    /// formatted, so `run()` calling this every draw tick only re-runs
-    /// `markdown_to_lines` (a full scan of the note body — real CPU cost on
-    /// a large note, unlike the folder cache above this isn't I/O) when the
-    /// selected note or the active theme's colors actually changed, not on
-    /// every idle redraw. Colors are part of the key because the theme
-    /// picker live-previews by mutating `self.theme` while browsing, and a
-    /// stale-colored cache hit would show the wrong theme until the note
-    /// changed.
-    pub(crate) note_preview_cache:
-        Option<(std::path::PathBuf, [Color; 4], u16, Vec<Line<'static>>)>,
+    /// muted, link], formatted lines, source-line-per-row)` for whichever
+    /// note was last formatted, so `run()` calling this every draw tick only
+    /// re-runs `markdown_to_lines` (a full scan of the note body — real CPU
+    /// cost on a large note, unlike the folder cache above this isn't I/O)
+    /// when the selected note or the active theme's colors actually
+    /// changed, not on every idle redraw. Colors are part of the key
+    /// because the theme picker live-previews by mutating `self.theme`
+    /// while browsing, and a stale-colored cache hit would show the wrong
+    /// theme until the note changed. The last element parallels the
+    /// formatted lines 1:1, giving the 0-based `body.lines()` index each
+    /// rendered (and now word-wrapped) row came from — see
+    /// `note_preview_source_line`, which click-to-edit uses to jump into
+    /// `Mode::Edit` at the right raw source line.
+    pub(crate) note_preview_cache: Option<NotePreviewCache>,
     pub show_update: bool,
     pub update_state: Option<UpdateState>,
     /// Set while a background thread is checking/installing, so `run()`'s
@@ -1550,15 +1573,24 @@ impl App {
         if self
             .note_preview_cache
             .as_ref()
-            .is_some_and(|(p, c, w, _)| *p == path && *c == colors && *w == width)
+            .is_some_and(|(p, c, w, _, _)| *p == path && *c == colors && *w == width)
         {
             return;
         }
         let body = note.body.clone();
-        let lines =
-            crate::render::markdown_to_lines(&body, colors[0], colors[1], colors[2], colors[3]);
-        let lines = crate::wrap::wrap_lines(&lines, width);
-        self.note_preview_cache = Some((path, colors, width, lines));
+        let indexed = crate::render::markdown_to_lines_indexed(
+            &body, colors[0], colors[1], colors[2], colors[3],
+        );
+        let (source_indices, plain_lines): (Vec<usize>, Vec<Line<'static>>) =
+            indexed.into_iter().unzip();
+        let grouped = crate::wrap::wrap_lines_grouped(&plain_lines, width);
+        let mut lines = Vec::with_capacity(plain_lines.len());
+        let mut sources = Vec::with_capacity(plain_lines.len());
+        for (src, rows) in source_indices.into_iter().zip(grouped) {
+            sources.extend(std::iter::repeat_n(src, rows.len()));
+            lines.extend(rows);
+        }
+        self.note_preview_cache = Some((path, colors, width, lines, sources));
     }
 
     /// The cached, pre-wrapped formatted lines for whichever note is
@@ -1568,7 +1600,19 @@ impl App {
     pub(crate) fn note_preview_lines(&self) -> Option<&[Line<'static>]> {
         self.note_preview_cache
             .as_ref()
-            .map(|(_, _, _, lines)| lines.as_slice())
+            .map(|(_, _, _, lines, _)| lines.as_slice())
+    }
+
+    /// The 0-based raw-source (`note.body.lines()`) index that rendered
+    /// PREVIEW row `row` came from — `None` if there's no note preview
+    /// cached yet or `row` is past the end of it. Used only by
+    /// click-to-edit (`App::enter_edit_at_preview_row`) to resolve which
+    /// line of the actual Markdown source a clicked, rendered-and-wrapped
+    /// row corresponds to.
+    pub(crate) fn note_preview_source_line(&self, row: usize) -> Option<usize> {
+        self.note_preview_cache
+            .as_ref()
+            .and_then(|(_, _, _, _, sources)| sources.get(row).copied())
     }
 
     /// The cached revision count for whichever note is currently selected,
