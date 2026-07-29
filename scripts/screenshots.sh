@@ -212,6 +212,18 @@ Product, Engineering, Design leads.
   # movement into the middle of a real note's content.
   write_note personal "quick-capture.md" "Quick capture" "2026-07-20" "[]" ""
 
+  # Three lines all starting with the exact same word, deliberately — the
+  # multi-cursor screenshots (below) drive this with repeated Ctrl+D
+  # presses (select word under cursor, then keep adding the next
+  # occurrence), which only needs the cursor to start at (0, 0) — the
+  # default position on entering edit mode — and never needs pixel-precise
+  # mouse coordinates or counted arrow-key navigation the way an Alt+Click
+  # or Ctrl+Alt+Down demo would.
+  write_note personal "errands-this-week.md" "Errands this week" "2026-07-21" "[personal, todo]" \
+"TODO: buy milk
+TODO: call the dentist
+TODO: finish the quarterly report"
+
   for nb in personal work; do
     git -C "$DATA/$nb" add -A
     git -C "$DATA/$nb" commit -q -m "shiki: initial notes"
@@ -223,6 +235,15 @@ setup_sample_data
 CONFIG_BASE="$WORK/config-base/shiki"
 mkdir -p "$CONFIG_BASE"
 XDG_CONFIG_HOME="$WORK/config-base" XDG_DATA_HOME="$DATA/.." timeout 2 "$BIN" config >/dev/null 2>&1 || true
+
+# `line_numbers`/`multi_cursor` default off (see `[editor]` in
+# shiki-config) — flipped on here, once, in the base config every theme's
+# own copy is `sed`'d from below, so the editor screenshots show these
+# features active rather than screenshotting the (invisible-by-design)
+# off state. `mouse_selection`/`find_replace` already default to `true`,
+# so nothing to flip for those.
+sed -i 's/^line_numbers = false/line_numbers = true/' "$CONFIG_BASE/config.toml"
+sed -i 's/^multi_cursor = false/multi_cursor = true/' "$CONFIG_BASE/config.toml"
 
 # --- One xterm session per (theme, size). xdotool sends keys/text directly
 # to the window by id (a plain windowfocus first, since Xvfb has no window
@@ -332,6 +353,53 @@ capture() {
     # only runs once and this same file is reused by every theme/tier capture
     # that follows.
     send_key "BackSpace"
+    send_key "Escape"
+    send_key "Escape"
+
+    # EDITOR settings tab — GENERAL is the section a fresh leader+s always
+    # opens on, so `Right` x3 (GENERAL -> THEME -> GIT -> EDITOR) reaches it
+    # the same way a real user would, rather than assuming its index.
+    send_text " s"
+    send_key "Right"
+    send_key "Right"
+    send_key "Right"
+    shot "16-settings-editor"
+    send_key "Escape"
+
+    # Multi-cursor + find/replace, on the dedicated errands-this-week note
+    # (see setup_sample_data) — jumped to by title, same pattern as the
+    # slash-menu note above.
+    send_text "hhhl"
+    send_text "/"
+    send_text "errands"
+    send_key "Return"
+    send_text "i"
+    shot "17-editor-line-numbers"
+    # Ctrl+D 3x: 1st press selects the word under the cursor (no new
+    # cursor yet), each press after that adds the next occurrence as its
+    # own cursor — three identical "TODO"s means three presses select all
+    # of them, with no pixel-coordinate mouse math or counted arrow-key
+    # navigation needed at all.
+    send_key "ctrl+d"
+    send_key "ctrl+d"
+    send_key "ctrl+d"
+    shot "18-editor-multicursor-select"
+    send_text "DONE"
+    shot "19-editor-multicursor-typed"
+    # `Escape` first collapses the secondary cursors (this app's own
+    # convention) rather than leaving their now-stale positions/selections
+    # around for the find/replace shot below. 4 Ctrl+U (one per typed
+    # character, each grouped atomically across all 3 cursors — see
+    # `editor_undo`'s own doc comment) restores "TODO" exactly, since this
+    # note is shared by every theme/tier capture that follows.
+    send_key "Escape"
+    send_key "ctrl+u"
+    send_key "ctrl+u"
+    send_key "ctrl+u"
+    send_key "ctrl+u"
+    send_key "ctrl+f"
+    send_text "milk"
+    shot "20-editor-find-replace"
     send_key "Escape"
     send_key "Escape"
   else

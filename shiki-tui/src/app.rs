@@ -307,6 +307,28 @@ type NotePreviewCache = (
     Vec<usize>,
 );
 
+/// Which of the find/replace bar's two fields is currently typed into —
+/// `Tab` switches between them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FindField {
+    Query,
+    Replace,
+}
+
+/// Ctrl+F's find/replace bar (`config.editor.find_replace`), open only
+/// inside `Mode::Edit` — `None` means the bar is closed. Reuses `InputBox`
+/// for both fields, same as the global-search bar (`global_search_input`),
+/// rather than inventing new text-input handling.
+pub(crate) struct EditorFindState {
+    pub(crate) query: InputBox,
+    pub(crate) replace: InputBox,
+    pub(crate) focus: FindField,
+    /// The cursor position when the bar was opened — where a fresh search
+    /// (no existing selection yet, e.g. right after opening or right after
+    /// closing) starts scanning from.
+    pub(crate) anchor: (usize, usize),
+}
+
 pub struct App {
     pub config: Config,
     pub theme: Theme,
@@ -370,6 +392,51 @@ pub struct App {
     pub input: InputBox,
     pub confirm: Option<confirm::ConfirmDialog>,
     pub editor: Option<InlineEditor<'static>>,
+    /// Click-count tracking for `config.editor.mouse_selection` (single vs.
+    /// double vs. triple click) inside the editor — `(when, column, row)` of
+    /// the last `Down` event, compared against a short time+position window
+    /// on the next one; `None` once the window lapses or focus moves away
+    /// from the editor.
+    pub(crate) editor_last_click: Option<(std::time::Instant, u16, u16)>,
+    /// How many consecutive clicks landed on the same cell within the
+    /// double/triple-click window — capped at 3 (single/word/line).
+    pub(crate) editor_click_count: u8,
+    /// Whether `tui_textarea::TextArea::start_selection` has already been
+    /// called for the drag gesture currently in progress — a single-click
+    /// `Down` doesn't start a selection by itself (it might just be a plain
+    /// click-to-position), so the *first* `Drag` event after it is what
+    /// actually begins one.
+    pub(crate) editor_drag_active: bool,
+    /// Ctrl+F's find/replace bar — see `EditorFindState`'s own doc comment.
+    pub(crate) editor_find: Option<EditorFindState>,
+    /// `config.editor.multi_cursor`'s extra cursors — empty means ordinary
+    /// single-cursor editing (the common case, same "absent means normal"
+    /// pattern as `preview_selection`). The *primary* cursor is always
+    /// `editor`'s own live `TextArea` cursor/selection; these are purely
+    /// virtual, tracked only here — see `multicursor::replay_keystroke`.
+    pub(crate) editor_secondary_cursors: Vec<crate::multicursor::CursorState>,
+    /// One entry per historical edit action, most recent last — how many
+    /// `textarea.undo()` calls it takes to fully reverse that one action
+    /// (1 for an ordinary single-cursor edit, N for a multi-cursor edit
+    /// that mutated N cursors). Every code path that mutates the buffer
+    /// directly (the plain forward path, multi-cursor replay, find/
+    /// replace, OS-clipboard cut/paste, bracketed-paste) pushes its own
+    /// entry here and clears `editor_redo_groups`, so Ctrl+U popping the
+    /// last entry always undoes exactly one *user-perceived* action,
+    /// however many cursors it touched — verified live: typing a
+    /// multi-character word across 3 Alt+Click cursors and pressing
+    /// Ctrl+U three times correctly peels off one whole keystroke's worth
+    /// (all 3 cursors) per press, restoring the original text exactly.
+    /// A single `usize` (rather than this stack) was tried first and was
+    /// wrong: it only remembered the *most recent* keystroke's group size,
+    /// so undoing a 3-letter word typed across 3 cursors correctly undid
+    /// the last letter as one action but then fell back to single-cursor
+    /// steps for the other two letters.
+    pub(crate) editor_undo_groups: Vec<usize>,
+    /// Mirrors `editor_undo_groups` for Ctrl+R — an undo pushes however
+    /// many steps it actually undid here, so redoing it restores all of
+    /// them as one action too.
+    pub(crate) editor_redo_groups: Vec<usize>,
     /// The inline editor's `/`-menu (see `slash_menu.rs`) — open only
     /// while `Mode::Edit`'s current line reads exactly `/` up to the
     /// cursor (checked live off `editor.textarea` itself in
@@ -775,6 +842,13 @@ impl App {
             input: InputBox::default(),
             confirm: None,
             editor: None,
+            editor_last_click: None,
+            editor_click_count: 0,
+            editor_drag_active: false,
+            editor_find: None,
+            editor_secondary_cursors: Vec::new(),
+            editor_undo_groups: Vec::new(),
+            editor_redo_groups: Vec::new(),
             show_slash_menu: false,
             slash_menu_selected: 0,
             want_external_edit: None,
@@ -1824,6 +1898,7 @@ pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                 }
                 Event::Mouse(mouse) => app.on_mouse(mouse),
+                Event::Paste(text) => app.on_paste(text),
                 _ => {}
             }
         }
@@ -1840,6 +1915,7 @@ fn relaunch_into_updated_binary(exe_path: &std::path::Path) -> io::Result<()> {
     crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(
         io::stdout(),
+        crossterm::event::DisableBracketedPaste,
         crossterm::event::DisableMouseCapture,
         crossterm::terminal::LeaveAlternateScreen
     )?;
@@ -1857,6 +1933,7 @@ fn suspend_and_edit<B: Backend>(
     crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(
         io::stdout(),
+        crossterm::event::DisableBracketedPaste,
         crossterm::event::DisableMouseCapture,
         crossterm::terminal::LeaveAlternateScreen
     )?;
@@ -1864,7 +1941,8 @@ fn suspend_and_edit<B: Backend>(
     crossterm::execute!(
         io::stdout(),
         crossterm::terminal::EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
+        crossterm::event::EnableMouseCapture,
+        crossterm::event::EnableBracketedPaste
     )?;
     crossterm::terminal::enable_raw_mode()?;
     terminal.clear()

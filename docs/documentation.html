@@ -726,6 +726,31 @@ bg = "#1e1e2e"</pre>
         </tbody>
       </table>
 
+      <h3 id="config-editor"><code>[editor]</code> — native note editor UX</h3>
+      <p style="max-width:70ch;">
+        Every key here is off unless noted — nothing about how the note editor (<code>Mode::Edit</code>)
+        behaves changes until you opt in, e.g. from the EDITOR tab in Settings (<code>leader</code>
+        then <code>s</code>).
+      </p>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>mouse_selection</code></td><td><code>true</code></td><td>Click to position the cursor, click-and-drag to select, double-click for a word, triple-click for a line — inside the editor itself (distinct from <code>general.mouse_drag_selection</code>, which is PREVIEW's read-only line selection)</td></tr>
+          <tr><td><code>find_replace</code></td><td><code>true</code></td><td><code>Ctrl+F</code> opens a find/replace bar inside the editor</td></tr>
+          <tr><td><code>os_clipboard</code></td><td><code>false</code></td><td><code>Ctrl+C</code>/<code>Ctrl+X</code>/<code>Ctrl+V</code> use the real OS clipboard instead of the internal yank register, falling back automatically to the existing OSC 52 mechanism when there's no display server to reach (e.g. a headless SSH session)</td></tr>
+          <tr><td><code>select_all_ctrl_a</code></td><td><code>false</code></td><td><code>Ctrl+A</code> selects the whole buffer instead of moving to the start of the line</td></tr>
+          <tr><td><code>line_numbers</code></td><td><code>false</code></td><td>Shows a line-number gutter in the editor</td></tr>
+          <tr><td><code>multi_cursor</code></td><td><code>false</code></td><td><code>Alt+Click</code> adds a cursor, <code>Ctrl+D</code> adds the next occurrence of the current word/selection — full multi-cursor editing</td></tr>
+        </tbody>
+      </table>
+      <pre class="code">[editor]
+mouse_selection = true
+find_replace = true
+os_clipboard = false
+select_all_ctrl_a = false
+line_numbers = false
+multi_cursor = false</pre>
+
       <h3 id="config-notebooks"><code>[notebooks.&lt;name&gt;]</code> — per-notebook overrides</h3>
       <p style="max-width:70ch;">
         Every field above in <code>[git]</code> is a <em>global default</em>. Any individual
@@ -790,8 +815,8 @@ body = "# [{{title}}] {{cursor}}"</pre>
         <figcaption><code>leader</code> then <code>s</code> — every option above, editable in place.</figcaption>
       </figure>
       <p style="max-width:70ch;">
-        <code>←</code>/<code>→</code> switches between five tabs — GENERAL, THEME, GIT, NOTEBOOKS,
-        SNIPPETS — mirroring the sections above one for one. <code>j</code>/<code>k</code> moves
+        <code>←</code>/<code>→</code> switches between six tabs — GENERAL, THEME, GIT, EDITOR,
+        NOTEBOOKS, SNIPPETS — mirroring the sections above one for one. <code>j</code>/<code>k</code> moves
         within a tab, <code>Enter</code> edits or toggles the highlighted row (a true/false field
         flips immediately and saves; anything else opens a one-line prompt prefilled with its
         current value), and <code>Esc</code>/<code>q</code> closes. NOTEBOOKS and SNIPPETS are two
@@ -908,6 +933,17 @@ auto_sync_every = 5
 # anything.
 remote_template = ""
 # remote_template = "git@git.example.com:notes/{notebook}.git"
+
+# Native note editor (Mode::Edit) UX — every key is independently toggleable
+# from the EDITOR tab in Settings; nothing changes until you opt in, except
+# the two purely-additive ones below which default to true.
+[editor]
+mouse_selection = true
+find_replace = true
+os_clipboard = false
+select_all_ctrl_a = false
+line_numbers = false
+multi_cursor = false
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.

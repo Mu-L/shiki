@@ -207,7 +207,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
 | `u` | Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (`~/.config/shiki/trash/`) back to exactly where it came from. A single level of undo, not a full history: only the *most recent* delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything |
-| `s` | Settings — near-full-screen, paged by tab (`←`/`→` switches GENERAL/THEME/GIT/NOTEBOOKS/SNIPPETS, `j`/`k` moves within one). Doesn't repeat the keybindings tables — `?` (which-key) already covers those live. Every tab is editable with `Enter`: GENERAL/GIT booleans (`use_favorite_editor`, `auto_commit`/`auto_push`/`sign_commits`/`auto_sync`) toggle in place and save immediately; every other GENERAL/GIT field opens a prompt prefilled with its current value; THEME's `name` opens the theme picker (live preview, same as leader+`c`) and `overrides` stays informational; NOTEBOOKS lists every notebook's actual git remote (redacted) and drills into one to edit its remote plus its `auto_push`/`auto_sync`/`auto_sync_every` overrides (booleans cycle inherit → true → false → inherit); SNIPPETS supports `a` (new snippet) and `d` (delete, with confirmation), and drilling into one edits its `label` and its full multi-line `body` through the same inline editor a note's own body uses. `i`/`E` still jump straight to editing `config.toml` itself for anything not covered above (inline or externally, same convention as editing a note); on save, the config is re-read, re-applied, and takes effect immediately (no restart) — an invalid edit is reported and neither written nor applied, keeping the previous config running. `h`/`Esc`/`Backspace` backs out of a drilled-into notebook/snippet a level; `Esc`/`q` at the top level closes |
+| `s` | Settings — near-full-screen, paged by tab (`←`/`→` switches GENERAL/THEME/GIT/EDITOR/NOTEBOOKS/SNIPPETS, `j`/`k` moves within one). Doesn't repeat the keybindings tables — `?` (which-key) already covers those live. Every tab is editable with `Enter`: GENERAL/GIT booleans (`use_favorite_editor`, `auto_commit`/`auto_push`/`sign_commits`/`auto_sync`) toggle in place and save immediately; every other GENERAL/GIT field opens a prompt prefilled with its current value; THEME's `name` opens the theme picker (live preview, same as leader+`c`) and `overrides` stays informational; EDITOR is six plain boolean toggles for the native note editor's UX (see `[editor]` below); NOTEBOOKS lists every notebook's actual git remote (redacted) and drills into one to edit its remote plus its `auto_push`/`auto_sync`/`auto_sync_every` overrides (booleans cycle inherit → true → false → inherit); SNIPPETS supports `a` (new snippet) and `d` (delete, with confirmation), and drilling into one edits its `label` and its full multi-line `body` through the same inline editor a note's own body uses. `i`/`E` still jump straight to editing `config.toml` itself for anything not covered above (inline or externally, same convention as editing a note); on save, the config is re-read, re-applied, and takes effect immediately (no restart) — an invalid edit is reported and neither written nor applied, keeping the previous config running. `h`/`Esc`/`Backspace` backs out of a drilled-into notebook/snippet a level; `Esc`/`q` at the top level closes |
 
 #### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
 
@@ -283,6 +283,42 @@ bullet/numbered list item, a link, an image, a note/warning callout, and a colla
 Every command is customizable from `config.toml` under `[snippets.<trigger>]` — see the
 Configuration section below. A custom entry with the same trigger as a built-in (case-insensitive)
 replaces it instead of adding a duplicate, so nothing here is off-limits to redefine.
+
+The rest of the editor's mouse/keyboard UX is opt-in via `[editor]` (Settings' EDITOR tab, or
+`config.toml` directly — see the Configuration section):
+
+- `mouse_selection` (on by default): click to position the cursor, click-and-drag to select,
+  double-click to select a word, triple-click to select the whole line.
+- `line_numbers` (off by default): a line-number gutter.
+- `find_replace` (on by default): `Ctrl+F` opens a find/replace bar — typing live-jumps to the
+  nearest match, `Enter`/`Shift+Enter` step to the next/previous match, `Ctrl+Enter` replaces the
+  current match and advances, `Ctrl+Alt+Enter` replaces every occurrence, `Tab` switches between
+  the find and replace fields, `Esc` closes the bar (a second `Esc` then saves and exits, as usual).
+- `os_clipboard` (off by default): `Ctrl+C`/`Ctrl+X`/`Ctrl+V` use the real OS clipboard, falling
+  back automatically to the existing OSC 52 mechanism when there's no display server to reach
+  (e.g. a headless SSH session).
+- `select_all_ctrl_a` (off by default): `Ctrl+A` selects the whole buffer instead of moving to
+  the start of the line.
+- `multi_cursor` (off by default): full multi-cursor editing. `Alt`+click adds a cursor at the
+  clicked position; `Ctrl+Alt+↑`/`Ctrl+Alt+↓` (VS Code's own "Add Cursor Above/Below") adds one
+  at the same column one row up/down from whichever cursor already sits furthest in that
+  direction — a keyboard-only alternative to Alt+click, extending the same contiguous block on
+  each repeated press. `Ctrl+D` selects the word under the cursor, and every further press adds
+  the next occurrence as its own cursor (wraps around the buffer, reports "no more occurrences"
+  once everything's already selected). Typing, `Backspace`/`Delete`, `Enter`, and navigation all
+  replay across every cursor at once — typing over a Ctrl+D-selected occurrence replaces it, same
+  as a single cursor would. `Ctrl+U`/`Ctrl+R` undo/redo a multi-cursor edit as one action, however
+  many cursors it touched. `Esc` first collapses back to a single cursor (a second `Esc` then
+  saves and exits, as usual). Secondary cursors render as a solid accent-colored block (bold,
+  distinct from the primary's plain reverse-video) — a terminal can only blink one real caret, so
+  this is the compensating visual signal rather than an attempt to actually blink more than one.
+
+Navigation inside the editor is always on, not gated by `[editor]`: `PageUp`/`PageDown` move the
+cursor a page at a time, `Home`/`End` go to the start/end of the current line, `Ctrl+Home`/
+`Ctrl+End` jump to the very start/end of the note, and the mouse wheel scrolls too. `PageUp`/
+`PageDown`/mouse-wheel scrolling move the cursor itself (there's no independent scroll offset —
+the editor's word-wrap support means it bypasses `tui-textarea`'s own rendering, and with it,
+`tui-textarea`'s own viewport-based `PageUp`/`PageDown`, which otherwise does nothing here).
 
 ---
 
@@ -511,6 +547,18 @@ auto_sync_every = 5
 # anything.
 remote_template = ""
 # remote_template = "git@git.example.com:notes/{notebook}.git"
+
+# Native note editor (Mode::Edit) UX — every key here is independently
+# toggleable from the EDITOR tab in Settings (leader+`s`); nothing changes
+# until you opt in, except the two purely-additive ones below which default
+# to true.
+[editor]
+mouse_selection = true   # click to position, drag/double/triple-click to select
+find_replace = true      # Ctrl+F opens a find/replace bar in the editor
+os_clipboard = false     # Ctrl+C/X/V use the real OS clipboard (falls back to OSC 52)
+select_all_ctrl_a = false  # Ctrl+A selects everything instead of "start of line"
+line_numbers = false     # shows a line-number gutter
+multi_cursor = false     # Alt+Click adds a cursor, Ctrl+D adds the next occurrence
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.
