@@ -4,7 +4,7 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
-## [Unreleased]
+## [0.8.8] - 2026-07-29
 
 ### Added
 
