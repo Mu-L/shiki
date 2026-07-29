@@ -26,9 +26,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
     panel_notes::render(frame, areas.notes, app);
     if app.mode == Mode::Edit {
         if let Some(editor) = &app.editor {
-            editor.render(frame, areas.preview);
+            let gutter_style = Style::default().fg(hex_to_color(&app.theme.muted));
+            editor.render(
+                frame,
+                areas.preview,
+                app.config.editor.line_numbers,
+                gutter_style,
+                &app.editor_secondary_cursors,
+            );
             if app.show_slash_menu {
                 render_slash_menu(frame, areas.preview, editor, app);
+            }
+            if app.editor_find.is_some() {
+                render_editor_find(frame, areas.preview, editor, app);
             }
         }
     } else {
@@ -565,10 +575,7 @@ fn render_slash_menu(
     editor: &crate::editor::InlineEditor,
     app: &App,
 ) {
-    let inner = match editor.textarea.block() {
-        Some(block) => block.inner(area),
-        None => area,
-    };
+    let inner = editor.inner_area(area);
     if inner.width < 10 || inner.height < 3 {
         return;
     }
@@ -613,4 +620,73 @@ fn render_slash_menu(
         state.select(Some(app.slash_menu_selected));
     }
     frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+/// Ctrl+F's find/replace bar — two stacked single-line `InputBox`es pinned
+/// to the top of the editor's own inner area, the focused one bordered in
+/// the accent color so it's clear which field typing goes to. No dedicated
+/// "match highlight" style exists here: a match becomes the editor's own
+/// selection (`App::editor_find_step`), so it's already visible through
+/// the same selection-highlight rendering `InlineEditor::render` always
+/// does.
+fn render_editor_find(
+    frame: &mut Frame,
+    area: Rect,
+    editor: &crate::editor::InlineEditor,
+    app: &App,
+) {
+    use crate::app::FindField;
+    let Some(state) = &app.editor_find else {
+        return;
+    };
+    let inner = editor.inner_area(area);
+    if inner.width < 20 || inner.height < 6 {
+        return;
+    }
+    let accent = hex_to_color(&app.theme.accent);
+    let muted = hex_to_color(&app.theme.muted);
+    // Anchored top-*right*, not the full inner width from the left edge —
+    // same placement VS Code's own find widget uses, specifically so a
+    // short note's lines (which start at the left edge) aren't completely
+    // hidden underneath it the way a full-width bar would.
+    let width = inner.width.min(44);
+    let x = inner.x + inner.width - width;
+    let clear_area = Rect {
+        x,
+        y: inner.y,
+        width,
+        height: 6,
+    };
+    frame.render_widget(Clear, clear_area);
+    let query_area = Rect {
+        x,
+        y: inner.y,
+        width,
+        height: 3,
+    };
+    let replace_area = Rect {
+        x,
+        y: inner.y + 3,
+        width,
+        height: 3,
+    };
+    let query_color = if state.focus == FindField::Query {
+        accent
+    } else {
+        muted
+    };
+    let replace_color = if state.focus == FindField::Replace {
+        accent
+    } else {
+        muted
+    };
+    state
+        .query
+        .render(frame, query_area, " Find (enter/shift+enter) ", query_color);
+    state.replace.render(
+        frame,
+        replace_area,
+        " Replace (ctrl+enter/ctrl+alt+enter) ",
+        replace_color,
+    );
 }

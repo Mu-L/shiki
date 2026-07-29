@@ -4,6 +4,63 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [Unreleased]
+
+### Added
+
+- New `[editor]` config section (EDITOR tab in Settings, leader+`s`) — six independently toggleable
+  behaviors for the native note editor's mouse/keyboard UX: `mouse_selection`, `find_replace`,
+  `os_clipboard`, `select_all_ctrl_a`, `line_numbers`, `multi_cursor`.
+- `editor.mouse_selection` (on by default): click to position the cursor inside the note editor,
+  click-and-drag to select, double-click to select a word, triple-click to select a line — the
+  editor had no mouse support at all before this.
+- `editor.line_numbers` (off by default): a line-number gutter in the editor.
+- `editor.find_replace` (on by default): Ctrl+F opens a find/replace bar inside the editor —
+  live search-as-you-type, Enter/Shift+Enter for next/previous match, Ctrl+Enter to replace the
+  current match and advance, Ctrl+Alt+Enter to replace every occurrence.
+- `editor.os_clipboard` (off by default): Ctrl+C/X/V in the editor use the real OS clipboard
+  (via `arboard`), falling back automatically to the existing OSC 52 mechanism when there's no
+  display server to reach (e.g. headless SSH). Bracketed-paste is now enabled unconditionally so
+  a terminal paste anywhere in the app lands as one atomic insert instead of a burst of keystrokes.
+- `editor.select_all_ctrl_a` (off by default): Ctrl+A selects the whole buffer instead of
+  tui-textarea's default Emacs-style "move to start of line".
+- `editor.multi_cursor` (off by default): full multi-cursor editing. Alt+Click adds a cursor
+  (dedups against existing ones); Ctrl+D selects the word under the primary cursor and, on each
+  further press, adds the next occurrence as its own independently-selecting cursor, wrapping
+  around the buffer and reporting "no more occurrences" once every match already has a cursor.
+  Every keystroke (typing, Backspace/Delete, Enter, navigation) replays across the primary and
+  every secondary cursor via a new `multicursor` module built specifically because tui-textarea
+  itself has no multi-cursor concept at all — see the Fixed section below for the two real bugs
+  this uncovered along the way. Ctrl+U/Ctrl+R undo/redo a multi-cursor edit as one action (however
+  many cursors it actually mutated), not one step per cursor. Esc collapses back to a single
+  cursor first (VS Code's own convention); a second Esc then saves and exits as usual.
+
+### Fixed
+
+- Multi-cursor's own replay algorithm initially processed cursors bottom-to-top on the assumption
+  that this alone avoids invalidating other cursors' positions — caught by a failing unit test
+  before it ever reached a person: an edit that changes row count (Enter, or backspace-merging two
+  rows) *does* still invalidate an already-processed cursor's recorded result once a later
+  (higher, "more top") edit shifts rows below it. Replaced with the standard top-to-bottom
+  algorithm that tracks a running row/column delta instead, derived from `lines().len()`/cursor
+  position before and after each per-cursor edit rather than reimplementing tui-textarea's own
+  insert/delete arithmetic by hand.
+- A single `tui_textarea::TextArea::input()` call can silently push *two* separate undo-history
+  entries, not always one — verified directly against the vendored crate: typing a character over
+  an active selection is "delete the selection, then insert the character" (2 entries), while
+  Backspace over that same selection is just "delete" (1 entry). Assuming a flat count per
+  keystroke (as an earlier version of this work did) left Ctrl+U undoing only half of a
+  multi-cursor edit that replaced a selection, e.g. after Ctrl+D-selecting three occurrences and
+  typing a replacement. Fixed by measuring the real count directly — undo repeatedly until the
+  pre-edit content reappears, then redo back to the post-edit state — instead of guessing per key.
+
+- `arboard`'s clipboard handle is now kept alive for the process's lifetime instead of being
+  constructed and dropped on every copy/paste — the previous per-call pattern hit arboard's own
+  X11 "clipboard was dropped very quickly" guard, which `eprintln!`s a warning straight to the
+  real terminal underneath ratatui's alternate screen, visibly corrupting the TUI on every
+  Ctrl+C/Ctrl+V. Caught live by checking the real system clipboard (`wl-copy`/`wl-paste`) around
+  a Ctrl+C, not just by reasoning about the code.
+
 ## [0.8.7] - 2026-07-28
 
 ### Added
