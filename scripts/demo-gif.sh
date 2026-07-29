@@ -9,9 +9,11 @@
 # inline editor's `/`-menu (v0.8.3+) for headings/bullets/checklist items
 # instead of hand-typed markdown, a git commit, a full tour of the now
 # fully-interactive Settings screen (v0.8.5 — every tab, including creating
-# a brand-new `/`-menu snippet from inside it), and live-cycling into the
-# 3 newest built-in themes (Dracula/One Dark/Monokai, v0.8.4) — not just
-# read-only navigation. Runs automatically on every release now
+# a brand-new `/`-menu snippet from inside it), the native editor's mouse/
+# keyboard UX overhaul (multi-cursor via repeated Ctrl+D, live find/
+# replace), and live-cycling into the 3 newest built-in themes (Dracula/
+# One Dark/Monokai, v0.8.4) — not just read-only navigation. Runs
+# automatically on every release now
 # (release.yml's update-screenshots job calls this right alongside
 # scripts/screenshots.sh, committing docs/assets/demo.gif back to `main`
 # the same way it already did for the per-theme screenshots), so the demo
@@ -571,7 +573,30 @@ write_note work "docs/deployment-guide.md" "Deployment guide" "2026-07-08" "[wor
 Previous version stays deployable for 48 hours after any release
 specifically so a rollback is always a known-good, already-tested target."
 
-# === research/ — 5 root notes, no folders (a flat notebook for variety) ===
+# === research/ — 6 root notes, no folders (a flat notebook for variety) ===
+
+# Three lines starting with the exact same word, deliberately — Phase 13
+# below drives this with repeated Ctrl+D presses (select word under
+# cursor, then keep adding the next occurrence), which only needs the
+# cursor to start at (0, 0) — the default position on entering edit mode —
+# and never needs pixel-precise mouse coordinates the way an Alt+Click
+# multi-cursor demo would. Placed in research/, not personal/, on purpose:
+# a real bug caught live building this phase — an earlier version added it
+# to personal/'s root, and since notes sort alphabetically, "Errands this
+# week" landed *before* "Gift ideas" there, shifting every later note's
+# index by one. Phase 7 (much earlier in this same recording, written long
+# before this note existed) batch-deletes by a hardcoded index that
+# assumed "Gift ideas" specifically, so it silently deleted this note
+# instead once the index shifted — by Phase 13 the note was simply gone
+# ("no match" from the notes-scope search that first replaced global
+# search here, before the actual root cause was found). research/ is
+# never touched by index-dependent navigation anywhere in this recording,
+# so a new note there can't collide with any earlier phase's assumptions
+# the way personal/'s root can.
+write_note research "errands-this-week.md" "Errands this week" "2026-07-21" "[personal, todo]" \
+"TODO: buy milk
+TODO: call the dentist
+TODO: finish the quarterly report"
 
 write_note research "rust-async-patterns.md" "Rust async patterns" "2026-07-02" "[rust, research]" \
 "## When NOT to reach for async
@@ -700,6 +725,14 @@ name = "gruvbox-dark"
 [git]
 auto_commit = false
 auto_push = false
+
+# line_numbers/multi_cursor default off (see [editor] in shiki-config) —
+# flipped on here so Phase 13's editor screenshots show these features
+# active rather than recording the (invisible-by-design) off state.
+# mouse_selection/find_replace already default to true.
+[editor]
+line_numbers = true
+multi_cursor = true
 EOF
 
 # --- Commit everything so the footer shows a clean synced state instead of
@@ -724,7 +757,22 @@ Set TypingSpeed 30ms
 Set WaitTimeout 5s
 
 Hide
-Type "XDG_CONFIG_HOME='$CFG' XDG_DATA_HOME='$WORK/data' '$BIN'"
+# `directories::ProjectDirs::from("", "", "shiki")` (shiki-config) appends
+# its own "shiki" segment onto whatever `$XDG_CONFIG_HOME`/`$XDG_DATA_HOME`
+# is given — so these must be the *parent* of `$CFG`/`$DATA` (which
+# already end in "/shiki" themselves), not `$CFG`/`$DATA` directly. A real
+# bug caught live while adding Phase 13 below: an earlier version of this
+# line passed `$CFG` as-is, so the app was actually reading/writing
+# `$WORK/config/shiki/shiki/config.toml` — one level too deep, and thus
+# never the hand-written config this script generates at all. It went
+# unnoticed for a while because `Config::default()`'s own values
+# (gruvbox-dark theme, "personal" as the default notebook, auto_push
+# false) happen to coincidentally match what the hand-written config also
+# specifies — until `[editor] line_numbers`/`multi_cursor = true` was
+# added and *didn't* match its own (false) default, which is what actually
+# exposed this. `XDG_DATA_HOME` already did this correctly (`$WORK/data`,
+# not `$DATA`); only `$XDG_CONFIG_HOME` had the bug.
+Type "XDG_CONFIG_HOME='$WORK/config' XDG_DATA_HOME='$WORK/data' '$BIN'"
 Enter
 Sleep 1200ms
 Show
@@ -1003,9 +1051,12 @@ Sleep 1800ms
 # demonstrated below by jumping straight from NOTEBOOKS level 2 to SNIPPETS
 # without backing out first. Every toggle exercised here is flipped back to
 # its starting value before moving on (use_favorite_editor, auto_push, the
-# notebook's own auto_push override) so this phase leaves no side effect
-# behind except the one it's actually meant to: a real new `/`-menu
-# snippet, created from scratch entirely from within Settings.
+# notebook's own auto_push override, EDITOR's mouse_selection) so this
+# phase leaves no side effect behind except the one it's actually meant
+# to: a real new `/`-menu snippet, created from scratch entirely from
+# within Settings. Tab order is GENERAL -> THEME -> GIT -> EDITOR ->
+# NOTEBOOKS -> SNIPPETS — EDITOR sits between GIT and NOTEBOOKS, so every
+# tab-switch count below accounts for it.
 Space
 Type "s"
 Sleep 700ms
@@ -1056,6 +1107,24 @@ Sleep 500ms
 Enter
 Sleep 600ms
 Escape
+Sleep 600ms
+
+# EDITOR (new tab, sits between GIT and NOTEBOOKS — every tab count below
+# that used to jump straight from GIT to NOTEBOOKS with a single `Right`
+# has to know about this or it silently lands one section short: caught
+# for real by running this exact recording once before finalizing it —
+# the original single-`Right` GIT->NOTEBOOKS jump landed on EDITOR
+# instead, and the NOTEBOOKS-drill keystrokes that followed then
+# misfired straight into EDITOR's own flat toggle list, in one run
+# actually typing "PR review checklist" into personal's git remote text
+# prompt). mouse_selection toggles off then back on in place, same
+# boolean-flips-immediately-on-Enter behavior every other tab's booleans
+# already have.
+Right
+Sleep 600ms
+Enter
+Sleep 600ms
+Enter
 Sleep 600ms
 
 # NOTEBOOKS: level 1 lists every real notebook with its actual git remote
@@ -1111,7 +1180,96 @@ Sleep 700ms
 Escape
 Sleep 600ms
 
-# --- Phase 13: theme picker, standalone (leader+`c`) — live-cycle through
+# --- Phase 13: native editor mouse/keyboard UX overhaul (mouse selection,
+# find/replace, real OS clipboard, full multi-cursor, all opt-in via
+# [editor], flipped on above in the generated config). Jumped to by global
+# search (leader+`g`, the same cross-notebook mechanism Phase 5 already
+# uses for "Acme") rather than local navigation, so this phase doesn't
+# depend on tracking exactly which notebook/folder everything before it
+# left selected.
+#
+# A real bug caught live building this phase: Phase 12's own trailing two
+# `Escape`s (above) only back out of the SNIPPETS drill-down to its level-1
+# list — they don't close the Settings modal itself, which was still open
+# on SNIPPETS the whole time. `Space` and the first few letters of
+# "errands" landed on that still-open modal instead of the leader key:
+# `Space`/`g`/`e`/`r`/`r` are all no-ops at SNIPPETS level 1 (not bound to
+# anything there) *except* `a`, which is level 1's own "new snippet"
+# binding — it fired, opened the trigger prompt, and swallowed the
+# remaining letters of "errands" ("nds") as the typed trigger name,
+# creating a real (garbage) `/nds` snippet. One more `Escape` here — for
+# real this time at level 1, where `Esc`/`q` does close the whole modal —
+# fixes it.
+#
+# A second, sneakier bug caught the same way, unrelated to Settings: the
+# demo note originally lived at personal/'s root, sorted alphabetically —
+# which put it *before* "Gift ideas" there, shifting every later note's
+# index by one. Phase 7 (written long before this note existed)
+# batch-deletes by a hardcoded index that assumed "Gift ideas" specifically
+# lived at that position, so once the index shifted, it silently deleted
+# this note instead. By the time this phase ran, the note was simply gone
+# — global search's top-ranked result was some unrelated note purely by
+# coincidence, which looked at first like a *ranking* bug rather than a
+# *the-note-doesn't-exist-anymore* bug. Moved the note to research/
+# instead (see setup_sample_data) — never touched by index-dependent
+# navigation anywhere in this recording, so it can't collide with an
+# earlier phase's assumptions the way personal/'s root can.
+Escape
+Sleep 500ms
+Space
+Type "g"
+Sleep 400ms
+Type "errands"
+Sleep 700ms
+Enter
+Sleep 700ms
+Type "i"
+Sleep 500ms
+# Ctrl+D: 1st press selects the word under the cursor (no new cursor
+# yet), each press after that adds the next occurrence as its own cursor
+# — three identical "TODO"s means three presses select all of them, no
+# pixel-coordinate mouse math or counted arrow-key navigation needed at
+# all. Typing then replaces all three selections at once. Verified this
+# exact sequence against a real recording before scripting it here (not
+# assumed): it does replace all three, live, in one motion.
+Ctrl+D
+Sleep 500ms
+Ctrl+D
+Sleep 500ms
+Ctrl+D
+Sleep 600ms
+Type "DONE"
+Sleep 900ms
+# `Escape` first collapses the secondary cursors (this app's own
+# convention — verified directly: a second, distinct keystroke afterward
+# only ever lands at the primary's own position, proving the secondaries
+# were cleared rather than the editor having exited) before the find/
+# replace demo below, so it isn't left with stale cursor markers from the
+# multi-cursor edit. This edit is left in place rather than undone
+# afterward — a real, lasting change, the same "show it actually doing
+# something" preference every other phase in this recording already
+# follows (see Phase 7's own comment).
+Escape
+Sleep 500ms
+# Find/replace: Ctrl+F opens the bar, typing live-jumps to the match —
+# genuinely live, not scripted around. Replacing via Ctrl+Enter/
+# Ctrl+Alt+Enter is deliberately not demonstrated here: verified directly
+# that this terminal stack (ttyd, the same one VHS itself records
+# through) can't distinguish Ctrl+Enter from plain Enter without an
+# extended keyboard protocol neither ttyd nor most real terminals
+# implement, so scripting a "replace" demo around it would be recording
+# a keystroke that doesn't reliably do the same thing on a real viewer's
+# own terminal either.
+Ctrl+F
+Sleep 400ms
+Type "dentist"
+Sleep 900ms
+Escape
+Sleep 500ms
+Escape
+Sleep 600ms
+
+# --- Phase 14: theme picker, standalone (leader+`c`) — live-cycle through
 # the 3 newest built-in themes (Dracula, One Dark, Monokai — v0.8.4 grew
 # the set from 12 to 15) before cancelling back to the notebook's actual
 # gruvbox-dark. `available_themes` order comes straight from
@@ -1130,7 +1288,7 @@ Sleep 700ms
 Escape
 Sleep 500ms
 
-# --- Phase 14: which-key / command palette, quick glimpse.
+# --- Phase 15: which-key / command palette, quick glimpse.
 Type "?"
 Sleep 900ms
 Escape

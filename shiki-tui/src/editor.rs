@@ -175,6 +175,7 @@ impl<'a> InlineEditor<'a> {
         area: Rect,
         line_numbers: bool,
         gutter_style: Style,
+        secondary_cursor_style: Style,
         secondary_cursors: &[crate::multicursor::CursorState],
     ) {
         if let Some(block) = self.textarea.block() {
@@ -245,6 +246,7 @@ impl<'a> InlineEditor<'a> {
             // shiki never calls `set_selection_style`, so this is the same
             // value `TextArea::default()` already uses internally.
             select: Style::default().bg(Color::LightBlue),
+            secondary_cursor: secondary_cursor_style,
         };
         let selection = self.textarea.selection_range();
 
@@ -291,6 +293,16 @@ struct RowStyles {
     cursor: Style,
     cursor_line: Style,
     select: Style,
+    /// A solid, theme-accent-colored block — deliberately *not* the same
+    /// style as `cursor` (a bare `Modifier::REVERSED`, tui-textarea's
+    /// default). A terminal can only ever blink *one* real caret, so
+    /// secondary cursors can't blink like the primary does regardless of
+    /// styling — but reusing the exact same subtle reverse-video look for
+    /// both made every secondary cursor easy to miss entirely at a glance
+    /// (reported live: "solo hay 1 visualmente, no parpadean varios
+    /// cursores"). A distinct solid color is the compensating signal real
+    /// multi-cursor TUIs (e.g. Helix) use for the same hard constraint.
+    secondary_cursor: Style,
 }
 
 struct SegmentCtx<'a> {
@@ -372,14 +384,18 @@ fn build_segment_line(
     let mut plain = String::new();
 
     for (col, &ch) in chars.iter().enumerate().take(end).skip(start) {
-        let is_cursor =
-            (ctx.is_cursor_segment && ctx.row == ctx.cursor_row && col == ctx.cursor_col)
-                || ctx.is_secondary_cursor(col);
-        if is_cursor {
+        let is_primary_cursor =
+            ctx.is_cursor_segment && ctx.row == ctx.cursor_row && col == ctx.cursor_col;
+        if is_primary_cursor {
             if !plain.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut plain), line_style));
             }
             spans.push(Span::styled(ch.to_string(), styles.cursor));
+        } else if ctx.is_secondary_cursor(col) {
+            if !plain.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut plain), line_style));
+            }
+            spans.push(Span::styled(ch.to_string(), styles.secondary_cursor));
         } else if ctx.is_selected(col) {
             if !plain.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut plain), line_style));
@@ -394,6 +410,13 @@ fn build_segment_line(
     }
     if ctx.is_cursor_segment && ctx.row == ctx.cursor_row && ctx.cursor_col == end {
         spans.push(Span::styled(" ", styles.cursor));
+    } else if ctx.is_secondary_cursor(end) {
+        // A secondary cursor sitting past the last character of the line
+        // (very common — it's exactly where a cursor lands right after
+        // typing) has no character of its own to attach a style to,
+        // same fallback the primary cursor's own end-of-line case above
+        // already needed.
+        spans.push(Span::styled(" ", styles.secondary_cursor));
     }
 
     Line::from(spans)
@@ -726,7 +749,9 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 5))
             .expect("test backend");
         terminal
-            .draw(|frame| editor.render(frame, area, false, Style::default(), &[]))
+            .draw(|frame| {
+                editor.render(frame, area, false, Style::default(), Style::default(), &[])
+            })
             .unwrap();
 
         // Row 0 is "hello", clicking column 3 lands on the 'l' at index 3.
@@ -749,7 +774,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 5))
             .expect("test backend");
         terminal
-            .draw(|frame| editor.render(frame, area, true, Style::default(), &[]))
+            .draw(|frame| editor.render(frame, area, true, Style::default(), Style::default(), &[]))
             .unwrap();
         // Gutter for a 1-line file is "1 " (2 columns) — a click landing
         // in the gutter itself clamps to column 0 of the actual text.

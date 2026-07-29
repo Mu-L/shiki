@@ -27,11 +27,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if app.mode == Mode::Edit {
         if let Some(editor) = &app.editor {
             let gutter_style = Style::default().fg(hex_to_color(&app.theme.muted));
+            let secondary_cursor_style = Style::default()
+                .bg(hex_to_color(&app.theme.accent))
+                .fg(hex_to_color(&app.theme.bg))
+                .add_modifier(Modifier::BOLD);
             editor.render(
                 frame,
                 areas.preview,
                 app.config.editor.line_numbers,
                 gutter_style,
+                secondary_cursor_style,
                 &app.editor_secondary_cursors,
             );
             if app.show_slash_menu {

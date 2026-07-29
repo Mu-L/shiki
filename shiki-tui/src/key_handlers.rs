@@ -1306,7 +1306,30 @@ impl App {
                 self.on_mouse_drag(mouse.column, mouse.row);
             }
             MouseEventKind::Up(MouseButton::Left) => self.on_mouse_up(),
+            MouseEventKind::ScrollUp => self.on_mouse_scroll(-1),
+            MouseEventKind::ScrollDown => self.on_mouse_scroll(1),
             _ => {}
+        }
+    }
+
+    /// Mouse wheel scroll — never handled at all before this (verified
+    /// live: scrolling over PREVIEW or the editor did nothing whatsoever).
+    /// Moves the editor's cursor by a few rows (`Mode::Edit` — the only way
+    /// to scroll the view at all, since `InlineEditor`'s own scroll offset
+    /// is entirely cursor-driven, not an independent viewport state) or
+    /// reuses `move_selection`'s existing delta logic (`Mode::Normal`/
+    /// `Visual`, covers NOTEBOOKS/NOTES/PREVIEW identically to `j`/`k`) —
+    /// gated on `no_modal_open()` so scrolling over a popup can't reach the
+    /// layout underneath it.
+    fn on_mouse_scroll(&mut self, dir: isize) {
+        const SCROLL_STEP: isize = 3;
+        if !self.no_modal_open() {
+            return;
+        }
+        if self.mode == Mode::Edit {
+            self.editor_scroll_cursor(dir * SCROLL_STEP);
+        } else if self.mode == Mode::Normal || self.mode == Mode::Visual {
+            self.move_selection(dir * SCROLL_STEP);
         }
     }
 
@@ -1600,9 +1623,15 @@ impl App {
     /// a click reaching any of these shouldn't be reinterpreted as a
     /// PREVIEW text selection.
     fn can_start_preview_selection(&self) -> bool {
-        self.config.general.mouse_drag_selection
-            && self.mode != Mode::Edit
-            && !self.show_slash_menu
+        self.config.general.mouse_drag_selection && self.mode != Mode::Edit && self.no_modal_open()
+    }
+    /// Whether any overlay is currently covering the 3-pane layout — every
+    /// popup/modal flag this app has, in one place, so a click or scroll
+    /// reaching the layout underneath one of them can't be misinterpreted
+    /// as belonging to NOTEBOOKS/NOTES/PREVIEW. Shared by
+    /// `can_start_preview_selection` and mouse-wheel scrolling.
+    fn no_modal_open(&self) -> bool {
+        !self.show_slash_menu
             && self.pending_input.is_none()
             && !self.show_tags
             && !self.show_theme_picker
@@ -2933,6 +2962,52 @@ impl App {
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.editor_redo();
             }
+            // VS Code's own "Add Cursor Above/Below" binding — a keyboard
+            // alternative to Alt+Click that doesn't need the mouse at all,
+            // requested after Alt+Click felt uncomfortable in practice.
+            KeyCode::Up
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.modifiers.contains(KeyModifiers::ALT)
+                    && self.config.editor.multi_cursor =>
+            {
+                self.editor_add_cursor_vertical(-1);
+            }
+            KeyCode::Down
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.modifiers.contains(KeyModifiers::ALT)
+                    && self.config.editor.multi_cursor =>
+            {
+                self.editor_add_cursor_vertical(1);
+            }
+            // Always replaces the generic forward for these two — see
+            // `editor_scroll_cursor`'s own doc comment for why forwarding
+            // them to `tui-textarea` does nothing in this editor.
+            KeyCode::PageDown => self.editor_scroll_cursor(PAGE_STEP),
+            KeyCode::PageUp => self.editor_scroll_cursor(-PAGE_STEP),
+            // Plain Home/End already work via the generic forward
+            // (`tui-textarea`'s own `CursorMove::Head`/`End` — start/end of
+            // the *current* line, no viewport dependency). Ctrl+Home/
+            // Ctrl+End add the jump-to-document-start/end that plain
+            // Home/End don't cover, the common convention this was missing.
+            KeyCode::Home if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(editor) = &mut self.editor {
+                    editor.textarea.cancel_selection();
+                    editor
+                        .textarea
+                        .move_cursor(tui_textarea::CursorMove::Jump(0, 0));
+                }
+            }
+            KeyCode::End if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(editor) = &mut self.editor {
+                    let last_row = editor.textarea.lines().len().saturating_sub(1);
+                    let last_col = editor.textarea.lines()[last_row].chars().count();
+                    editor.textarea.cancel_selection();
+                    editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+                        last_row as u16,
+                        last_col as u16,
+                    ));
+                }
+            }
             _ => {
                 if let Some(editor) = &mut self.editor {
                     let edits = if self.editor_secondary_cursors.is_empty() {
@@ -3072,6 +3147,79 @@ impl App {
         if redone > 0 {
             self.editor_undo_groups.push(redone);
         }
+    }
+    /// Moves the editor's cursor `delta` logical rows (clamped to the
+    /// buffer), preserving column as closely as the target row allows —
+    /// drives both `PageUp`/`PageDown` (`delta = ±PAGE_STEP`) and mouse
+    /// wheel scrolling. This exists because forwarding `PageUp`/`PageDown`
+    /// to `tui-textarea` (as the generic catch-all does for every other
+    /// key) does nothing at all in this editor: verified live.
+    /// `tui-textarea`'s own `Scrolling::PageUp/PageDown` scrolls its
+    /// *internal* `Viewport`, which is only ever populated by its own
+    /// `Widget` impl — and `InlineEditor::render` deliberately bypasses
+    /// that entirely (see the struct doc comment), so the viewport
+    /// `Scrolling` scrolls is permanently zero-sized and the cursor
+    /// (adjusted to "stay in viewport" afterward) never actually moves.
+    /// Moving the cursor directly sidesteps that viewport entirely, and
+    /// `InlineEditor`'s own scroll-follow (driven purely by cursor
+    /// position, not an independent scroll offset) then scrolls the view
+    /// to match on the next render — the only "scroll" this editor has.
+    fn editor_scroll_cursor(&mut self, delta: isize) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let (row, col) = editor.textarea.cursor();
+        let last_row = editor.textarea.lines().len().saturating_sub(1);
+        let new_row = (row as isize + delta).clamp(0, last_row as isize) as usize;
+        if new_row == row {
+            return;
+        }
+        let new_col = col.min(editor.textarea.lines()[new_row].chars().count());
+        editor.textarea.cancel_selection();
+        editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+            new_row as u16,
+            new_col as u16,
+        ));
+    }
+    /// Ctrl+Alt+Up/Down (`config.editor.multi_cursor`): adds a cursor one
+    /// row above (`dir < 0`) or below (`dir > 0`) whichever existing
+    /// cursor (primary or secondary) already sits furthest in that
+    /// direction — so repeated presses keep extending the same contiguous
+    /// block of cursors upward/downward, matching VS Code's own behavior,
+    /// rather than always adding relative to the primary alone. The new
+    /// cursor's column is clamped to its target line's length, same as a
+    /// plain `Up`/`Down` keypress would clamp against a shorter line.
+    fn editor_add_cursor_vertical(&mut self, dir: isize) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        let primary = editor.textarea.cursor();
+        let reference = self
+            .editor_secondary_cursors
+            .iter()
+            .map(|c| c.pos)
+            .chain(std::iter::once(primary))
+            .reduce(|a, b| if dir < 0 { a.min(b) } else { a.max(b) });
+        let Some((row, col)) = reference else {
+            return;
+        };
+        let target_row = if dir < 0 {
+            match row.checked_sub(1) {
+                Some(r) => r,
+                None => return,
+            }
+        } else {
+            row + 1
+        };
+        if target_row >= editor.textarea.lines().len() {
+            return;
+        }
+        let target_col = col.min(editor.textarea.lines()[target_row].chars().count());
+        crate::multicursor::add_cursor_at(
+            &mut self.editor_secondary_cursors,
+            primary,
+            (target_row, target_col),
+        );
     }
     /// Ctrl+D (`config.editor.multi_cursor`): the first press (primary has
     /// no selection yet) just selects the word under the cursor, matching

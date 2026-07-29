@@ -300,13 +300,25 @@ The rest of the editor's mouse/keyboard UX is opt-in via `[editor]` (Settings' E
 - `select_all_ctrl_a` (off by default): `Ctrl+A` selects the whole buffer instead of moving to
   the start of the line.
 - `multi_cursor` (off by default): full multi-cursor editing. `Alt`+click adds a cursor at the
-  clicked position; `Ctrl+D` selects the word under the cursor, and every further press adds the
-  next occurrence as its own cursor (wraps around the buffer, reports "no more occurrences" once
-  everything's already selected). Typing, `Backspace`/`Delete`, `Enter`, and navigation all
+  clicked position; `Ctrl+Alt+↑`/`Ctrl+Alt+↓` (VS Code's own "Add Cursor Above/Below") adds one
+  at the same column one row up/down from whichever cursor already sits furthest in that
+  direction — a keyboard-only alternative to Alt+click, extending the same contiguous block on
+  each repeated press. `Ctrl+D` selects the word under the cursor, and every further press adds
+  the next occurrence as its own cursor (wraps around the buffer, reports "no more occurrences"
+  once everything's already selected). Typing, `Backspace`/`Delete`, `Enter`, and navigation all
   replay across every cursor at once — typing over a Ctrl+D-selected occurrence replaces it, same
   as a single cursor would. `Ctrl+U`/`Ctrl+R` undo/redo a multi-cursor edit as one action, however
   many cursors it touched. `Esc` first collapses back to a single cursor (a second `Esc` then
-  saves and exits, as usual).
+  saves and exits, as usual). Secondary cursors render as a solid accent-colored block (bold,
+  distinct from the primary's plain reverse-video) — a terminal can only blink one real caret, so
+  this is the compensating visual signal rather than an attempt to actually blink more than one.
+
+Navigation inside the editor is always on, not gated by `[editor]`: `PageUp`/`PageDown` move the
+cursor a page at a time, `Home`/`End` go to the start/end of the current line, `Ctrl+Home`/
+`Ctrl+End` jump to the very start/end of the note, and the mouse wheel scrolls too. `PageUp`/
+`PageDown`/mouse-wheel scrolling move the cursor itself (there's no independent scroll offset —
+the editor's word-wrap support means it bypasses `tui-textarea`'s own rendering, and with it,
+`tui-textarea`'s own viewport-based `PageUp`/`PageDown`, which otherwise does nothing here).
 
 ---
 
