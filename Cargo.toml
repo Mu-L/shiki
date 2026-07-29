@@ -57,6 +57,10 @@ self_update = { version = "1.0.0-rc.6", default-features = false, features = [
     "checksums",
 ] }
 tempfile = "3"
+# `default-features = false` drops the default `image-data` feature (and its
+# `image`/`objc2-core-graphics`/etc. transitive deps) — shiki only ever
+# copies/pastes plain text through this, never images.
+arboard = { version = "3", default-features = false }
 
 [profile.release]
 lto = true

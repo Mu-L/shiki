@@ -749,6 +749,64 @@ fn default_branch() -> String {
     "main".into()
 }
 
+/// Settings for the inline note editor's mouse/keyboard UX (`Mode::Edit`,
+/// `shiki-tui/src/editor.rs`) — every field here gates one independently
+/// toggleable behavior, off by default unless it's purely additive and safe
+/// (`mouse_selection`, `find_replace`), so nothing about how the editor
+/// behaves today changes for anyone who doesn't visit the EDITOR Settings
+/// tab (leader+`s`) and turn something on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditorConfig {
+    /// Click-to-position, click-and-drag to select, double-click to select
+    /// a word, triple-click to select a line — all inside the editor itself
+    /// (distinct from `General::mouse_drag_selection`, which is PREVIEW's
+    /// read-only line-selection). Defaults to `true`: purely additive, no
+    /// existing keyboard behavior changes.
+    #[serde(default = "default_true")]
+    pub mouse_selection: bool,
+    /// Ctrl+F opens a find/replace bar inside the editor. Defaults to
+    /// `true`: purely additive, doesn't touch any existing binding.
+    #[serde(default = "default_true")]
+    pub find_replace: bool,
+    /// When true, Ctrl+C/X/V inside the editor use the real OS clipboard
+    /// (falling back automatically to the existing OSC 52 mechanism when
+    /// the OS clipboard can't be reached, e.g. a headless SSH session with
+    /// no `$DISPLAY`/`$WAYLAND_DISPLAY`) instead of tui-textarea's internal
+    /// yank register. Off by default since it's an environment-dependent
+    /// behavior change, not a pure addition.
+    #[serde(default)]
+    pub os_clipboard: bool,
+    /// When true, Ctrl+A selects the whole buffer instead of tui-textarea's
+    /// default Emacs-style "move to start of line". Off by default — this
+    /// changes existing muscle-memory behavior rather than adding to it.
+    #[serde(default)]
+    pub select_all_ctrl_a: bool,
+    /// Shows a line-number gutter in the editor. Off by default (cosmetic
+    /// opt-in).
+    #[serde(default)]
+    pub line_numbers: bool,
+    /// Enables Alt+Click (add a cursor) and Ctrl+D (add the next occurrence
+    /// of the current word/selection) for multi-cursor editing. Off by
+    /// default: it's the most involved of these behaviors, built as a replay
+    /// layer on top of tui-textarea's single-cursor model rather than
+    /// something the library supports natively.
+    #[serde(default)]
+    pub multi_cursor: bool,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self {
+            mouse_selection: true,
+            find_replace: true,
+            os_clipboard: false,
+            select_all_ctrl_a: false,
+            line_numbers: false,
+            multi_cursor: false,
+        }
+    }
+}
+
 /// Per-notebook override of the `[git]` sync policy — a notebook connected
 /// to a private work repo might want `auto_push`, while a scratch notebook
 /// with no remote at all shouldn't be forced into the same policy. Any
@@ -834,6 +892,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub git: GitConfig,
+    #[serde(default)]
+    pub editor: EditorConfig,
     /// Per-notebook overrides of `[git]`, keyed by notebook name — e.g.
     /// `[notebooks.work]` with `auto_push = true`. See `NotebookGitOverride`.
     #[serde(default)]
@@ -1048,6 +1108,22 @@ fn section_comment(line: &str) -> Option<&'static str> {
 #   replaced with the new notebook's name. Empty (the default) means don't
 #   auto-configure anything; the remote still has to already exist."
         }
+        "[editor]" => {
+            "\
+# Inline note editor UX (Mode::Edit) — every key here is off unless noted,
+# so nothing about how the editor behaves changes until you opt in, e.g.
+# from the EDITOR tab in Settings (leader+`s`).
+# - mouse_selection: click to position the cursor, drag to select,
+#   double-click for a word, triple-click for a line. Defaults to true.
+# - find_replace: Ctrl+F opens a find/replace bar. Defaults to true.
+# - os_clipboard: Ctrl+C/X/V use the real OS clipboard, falling back to the
+#   existing OSC 52 mechanism when there's no display server (e.g. SSH).
+# - select_all_ctrl_a: Ctrl+A selects everything instead of moving to the
+#   start of the line.
+# - line_numbers: shows a line-number gutter.
+# - multi_cursor: Alt+Click adds a cursor, Ctrl+D adds the next occurrence
+#   of the current word/selection."
+        }
         "[notebooks]" => {
             "\
 # Optional per-notebook overrides of [git] above, e.g.:
@@ -1098,6 +1174,7 @@ mod tests {
             "[keybindings.preview]\nedit_inline = \"z\"\n",
             "[theme]\nname = \"nord\"\n",
             "[git]\nauto_push = true\n",
+            "[editor]\nline_numbers = true\n",
         ] {
             Config::parse(partial).unwrap_or_else(|e| panic!("{partial:?} failed to parse: {e}"));
         }
@@ -1191,7 +1268,7 @@ mod tests {
     fn commented_default_toml_comments_every_known_section() {
         let commented = commented_default_toml();
         let lines: Vec<&str> = commented.lines().collect();
-        for section in ["[general]", "[keybindings]", "[theme]", "[git]"] {
+        for section in ["[general]", "[keybindings]", "[theme]", "[git]", "[editor]"] {
             let idx = lines
                 .iter()
                 .position(|l| *l == section)

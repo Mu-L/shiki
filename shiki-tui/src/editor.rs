@@ -7,6 +7,11 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use tui_textarea::TextArea;
 
+/// One source line's `wrap_line` break points — `(start, end)` char-index
+/// ranges, one per visual (post-wrap) segment. A plain type alias purely to
+/// keep signatures like `char_rows_and_wraps`'s readable.
+type WrapRanges = Vec<(usize, usize)>;
+
 /// Thin wrapper over `tui-textarea` for the inline editor (key `e`/`i`).
 ///
 /// `tui-textarea` 0.7 has no soft line-wrap at all — confirmed against its
@@ -73,21 +78,117 @@ impl<'a> InlineEditor<'a> {
         self.cursor_screen_row.get()
     }
 
+    /// `area` minus whatever block/border `tui-textarea` has configured —
+    /// the one place this match lives, reused by `render`, `position_at`,
+    /// and `draw.rs`'s slash-menu anchoring (which used to duplicate this
+    /// same match independently).
+    pub fn inner_area(&self, area: Rect) -> Rect {
+        match self.textarea.block() {
+            Some(block) => block.inner(area),
+            None => area,
+        }
+    }
+
+    /// Columns reserved for the line-number gutter when `line_numbers` is
+    /// on — digit count of the last line number, plus one padding column —
+    /// or `0` when the feature is off, so callers can subtract it from the
+    /// available width unconditionally without an extra branch.
+    fn gutter_width(&self, line_numbers: bool) -> u16 {
+        if !line_numbers {
+            return 0;
+        }
+        (self.textarea.lines().len().to_string().len() + 1) as u16
+    }
+
+    /// Computes each source line's characters plus its `wrap_line` break
+    /// points, at `width` columns — the one place both `render` and
+    /// `position_at` derive this, so a hit-test can never disagree with
+    /// what was actually painted (see the struct doc comment's own
+    /// reasoning for why `render` bypasses `tui-textarea`'s `Widget` impl
+    /// in the first place).
+    fn char_rows_and_wraps(&self, width: usize) -> (Vec<Vec<char>>, Vec<WrapRanges>) {
+        let char_rows: Vec<Vec<char>> = self
+            .textarea
+            .lines()
+            .iter()
+            .map(|l| l.chars().collect())
+            .collect();
+        let wraps: Vec<WrapRanges> = char_rows
+            .iter()
+            .map(|chars| wrap_line(chars, width))
+            .collect();
+        (char_rows, wraps)
+    }
+
+    /// Inverse of `render`'s own painting loop: maps a screen coordinate
+    /// (already known to be a mouse event's `column`/`row`) back onto a
+    /// logical `(row, col)` in the buffer, or `None` if it falls outside
+    /// the editor's inner area. Relies on `scroll_top` as of the *last*
+    /// `render` call, same assumption `cursor_screen_row()` already makes.
+    pub fn position_at(
+        &self,
+        area: Rect,
+        line_numbers: bool,
+        column: u16,
+        row: u16,
+    ) -> Option<(usize, usize)> {
+        let inner = self.inner_area(area);
+        if inner.width == 0
+            || inner.height == 0
+            || column < inner.x
+            || column >= inner.x + inner.width
+            || row < inner.y
+            || row >= inner.y + inner.height
+        {
+            return None;
+        }
+        let gutter = self.gutter_width(line_numbers);
+        let width = (inner.width as usize)
+            .saturating_sub(gutter as usize)
+            .max(1);
+        let (char_rows, wraps) = self.char_rows_and_wraps(width);
+        let target_visual_row = self.scroll_top.get() as usize + (row - inner.y) as usize;
+        let col_in_row = (column - inner.x).saturating_sub(gutter) as usize;
+
+        let mut visual_row = 0usize;
+        for (logical_row, _) in char_rows.iter().enumerate() {
+            for &(start, end) in &wraps[logical_row] {
+                if visual_row == target_visual_row {
+                    return Some((logical_row, (start + col_in_row).min(end)));
+                }
+                visual_row += 1;
+            }
+        }
+        // Clicked below the last rendered line — clamp to the end of the
+        // buffer rather than returning `None`, so a click just past the
+        // last line of a short note still lands somewhere sensible.
+        let last_row = char_rows.len().saturating_sub(1);
+        Some((last_row, char_rows.get(last_row).map(Vec::len).unwrap_or(0)))
+    }
+
     /// Renders the buffer word-wrapped to `area`'s width, instead of
     /// `tui-textarea`'s own unwrapped-with-horizontal-scroll rendering —
     /// see the struct doc comment for why this exists at all.
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let inner = match self.textarea.block() {
-            Some(block) => {
-                frame.render_widget(block.clone(), area);
-                block.inner(area)
-            }
-            None => area,
-        };
+    pub(crate) fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        line_numbers: bool,
+        gutter_style: Style,
+        secondary_cursor_style: Style,
+        secondary_cursors: &[crate::multicursor::CursorState],
+    ) {
+        if let Some(block) = self.textarea.block() {
+            frame.render_widget(block.clone(), area);
+        }
+        let inner = self.inner_area(area);
         if inner.width == 0 || inner.height == 0 {
             return;
         }
-        let width = inner.width as usize;
+        let gutter = self.gutter_width(line_numbers);
+        let width = (inner.width as usize)
+            .saturating_sub(gutter as usize)
+            .max(1);
         let height = inner.height as usize;
 
         // Bypassing `tui-textarea`'s own `Widget` impl (see the struct doc
@@ -101,10 +202,14 @@ impl<'a> InlineEditor<'a> {
             self.cursor_screen_row.set(0);
             let chars: Vec<char> = self.textarea.placeholder_text().chars().collect();
             let style = self.textarea.placeholder_style().unwrap_or_default();
+            let gutter_pad = " ".repeat(gutter as usize);
             let lines: Vec<Line<'static>> = wrap_line(&chars, width)
                 .into_iter()
                 .map(|(s, e)| {
-                    Line::from(Span::styled(chars[s..e].iter().collect::<String>(), style))
+                    Line::from(vec![
+                        Span::raw(gutter_pad.clone()),
+                        Span::styled(chars[s..e].iter().collect::<String>(), style),
+                    ])
                 })
                 .collect();
             let paragraph = Paragraph::new(lines).style(self.textarea.style());
@@ -112,12 +217,7 @@ impl<'a> InlineEditor<'a> {
             return;
         }
 
-        let source_lines = self.textarea.lines();
-        let char_rows: Vec<Vec<char>> = source_lines.iter().map(|l| l.chars().collect()).collect();
-        let wraps: Vec<Vec<(usize, usize)>> = char_rows
-            .iter()
-            .map(|chars| wrap_line(chars, width))
-            .collect();
+        let (char_rows, wraps) = self.char_rows_and_wraps(width);
 
         let (cursor_row, cursor_col) = self.textarea.cursor();
         let (cursor_local_row, _) = locate_in_wrap(&wraps[cursor_row], cursor_col);
@@ -146,6 +246,7 @@ impl<'a> InlineEditor<'a> {
             // shiki never calls `set_selection_style`, so this is the same
             // value `TextArea::default()` already uses internally.
             select: Style::default().bg(Color::LightBlue),
+            secondary_cursor: secondary_cursor_style,
         };
         let selection = self.textarea.selection_range();
 
@@ -163,8 +264,18 @@ impl<'a> InlineEditor<'a> {
                         cursor_col,
                         is_cursor_segment: row == cursor_row && local_idx == cursor_local_row,
                         selection,
+                        secondary: secondary_cursors,
                     };
-                    rendered.push(build_segment_line(chars, seg, &ctx, &styles));
+                    let mut line = build_segment_line(chars, seg, &ctx, &styles);
+                    if gutter > 0 {
+                        let prefix = if local_idx == 0 {
+                            format!("{:>w$} ", row + 1, w = (gutter as usize).saturating_sub(1))
+                        } else {
+                            " ".repeat(gutter as usize)
+                        };
+                        line.spans.insert(0, Span::styled(prefix, gutter_style));
+                    }
+                    rendered.push(line);
                 }
                 visual_row += 1;
             }
@@ -182,9 +293,19 @@ struct RowStyles {
     cursor: Style,
     cursor_line: Style,
     select: Style,
+    /// A solid, theme-accent-colored block — deliberately *not* the same
+    /// style as `cursor` (a bare `Modifier::REVERSED`, tui-textarea's
+    /// default). A terminal can only ever blink *one* real caret, so
+    /// secondary cursors can't blink like the primary does regardless of
+    /// styling — but reusing the exact same subtle reverse-video look for
+    /// both made every secondary cursor easy to miss entirely at a glance
+    /// (reported live: "solo hay 1 visualmente, no parpadean varios
+    /// cursores"). A distinct solid color is the compensating signal real
+    /// multi-cursor TUIs (e.g. Helix) use for the same hard constraint.
+    secondary_cursor: Style,
 }
 
-struct SegmentCtx {
+struct SegmentCtx<'a> {
     row: usize,
     cursor_row: usize,
     cursor_col: usize,
@@ -194,24 +315,51 @@ struct SegmentCtx {
     /// one of them, never zero or more than one.
     is_cursor_segment: bool,
     selection: Option<((usize, usize), (usize, usize))>,
+    /// `config.editor.multi_cursor`'s extra cursors, each with its own
+    /// independent selection — painted the same way the primary
+    /// cursor/selection already is, just looped over instead of singular.
+    secondary: &'a [crate::multicursor::CursorState],
 }
 
-impl SegmentCtx {
+/// Whether `(row, col)` falls within `[start, end)` (inclusive of every
+/// row strictly between them) — the one range-check both the primary
+/// selection and every secondary cursor's own selection use, so they can't
+/// disagree on what "inside the selection" means at a row boundary.
+fn pos_in_range(row: usize, col: usize, start: (usize, usize), end: (usize, usize)) -> bool {
+    let (sr, sc) = start;
+    let (er, ec) = end;
+    if row < sr || row > er {
+        false
+    } else if sr == er {
+        col >= sc && col < ec
+    } else if row == sr {
+        col >= sc
+    } else if row == er {
+        col < ec
+    } else {
+        true
+    }
+}
+
+impl SegmentCtx<'_> {
     fn is_selected(&self, col: usize) -> bool {
-        let Some(((sr, sc), (er, ec))) = self.selection else {
-            return false;
-        };
-        if self.row < sr || self.row > er {
-            false
-        } else if sr == er {
-            col >= sc && col < ec
-        } else if self.row == sr {
-            col >= sc
-        } else if self.row == er {
-            col < ec
-        } else {
-            true
+        if let Some((start, end)) = self.selection {
+            if pos_in_range(self.row, col, start, end) {
+                return true;
+            }
         }
+        self.secondary.iter().any(|c| {
+            c.anchor.is_some_and(|anchor| {
+                pos_in_range(self.row, col, anchor.min(c.pos), anchor.max(c.pos))
+            })
+        })
+    }
+
+    /// Whether `(self.row, col)` is exactly one of the secondary cursors'
+    /// own position — painted with the same `cursor` style the primary
+    /// cursor uses, distinguishing them from ordinary selected text.
+    fn is_secondary_cursor(&self, col: usize) -> bool {
+        self.secondary.iter().any(|c| c.pos == (self.row, col))
     }
 }
 
@@ -236,12 +384,18 @@ fn build_segment_line(
     let mut plain = String::new();
 
     for (col, &ch) in chars.iter().enumerate().take(end).skip(start) {
-        let is_cursor = ctx.is_cursor_segment && ctx.row == ctx.cursor_row && col == ctx.cursor_col;
-        if is_cursor {
+        let is_primary_cursor =
+            ctx.is_cursor_segment && ctx.row == ctx.cursor_row && col == ctx.cursor_col;
+        if is_primary_cursor {
             if !plain.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut plain), line_style));
             }
             spans.push(Span::styled(ch.to_string(), styles.cursor));
+        } else if ctx.is_secondary_cursor(col) {
+            if !plain.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut plain), line_style));
+            }
+            spans.push(Span::styled(ch.to_string(), styles.secondary_cursor));
         } else if ctx.is_selected(col) {
             if !plain.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut plain), line_style));
@@ -256,6 +410,13 @@ fn build_segment_line(
     }
     if ctx.is_cursor_segment && ctx.row == ctx.cursor_row && ctx.cursor_col == end {
         spans.push(Span::styled(" ", styles.cursor));
+    } else if ctx.is_secondary_cursor(end) {
+        // A secondary cursor sitting past the last character of the line
+        // (very common — it's exactly where a cursor lands right after
+        // typing) has no character of its own to attach a style to,
+        // same fallback the primary cursor's own end-of-line case above
+        // already needed.
+        spans.push(Span::styled(" ", styles.secondary_cursor));
     }
 
     Line::from(spans)
@@ -327,6 +488,151 @@ fn locate_in_wrap(ranges: &[(usize, usize)], col: usize) -> (usize, usize) {
     (last, col - ranges[last].0)
 }
 
+/// Classifies a char the way a double-click "select the word under the
+/// cursor" needs to: whitespace never joins a word, and a run of
+/// word-characters (alphanumeric/`_`) is a different "word" than an
+/// adjacent run of punctuation — `"foo.bar"` double-clicked on `foo` should
+/// select just `foo`, not the whole dotted path. Mirrors the idea of
+/// `tui-textarea`'s own internal (non-`pub`, unreachable from shiki)
+/// `word.rs` classifier, reimplemented here since it can't be imported.
+#[derive(PartialEq, Eq)]
+enum CharKind {
+    Space,
+    Word,
+    Punct,
+}
+
+fn char_kind(c: char) -> CharKind {
+    if c.is_whitespace() {
+        CharKind::Space
+    } else if c.is_alphanumeric() || c == '_' {
+        CharKind::Word
+    } else {
+        CharKind::Punct
+    }
+}
+
+/// The char-range `[start, end)` of the "word" containing `col` within
+/// `chars` — used by double-click (select word) and, later, by Ctrl+D
+/// (select the word under the cursor as the initial multi-select query).
+/// `col == chars.len()` (cursor sitting past the last character) uses the
+/// *previous* character's kind, matching where a click there visually is.
+pub fn word_range(chars: &[char], col: usize) -> (usize, usize) {
+    if chars.is_empty() {
+        return (0, 0);
+    }
+    let at = col.min(chars.len() - 1);
+    let kind = char_kind(chars[at]);
+    if kind == CharKind::Space {
+        return (at, at + 1);
+    }
+    let mut start = at;
+    while start > 0 && char_kind(chars[start - 1]) == kind {
+        start -= 1;
+    }
+    let mut end = at + 1;
+    while end < chars.len() && char_kind(chars[end]) == kind {
+        end += 1;
+    }
+    (start, end)
+}
+
+/// Every occurrence of `query` across `lines`, case-insensitive, as
+/// `(row, start_col, end_col)` char-index triples in document order —
+/// plain literal substring matching (no regex), which is what Ctrl+F
+/// searches by default. A pure function of `&[String]` (not `&TextArea`)
+/// so it's independently testable, same reasoning as `word_range`.
+pub(crate) fn find_all_matches(lines: &[String], query: &str) -> Vec<(usize, usize, usize)> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let query_lower: Vec<char> = query.to_lowercase().chars().collect();
+    let qlen = query_lower.len();
+    let mut matches = Vec::new();
+    for (row, line) in lines.iter().enumerate() {
+        let lower: Vec<char> = line.to_lowercase().chars().collect();
+        if lower.len() < qlen {
+            continue;
+        }
+        let mut col = 0;
+        while col + qlen <= lower.len() {
+            if lower[col..col + qlen] == query_lower[..] {
+                matches.push((row, col, col + qlen));
+                col += qlen;
+            } else {
+                col += 1;
+            }
+        }
+    }
+    matches
+}
+
+/// The next (or, if `backward`, previous) match strictly after/before
+/// `from` in document order, wrapping around the whole buffer when there
+/// is none — same "find next wraps to the top" behavior a real editor's
+/// find bar has. `from` is compared against each match's *start* position.
+pub(crate) fn next_match(
+    matches: &[(usize, usize, usize)],
+    from: (usize, usize),
+    backward: bool,
+) -> Option<(usize, usize, usize)> {
+    if backward {
+        matches
+            .iter()
+            .rev()
+            .find(|&&(r, s, _)| (r, s) < from)
+            .or_else(|| matches.last())
+            .copied()
+    } else {
+        matches
+            .iter()
+            .find(|&&(r, s, _)| (r, s) > from)
+            .or_else(|| matches.first())
+            .copied()
+    }
+}
+
+/// The literal text between two logical `(row, col)` positions (`start`
+/// assumed `<= end` in document order) — used to seed Ctrl+F's query from
+/// an existing selection, and to read out arbitrary selected text in
+/// general. A pure function of `&[String]`, not `&TextArea`, for the same
+/// testability reason as `find_all_matches`.
+pub(crate) fn selection_text(
+    lines: &[String],
+    start: (usize, usize),
+    end: (usize, usize),
+) -> String {
+    let (sr, sc) = start;
+    let (er, ec) = end;
+    if sr >= lines.len() {
+        return String::new();
+    }
+    if sr == er {
+        let chars: Vec<char> = lines[sr].chars().collect();
+        let sc = sc.min(chars.len());
+        let ec = ec.min(chars.len());
+        return chars[sc..ec].iter().collect();
+    }
+    let last_row = er.min(lines.len().saturating_sub(1));
+    let mut out = String::new();
+    for (row, line) in lines.iter().enumerate().take(last_row + 1).skip(sr) {
+        let chars: Vec<char> = line.chars().collect();
+        if row == sr {
+            let sc = sc.min(chars.len());
+            out.extend(&chars[sc..]);
+        } else if row == er {
+            let ec = ec.min(chars.len());
+            out.extend(&chars[..ec]);
+        } else {
+            out.push_str(line);
+        }
+        if row != er {
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// Smallest vertical scroll adjustment that keeps `cursor` inside a
 /// `height`-row-tall viewport currently topped at `prev_top` — scrolls up
 /// the instant the cursor moves above it, or down the instant it moves
@@ -394,5 +700,134 @@ mod tests {
         assert_eq!(next_scroll_top(0, 3, 5), 0); // cursor already visible
         assert_eq!(next_scroll_top(0, 7, 5), 3); // cursor below viewport
         assert_eq!(next_scroll_top(4, 1, 5), 1); // cursor above viewport
+    }
+
+    #[test]
+    fn word_range_selects_the_word_under_the_cursor() {
+        let line = chars("hello world");
+        assert_eq!(word_range(&line, 2), (0, 5)); // inside "hello"
+        assert_eq!(word_range(&line, 0), (0, 5)); // at its start
+        assert_eq!(word_range(&line, 6), (6, 11)); // inside "world"
+    }
+
+    #[test]
+    fn word_range_stops_at_punctuation() {
+        let line = chars("foo.bar");
+        assert_eq!(word_range(&line, 1), (0, 3)); // "foo"
+        assert_eq!(word_range(&line, 3), (3, 4)); // the "." itself
+        assert_eq!(word_range(&line, 5), (4, 7)); // "bar"
+    }
+
+    #[test]
+    fn word_range_on_whitespace_selects_just_that_cell() {
+        let line = chars("a b");
+        assert_eq!(word_range(&line, 1), (1, 2));
+    }
+
+    #[test]
+    fn word_range_clamps_past_the_last_character() {
+        let line = chars("hi");
+        assert_eq!(word_range(&line, 5), (0, 2));
+    }
+
+    #[test]
+    fn word_range_on_empty_line() {
+        assert_eq!(word_range(&[], 0), (0, 0));
+    }
+
+    #[test]
+    fn position_at_maps_a_click_back_to_the_clicked_character() {
+        let editor = InlineEditor::from_contents("hello\nworld foo");
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 5,
+        };
+        // Render once so `scroll_top`/wrap state is established, same
+        // precondition `cursor_screen_row()` already documents.
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 5))
+            .expect("test backend");
+        terminal
+            .draw(|frame| {
+                editor.render(frame, area, false, Style::default(), Style::default(), &[])
+            })
+            .unwrap();
+
+        // Row 0 is "hello", clicking column 3 lands on the 'l' at index 3.
+        assert_eq!(editor.position_at(area, false, 3, 0), Some((0, 3)));
+        // Row 1 is "world foo", clicking column 6 lands on 'f' at index 6.
+        assert_eq!(editor.position_at(area, false, 6, 1), Some((1, 6)));
+        // Outside the area entirely.
+        assert_eq!(editor.position_at(area, false, 30, 0), None);
+    }
+
+    #[test]
+    fn position_at_accounts_for_the_line_number_gutter() {
+        let editor = InlineEditor::from_contents("hello");
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 5,
+        };
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 5))
+            .expect("test backend");
+        terminal
+            .draw(|frame| editor.render(frame, area, true, Style::default(), Style::default(), &[]))
+            .unwrap();
+        // Gutter for a 1-line file is "1 " (2 columns) — a click landing
+        // in the gutter itself clamps to column 0 of the actual text.
+        assert_eq!(editor.position_at(area, true, 0, 0), Some((0, 0)));
+        assert_eq!(editor.position_at(area, true, 2, 0), Some((0, 0)));
+    }
+
+    fn lines(s: &[&str]) -> Vec<String> {
+        s.iter().map(|l| l.to_string()).collect()
+    }
+
+    #[test]
+    fn find_all_matches_is_case_insensitive_and_non_overlapping() {
+        let doc = lines(&["Hello hello", "say HELLO again"]);
+        let matches = find_all_matches(&doc, "hello");
+        assert_eq!(matches, vec![(0, 0, 5), (0, 6, 11), (1, 4, 9)]);
+    }
+
+    #[test]
+    fn find_all_matches_returns_nothing_for_an_empty_query() {
+        assert_eq!(find_all_matches(&lines(&["anything"]), ""), Vec::new());
+    }
+
+    #[test]
+    fn next_match_wraps_around_in_both_directions() {
+        let matches = vec![(0, 0, 3), (1, 2, 5), (2, 0, 3)];
+        // Forward from the last match wraps to the first.
+        assert_eq!(next_match(&matches, (2, 0), false), Some((0, 0, 3)));
+        // Forward from before the first match lands on the first.
+        assert_eq!(next_match(&matches, (0, 0), false), Some((1, 2, 5)));
+        // Backward from the first match wraps to the last.
+        assert_eq!(next_match(&matches, (0, 0), true), Some((2, 0, 3)));
+        // Backward from after the last match lands on the last.
+        assert_eq!(next_match(&matches, (2, 3), true), Some((2, 0, 3)));
+    }
+
+    #[test]
+    fn next_match_none_when_there_are_no_matches() {
+        assert_eq!(next_match(&[], (0, 0), false), None);
+    }
+
+    #[test]
+    fn selection_text_extracts_a_single_line_range() {
+        let doc = lines(&["hello world"]);
+        assert_eq!(selection_text(&doc, (0, 6), (0, 11)), "world");
+    }
+
+    #[test]
+    fn selection_text_extracts_across_multiple_lines() {
+        let doc = lines(&["hello world", "second line", "third"]);
+        assert_eq!(
+            selection_text(&doc, (0, 6), (2, 3)),
+            "world\nsecond line\nthi"
+        );
     }
 }

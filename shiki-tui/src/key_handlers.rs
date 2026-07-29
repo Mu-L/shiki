@@ -1,12 +1,12 @@
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use shiki_config::Config;
 use shiki_core::Notebook;
 
 use crate::app::{
     drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
-    looks_like_git_url, looks_like_path, relative_folder, shift, App, BatchOp, DeleteTarget, Focus,
-    Mode, PendingInput, PreviewSelection, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg,
-    UpdateState, PAGE_STEP,
+    looks_like_git_url, looks_like_path, relative_folder, shift, App, BatchOp, DeleteTarget,
+    EditorFindState, FindField, Focus, Mode, PendingInput, PreviewSelection, QuickCommand,
+    SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
 };
 use crate::editor::InlineEditor;
 use crate::icons;
@@ -214,6 +214,7 @@ impl App {
                 SettingsSection::General => self.handle_general_field_enter(),
                 SettingsSection::Theme => self.handle_theme_field_enter(),
                 SettingsSection::Git => self.handle_git_field_enter(),
+                SettingsSection::Editor => self.handle_editor_field_enter(),
                 SettingsSection::Notebooks => {
                     let names = crate::panel_settings::sorted_notebook_names(self);
                     if let Some(name) = names.get(self.settings_selected) {
@@ -389,6 +390,43 @@ impl App {
                 ("auto_sync", self.config.git.auto_sync)
             }
             _ => return,
+        };
+        self.save_config();
+        self.set_status(format!("{label} -> {new_val}"));
+    }
+    /// EDITOR — every field is a plain bool toggle, no text/drill-down
+    /// fields at all, so `Enter` always just flips the selected row.
+    fn handle_editor_field_enter(&mut self) {
+        use crate::panel_settings::EditorField;
+        self.toggle_editor_bool(EditorField::ALL[self.settings_selected]);
+    }
+    fn toggle_editor_bool(&mut self, field: crate::panel_settings::EditorField) {
+        use crate::panel_settings::EditorField;
+        let (label, new_val) = match field {
+            EditorField::MouseSelection => {
+                self.config.editor.mouse_selection = !self.config.editor.mouse_selection;
+                ("mouse_selection", self.config.editor.mouse_selection)
+            }
+            EditorField::FindReplace => {
+                self.config.editor.find_replace = !self.config.editor.find_replace;
+                ("find_replace", self.config.editor.find_replace)
+            }
+            EditorField::OsClipboard => {
+                self.config.editor.os_clipboard = !self.config.editor.os_clipboard;
+                ("os_clipboard", self.config.editor.os_clipboard)
+            }
+            EditorField::SelectAllCtrlA => {
+                self.config.editor.select_all_ctrl_a = !self.config.editor.select_all_ctrl_a;
+                ("select_all_ctrl_a", self.config.editor.select_all_ctrl_a)
+            }
+            EditorField::LineNumbers => {
+                self.config.editor.line_numbers = !self.config.editor.line_numbers;
+                ("line_numbers", self.config.editor.line_numbers)
+            }
+            EditorField::MultiCursor => {
+                self.config.editor.multi_cursor = !self.config.editor.multi_cursor;
+                ("multi_cursor", self.config.editor.multi_cursor)
+            }
         };
         self.save_config();
         self.set_status(format!("{label} -> {new_val}"));
@@ -1247,13 +1285,89 @@ impl App {
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                self.on_mouse_down(mouse.column, mouse.row);
+                // Alt+Click adds a multi-cursor at the clicked position
+                // instead of moving the primary cursor there — crossterm
+                // doesn't report Alt-modified mouse events uniformly
+                // across every terminal emulator, so a terminal that
+                // doesn't forward the modifier just degrades gracefully
+                // to a plain single-cursor click, never a crash or a
+                // stuck state.
+                if self.mode == Mode::Edit
+                    && self.config.editor.mouse_selection
+                    && self.config.editor.multi_cursor
+                    && mouse.modifiers.contains(KeyModifiers::ALT)
+                {
+                    self.on_editor_alt_click(mouse.column, mouse.row);
+                } else {
+                    self.on_mouse_down(mouse.column, mouse.row);
+                }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 self.on_mouse_drag(mouse.column, mouse.row);
             }
             MouseEventKind::Up(MouseButton::Left) => self.on_mouse_up(),
+            MouseEventKind::ScrollUp => self.on_mouse_scroll(-1),
+            MouseEventKind::ScrollDown => self.on_mouse_scroll(1),
             _ => {}
+        }
+    }
+
+    /// Mouse wheel scroll — never handled at all before this (verified
+    /// live: scrolling over PREVIEW or the editor did nothing whatsoever).
+    /// Moves the editor's cursor by a few rows (`Mode::Edit` — the only way
+    /// to scroll the view at all, since `InlineEditor`'s own scroll offset
+    /// is entirely cursor-driven, not an independent viewport state) or
+    /// reuses `move_selection`'s existing delta logic (`Mode::Normal`/
+    /// `Visual`, covers NOTEBOOKS/NOTES/PREVIEW identically to `j`/`k`) —
+    /// gated on `no_modal_open()` so scrolling over a popup can't reach the
+    /// layout underneath it.
+    fn on_mouse_scroll(&mut self, dir: isize) {
+        const SCROLL_STEP: isize = 3;
+        if !self.no_modal_open() {
+            return;
+        }
+        if self.mode == Mode::Edit {
+            self.editor_scroll_cursor(dir * SCROLL_STEP);
+        } else if self.mode == Mode::Normal || self.mode == Mode::Visual {
+            self.move_selection(dir * SCROLL_STEP);
+        }
+    }
+
+    /// Handles a terminal bracketed-paste event (`Event::Paste`, enabled
+    /// unconditionally at startup — see `shiki-cli/src/tui.rs`). This has
+    /// to be handled somewhere regardless of `config.editor.os_clipboard`:
+    /// once bracketed-paste mode is on, *every* terminal paste anywhere in
+    /// the app arrives this way instead of as a burst of individual
+    /// `Event::Key`s, so silently dropping it here would break pasting
+    /// into every text prompt in the app (new note, rename, global search,
+    /// ...), not just the note editor.
+    ///
+    /// Plain-text editing (`Mode::Edit`, no find bar or slash menu open)
+    /// gets the one genuine improvement: the whole paste lands as a single
+    /// `insert_str` — one undo step, and immune to the `/`-menu
+    /// mis-firing if the pasted text happens to start with `/` (see
+    /// `handle_edit_key`'s own `/`-detection comment). Every other context
+    /// (the find/replace bar, the slash menu, and any `InputBox`-driven
+    /// prompt — new note, rename, global search, settings text fields,
+    /// which-key's filter, ...) has no bulk-insert of its own, so it's
+    /// replayed as if each character had arrived as an ordinary keystroke
+    /// — exactly what it looked like before bracketed-paste mode existed.
+    pub fn on_paste(&mut self, text: String) {
+        if self.mode == Mode::Edit && self.editor_find.is_none() && !self.show_slash_menu {
+            if let Some(editor) = &mut self.editor {
+                editor.textarea.insert_str(&text);
+                self.editor_undo_groups.push(1);
+                self.editor_redo_groups.clear();
+            }
+            return;
+        }
+        for c in text.chars() {
+            let code = if c == '\n' {
+                KeyCode::Enter
+            } else {
+                KeyCode::Char(c)
+            };
+            self.on_key(KeyEvent::new(code, KeyModifiers::NONE));
         }
     }
 
@@ -1285,6 +1399,11 @@ impl App {
             return;
         }
 
+        if self.mode == Mode::Edit && self.config.editor.mouse_selection {
+            self.on_editor_mouse_down(column, row);
+            return;
+        }
+
         if self.can_start_preview_selection() {
             let preview = layout::split(self.last_frame_area, self.focus).preview;
             let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
@@ -1306,6 +1425,12 @@ impl App {
     }
 
     fn on_mouse_drag(&mut self, column: u16, row: u16) {
+        if self.mode == Mode::Edit && self.config.editor.mouse_selection {
+            if self.editor_click_count > 0 {
+                self.on_editor_mouse_drag(column, row);
+            }
+            return;
+        }
         if self.preview_selection.is_none() {
             return;
         }
@@ -1336,6 +1461,7 @@ impl App {
     }
 
     fn on_mouse_up(&mut self) {
+        self.editor_drag_active = false;
         let Some(selection) = self.preview_selection.take() else {
             return;
         };
@@ -1365,6 +1491,128 @@ impl App {
         ));
     }
 
+    /// Alt+Click (`config.editor.multi_cursor`): adds a plain cursor at
+    /// the clicked position — dedups against the primary and every
+    /// existing secondary (see `multicursor::add_cursor_at`), so clicking
+    /// an already-present cursor's exact cell is a harmless no-op rather
+    /// than a duplicate.
+    fn on_editor_alt_click(&mut self, column: u16, row: u16) {
+        let preview = layout::split(self.last_frame_area, self.focus).preview;
+        let line_numbers = self.config.editor.line_numbers;
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        let Some(pos) = editor.position_at(preview, line_numbers, column, row) else {
+            return;
+        };
+        let primary = editor.textarea.cursor();
+        crate::multicursor::add_cursor_at(&mut self.editor_secondary_cursors, primary, pos);
+    }
+    /// `config.editor.mouse_selection`'s click handling: single click
+    /// positions the cursor, a second click within `MULTI_CLICK_WINDOW` on
+    /// the same cell selects the word under it, a third selects the whole
+    /// line — same click-counting idea as a real GUI text editor, since
+    /// crossterm itself has no concept of a "double click" event. Resets
+    /// `editor_drag_active` for the new gesture: `true` when the click
+    /// itself already established a selection (word/line), so the first
+    /// `Drag` event that follows extends *that* selection instead of
+    /// re-anchoring it at the drag's own start (which would discard the
+    /// word/line just selected); `false` for a plain single click, which
+    /// hasn't anchored anything yet.
+    fn on_editor_mouse_down(&mut self, column: u16, row: u16) {
+        let preview = layout::split(self.last_frame_area, self.focus).preview;
+        let line_numbers = self.config.editor.line_numbers;
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let Some((doc_row, doc_col)) = editor.position_at(preview, line_numbers, column, row)
+        else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        const MULTI_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(400);
+        let same_cell = self.editor_last_click.is_some_and(|(t, c, r)| {
+            c == column && r == row && now.duration_since(t) < MULTI_CLICK_WINDOW
+        });
+        self.editor_click_count = if same_cell {
+            (self.editor_click_count + 1).min(3)
+        } else {
+            1
+        };
+        self.editor_last_click = Some((now, column, row));
+
+        match self.editor_click_count {
+            2 => {
+                let chars: Vec<char> = editor.textarea.lines()[doc_row].chars().collect();
+                let (start, end) = crate::editor::word_range(&chars, doc_col);
+                editor.textarea.cancel_selection();
+                editor
+                    .textarea
+                    .move_cursor(tui_textarea::CursorMove::Jump(doc_row as u16, start as u16));
+                editor.textarea.start_selection();
+                editor
+                    .textarea
+                    .move_cursor(tui_textarea::CursorMove::Jump(doc_row as u16, end as u16));
+            }
+            3 => {
+                editor.textarea.cancel_selection();
+                editor
+                    .textarea
+                    .move_cursor(tui_textarea::CursorMove::Jump(doc_row as u16, 0));
+                editor.textarea.start_selection();
+                editor
+                    .textarea
+                    .move_cursor(tui_textarea::CursorMove::Jump(doc_row as u16, u16::MAX));
+            }
+            _ => {
+                editor.textarea.cancel_selection();
+                editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+                    doc_row as u16,
+                    doc_col as u16,
+                ));
+            }
+        }
+        self.editor_drag_active = self.editor_click_count > 1;
+    }
+    /// Extends the in-progress editor selection while dragging — clamps to
+    /// the editor's own inner area (no auto-scroll in v1, same reasoning
+    /// and convention as PREVIEW's own `on_mouse_drag` above). The first
+    /// drag event after a plain single click anchors the selection there
+    /// (`tui_textarea::TextArea::move_cursor` auto-extends from an anchor
+    /// set by `start_selection`, so no separate anchor bookkeeping is
+    /// needed in shiki itself); a drag following a double/triple click
+    /// skips re-anchoring since one already exists (see `editor_drag_active`'s
+    /// own doc comment).
+    fn on_editor_mouse_drag(&mut self, column: u16, row: u16) {
+        let preview = layout::split(self.last_frame_area, self.focus).preview;
+        let line_numbers = self.config.editor.line_numbers;
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let inner = editor.inner_area(preview);
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+        let left = inner.x;
+        let right = (inner.x + inner.width).saturating_sub(1).max(left);
+        let top = inner.y;
+        let bottom = (inner.y + inner.height).saturating_sub(1).max(top);
+        let clamped_column = column.clamp(left, right);
+        let clamped_row = row.clamp(top, bottom);
+        let Some((doc_row, doc_col)) =
+            editor.position_at(preview, line_numbers, clamped_column, clamped_row)
+        else {
+            return;
+        };
+        if !self.editor_drag_active {
+            editor.textarea.start_selection();
+            self.editor_drag_active = true;
+        }
+        editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+            doc_row as u16,
+            doc_col as u16,
+        ));
+    }
     /// Guards `on_mouse_down`'s preview-selection branch: the feature is off
     /// in config, we're editing the note inline (the preview `Rect` belongs
     /// to the editor then, not `panel_preview::render`), or some modal is
@@ -1375,9 +1623,15 @@ impl App {
     /// a click reaching any of these shouldn't be reinterpreted as a
     /// PREVIEW text selection.
     fn can_start_preview_selection(&self) -> bool {
-        self.config.general.mouse_drag_selection
-            && self.mode != Mode::Edit
-            && !self.show_slash_menu
+        self.config.general.mouse_drag_selection && self.mode != Mode::Edit && self.no_modal_open()
+    }
+    /// Whether any overlay is currently covering the 3-pane layout — every
+    /// popup/modal flag this app has, in one place, so a click or scroll
+    /// reaching the layout underneath one of them can't be misinterpreted
+    /// as belonging to NOTEBOOKS/NOTES/PREVIEW. Shared by
+    /// `can_start_preview_selection` and mouse-wheel scrolling.
+    fn no_modal_open(&self) -> bool {
+        !self.show_slash_menu
             && self.pending_input.is_none()
             && !self.show_tags
             && !self.show_theme_picker
@@ -2634,15 +2888,151 @@ impl App {
         }
     }
     fn handle_edit_key(&mut self, key: KeyEvent) {
+        if self.editor_find.is_some() {
+            self.handle_editor_find_key(key);
+            return;
+        }
         if self.show_slash_menu {
             self.handle_slash_menu_key(key);
             return;
         }
         match key.code {
-            KeyCode::Esc => self.save_and_exit_edit(),
+            // Esc first collapses multi-cursor editing back to just the
+            // primary (VS Code's own "Escape removes secondary cursors"
+            // convention) — only a *second* Esc, with no secondaries left,
+            // actually saves and exits.
+            KeyCode::Esc => {
+                if self.editor_secondary_cursors.is_empty() {
+                    self.save_and_exit_edit();
+                } else {
+                    self.editor_secondary_cursors.clear();
+                }
+            }
+            KeyCode::Char('f')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.find_replace =>
+            {
+                self.open_editor_find();
+            }
+            KeyCode::Char('c')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.os_clipboard =>
+            {
+                self.editor_copy_selection();
+            }
+            KeyCode::Char('x')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.os_clipboard =>
+            {
+                self.editor_cut_selection();
+            }
+            KeyCode::Char('v')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.os_clipboard =>
+            {
+                self.editor_paste_os();
+            }
+            // Off by default: tui-textarea's own Ctrl+A is Emacs-style
+            // "move to start of line," existing muscle memory this
+            // shouldn't change unless explicitly opted into. Also
+            // collapses any secondary cursors first — "select everything,
+            // replicated across N cursors" isn't a meaningful state.
+            KeyCode::Char('a')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.select_all_ctrl_a =>
+            {
+                self.editor_secondary_cursors.clear();
+                if let Some(editor) = &mut self.editor {
+                    editor.textarea.select_all();
+                }
+            }
+            // Off by default, and collides with tui-textarea's own Emacs
+            // Ctrl+D ("delete next character") the moment it's turned on —
+            // an accepted tradeoff, same category as `select_all_ctrl_a`'s
+            // own collision with Emacs Ctrl+A, since multi-cursor is opt-in.
+            KeyCode::Char('d')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.multi_cursor =>
+            {
+                self.editor_add_next_occurrence();
+            }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.editor_undo();
+            }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.editor_redo();
+            }
+            // VS Code's own "Add Cursor Above/Below" binding — a keyboard
+            // alternative to Alt+Click that doesn't need the mouse at all,
+            // requested after Alt+Click felt uncomfortable in practice.
+            KeyCode::Up
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.modifiers.contains(KeyModifiers::ALT)
+                    && self.config.editor.multi_cursor =>
+            {
+                self.editor_add_cursor_vertical(-1);
+            }
+            KeyCode::Down
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.modifiers.contains(KeyModifiers::ALT)
+                    && self.config.editor.multi_cursor =>
+            {
+                self.editor_add_cursor_vertical(1);
+            }
+            // Always replaces the generic forward for these two — see
+            // `editor_scroll_cursor`'s own doc comment for why forwarding
+            // them to `tui-textarea` does nothing in this editor.
+            KeyCode::PageDown => self.editor_scroll_cursor(PAGE_STEP),
+            KeyCode::PageUp => self.editor_scroll_cursor(-PAGE_STEP),
+            // Plain Home/End already work via the generic forward
+            // (`tui-textarea`'s own `CursorMove::Head`/`End` — start/end of
+            // the *current* line, no viewport dependency). Ctrl+Home/
+            // Ctrl+End add the jump-to-document-start/end that plain
+            // Home/End don't cover, the common convention this was missing.
+            KeyCode::Home if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(editor) = &mut self.editor {
+                    editor.textarea.cancel_selection();
+                    editor
+                        .textarea
+                        .move_cursor(tui_textarea::CursorMove::Jump(0, 0));
+                }
+            }
+            KeyCode::End if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(editor) = &mut self.editor {
+                    let last_row = editor.textarea.lines().len().saturating_sub(1);
+                    let last_col = editor.textarea.lines()[last_row].chars().count();
+                    editor.textarea.cancel_selection();
+                    editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+                        last_row as u16,
+                        last_col as u16,
+                    ));
+                }
+            }
             _ => {
                 if let Some(editor) = &mut self.editor {
-                    editor.textarea.input(key);
+                    let edits = if self.editor_secondary_cursors.is_empty() {
+                        // A plain `input()` call can itself push *two*
+                        // history entries (typing over an active selection
+                        // is "delete selection, then insert" — see
+                        // `multicursor::undo_history_depth`'s own doc
+                        // comment for why this is measured, not assumed).
+                        let snapshot = editor.textarea.lines().to_vec();
+                        if editor.textarea.input(key) {
+                            crate::multicursor::undo_history_depth(&mut editor.textarea, &snapshot)
+                        } else {
+                            0
+                        }
+                    } else {
+                        crate::multicursor::replay_keystroke(
+                            &mut editor.textarea,
+                            key,
+                            &mut self.editor_secondary_cursors,
+                        )
+                    };
+                    if edits > 0 {
+                        self.editor_undo_groups.push(edits);
+                        self.editor_redo_groups.clear();
+                    }
                 }
                 // `/` only opens the menu when it lands as the very first
                 // character of the line (cursor was at column 0, so it's
@@ -2660,6 +3050,427 @@ impl App {
                 }
             }
         }
+    }
+    /// Ctrl+C (`config.editor.os_clipboard`): extracts the selected text
+    /// *before* mutating anything (`copy()` may collapse/alter the
+    /// selection as a side effect), writes it to the real OS clipboard —
+    /// falling back automatically to the existing OSC 52 mechanism when
+    /// arboard can't reach a display server (headless SSH) — and still
+    /// calls `copy()` too, so the internal yank register (and thus Ctrl+V
+    /// with `os_clipboard` off) stays in sync regardless.
+    fn editor_copy_selection(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let Some((start, end)) = editor.textarea.selection_range() else {
+            return;
+        };
+        let text = crate::editor::selection_text(editor.textarea.lines(), start, end);
+        editor.textarea.copy();
+        if !crate::clipboard::copy_os(&text) {
+            crate::clipboard::copy(&text);
+        }
+    }
+    /// Ctrl+X — same as `editor_copy_selection` but deletes the selection
+    /// (`cut()`) instead of leaving it in place.
+    fn editor_cut_selection(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let Some((start, end)) = editor.textarea.selection_range() else {
+            return;
+        };
+        let text = crate::editor::selection_text(editor.textarea.lines(), start, end);
+        let cut = editor.textarea.cut();
+        if !crate::clipboard::copy_os(&text) {
+            crate::clipboard::copy(&text);
+        }
+        if cut {
+            self.editor_undo_groups.push(1);
+            self.editor_redo_groups.clear();
+        }
+    }
+    /// Ctrl+V — tries the real OS clipboard first; if arboard can't reach
+    /// one (no display server), falls through to `tui-textarea`'s own
+    /// internal yank register (`paste()`), exactly what Ctrl+V already did
+    /// before `os_clipboard` existed, so nothing regresses in that case.
+    fn editor_paste_os(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let pasted = match crate::clipboard::paste_os() {
+            Some(text) => editor.textarea.insert_str(&text),
+            None => editor.textarea.paste(),
+        };
+        if pasted {
+            self.editor_undo_groups.push(1);
+            self.editor_redo_groups.clear();
+        }
+    }
+    /// Ctrl+U — pops the most recent entry off `editor_undo_groups` and
+    /// undoes exactly that many steps as one action, stopping early if
+    /// `textarea.undo()` ever returns `false` (nothing left to undo — an
+    /// empty stack pops `1` as a harmless default, which just no-ops
+    /// against `undo()`'s own "nothing to undo" case). Pushes however many
+    /// steps were *actually* undone onto `editor_redo_groups`, so the next
+    /// Ctrl+R restores exactly that many, not the (possibly larger)
+    /// originally-requested count.
+    fn editor_undo(&mut self) {
+        let count = self.editor_undo_groups.pop().unwrap_or(1);
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let mut undone = 0;
+        for _ in 0..count {
+            if !editor.textarea.undo() {
+                break;
+            }
+            undone += 1;
+        }
+        if undone > 0 {
+            self.editor_redo_groups.push(undone);
+        }
+    }
+    /// Ctrl+R — mirrors `editor_undo` for redo.
+    fn editor_redo(&mut self) {
+        let count = self.editor_redo_groups.pop().unwrap_or(1);
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let mut redone = 0;
+        for _ in 0..count {
+            if !editor.textarea.redo() {
+                break;
+            }
+            redone += 1;
+        }
+        if redone > 0 {
+            self.editor_undo_groups.push(redone);
+        }
+    }
+    /// Moves the editor's cursor `delta` logical rows (clamped to the
+    /// buffer), preserving column as closely as the target row allows —
+    /// drives both `PageUp`/`PageDown` (`delta = ±PAGE_STEP`) and mouse
+    /// wheel scrolling. This exists because forwarding `PageUp`/`PageDown`
+    /// to `tui-textarea` (as the generic catch-all does for every other
+    /// key) does nothing at all in this editor: verified live.
+    /// `tui-textarea`'s own `Scrolling::PageUp/PageDown` scrolls its
+    /// *internal* `Viewport`, which is only ever populated by its own
+    /// `Widget` impl — and `InlineEditor::render` deliberately bypasses
+    /// that entirely (see the struct doc comment), so the viewport
+    /// `Scrolling` scrolls is permanently zero-sized and the cursor
+    /// (adjusted to "stay in viewport" afterward) never actually moves.
+    /// Moving the cursor directly sidesteps that viewport entirely, and
+    /// `InlineEditor`'s own scroll-follow (driven purely by cursor
+    /// position, not an independent scroll offset) then scrolls the view
+    /// to match on the next render — the only "scroll" this editor has.
+    fn editor_scroll_cursor(&mut self, delta: isize) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let (row, col) = editor.textarea.cursor();
+        let last_row = editor.textarea.lines().len().saturating_sub(1);
+        let new_row = (row as isize + delta).clamp(0, last_row as isize) as usize;
+        if new_row == row {
+            return;
+        }
+        let new_col = col.min(editor.textarea.lines()[new_row].chars().count());
+        editor.textarea.cancel_selection();
+        editor.textarea.move_cursor(tui_textarea::CursorMove::Jump(
+            new_row as u16,
+            new_col as u16,
+        ));
+    }
+    /// Ctrl+Alt+Up/Down (`config.editor.multi_cursor`): adds a cursor one
+    /// row above (`dir < 0`) or below (`dir > 0`) whichever existing
+    /// cursor (primary or secondary) already sits furthest in that
+    /// direction — so repeated presses keep extending the same contiguous
+    /// block of cursors upward/downward, matching VS Code's own behavior,
+    /// rather than always adding relative to the primary alone. The new
+    /// cursor's column is clamped to its target line's length, same as a
+    /// plain `Up`/`Down` keypress would clamp against a shorter line.
+    fn editor_add_cursor_vertical(&mut self, dir: isize) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        let primary = editor.textarea.cursor();
+        let reference = self
+            .editor_secondary_cursors
+            .iter()
+            .map(|c| c.pos)
+            .chain(std::iter::once(primary))
+            .reduce(|a, b| if dir < 0 { a.min(b) } else { a.max(b) });
+        let Some((row, col)) = reference else {
+            return;
+        };
+        let target_row = if dir < 0 {
+            match row.checked_sub(1) {
+                Some(r) => r,
+                None => return,
+            }
+        } else {
+            row + 1
+        };
+        if target_row >= editor.textarea.lines().len() {
+            return;
+        }
+        let target_col = col.min(editor.textarea.lines()[target_row].chars().count());
+        crate::multicursor::add_cursor_at(
+            &mut self.editor_secondary_cursors,
+            primary,
+            (target_row, target_col),
+        );
+    }
+    /// Ctrl+D (`config.editor.multi_cursor`): the first press (primary has
+    /// no selection yet) just selects the word under the cursor, matching
+    /// VS Code's own first-press behavior — no new cursor yet. Every press
+    /// after that adds a new selecting cursor at the next occurrence of
+    /// the current selection's text, searching forward from whichever
+    /// existing cursor (primary or secondary) sits furthest along in the
+    /// document, and wrapping around the whole buffer. Reports "no more
+    /// occurrences" instead of adding a duplicate once every occurrence
+    /// already has its own cursor.
+    fn editor_add_next_occurrence(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        if editor.textarea.selection_range().is_none() {
+            let (row, col) = editor.textarea.cursor();
+            let chars: Vec<char> = editor.textarea.lines()[row].chars().collect();
+            let (start, end) = crate::editor::word_range(&chars, col);
+            if start == end {
+                return;
+            }
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
+            editor.textarea.start_selection();
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, end as u16));
+            return;
+        }
+        let (start, end) = editor.textarea.selection_range().unwrap();
+        let query = crate::editor::selection_text(editor.textarea.lines(), start, end);
+        if query.is_empty() {
+            return;
+        }
+        let matches = crate::editor::find_all_matches(editor.textarea.lines(), &query);
+        let last_end = self
+            .editor_secondary_cursors
+            .iter()
+            .map(|c| c.pos)
+            .chain(std::iter::once(end))
+            .max()
+            .unwrap_or(end);
+        let Some((row, mstart, mend)) = crate::editor::next_match(&matches, last_end, false) else {
+            self.set_status("no more occurrences".into());
+            return;
+        };
+        if !crate::multicursor::add_occurrence(
+            &mut self.editor_secondary_cursors,
+            row,
+            mstart,
+            mend,
+        ) {
+            self.set_status("no more occurrences".into());
+        }
+    }
+    /// Opens Ctrl+F's find/replace bar, seeding the query from the current
+    /// selection's text when one exists (so selecting a word first and
+    /// pressing Ctrl+F searches for it immediately, same convenience a GUI
+    /// editor's find bar has) — otherwise empty. `anchor` (where a fresh
+    /// search starts scanning from) is the cursor position at the moment
+    /// the bar opens.
+    fn open_editor_find(&mut self) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        let seed = editor
+            .textarea
+            .selection_range()
+            .map(|(start, end)| crate::editor::selection_text(editor.textarea.lines(), start, end))
+            .unwrap_or_default();
+        let anchor = editor.textarea.cursor();
+        self.editor_find = Some(EditorFindState {
+            query: InputBox { value: seed },
+            replace: InputBox::default(),
+            focus: FindField::Query,
+            anchor,
+        });
+    }
+    fn handle_editor_find_key(&mut self, key: KeyEvent) {
+        let Some(state) = &mut self.editor_find else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.editor_find = None;
+                if let Some(editor) = &mut self.editor {
+                    editor.textarea.cancel_selection();
+                }
+            }
+            KeyCode::Tab => {
+                state.focus = match state.focus {
+                    FindField::Query => FindField::Replace,
+                    FindField::Replace => FindField::Query,
+                };
+            }
+            KeyCode::Backspace => {
+                match state.focus {
+                    FindField::Query => state.query.backspace(),
+                    FindField::Replace => state.replace.backspace(),
+                }
+                if state.focus == FindField::Query {
+                    self.editor_find_step(false);
+                }
+            }
+            KeyCode::Char(c) => {
+                match state.focus {
+                    FindField::Query => state.query.push(c),
+                    FindField::Replace => state.replace.push(c),
+                }
+                if state.focus == FindField::Query {
+                    self.editor_find_step(false);
+                }
+            }
+            KeyCode::Enter => {
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                let alt = key.modifiers.contains(KeyModifiers::ALT);
+                if ctrl && alt {
+                    self.editor_replace_all();
+                } else if ctrl {
+                    self.editor_replace_current_and_advance();
+                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.editor_find_step(true);
+                } else {
+                    self.editor_find_step(false);
+                }
+            }
+            _ => {}
+        }
+    }
+    /// Jumps to the next (or, if `backward`, previous) match, selecting it
+    /// (`cancel_selection` + `start_selection` + `move_cursor(Jump(..))`,
+    /// the exact same pattern double/triple-click already established) so
+    /// it's visible via the editor's own selection-highlight rendering —
+    /// there's no separate "search highlight" style, the match just becomes
+    /// the current selection. Search continues from the current
+    /// selection's end (forward) or start (backward) once one exists, or
+    /// from the bar's `anchor` before any match has been jumped to yet.
+    fn editor_find_step(&mut self, backward: bool) {
+        let Some(state) = &self.editor_find else {
+            return;
+        };
+        let query = state.query.value.clone();
+        let anchor = state.anchor;
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let matches = crate::editor::find_all_matches(editor.textarea.lines(), &query);
+        if matches.is_empty() {
+            editor.textarea.cancel_selection();
+            return;
+        }
+        let from = editor
+            .textarea
+            .selection_range()
+            .map(|(start, end)| if backward { start } else { end })
+            .unwrap_or(anchor);
+        if let Some((row, start, end)) = crate::editor::next_match(&matches, from, backward) {
+            editor.textarea.cancel_selection();
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
+            editor.textarea.start_selection();
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, end as u16));
+        }
+    }
+    /// Ctrl+Enter: replaces the currently-selected match (if the selection
+    /// is in fact a match — it always is right after `editor_find_step`,
+    /// since a match becoming the selection is the only way one gets
+    /// created while the find bar is open) and advances to the next one.
+    /// `cut()` and `insert_str()` are two *separate* undo-history entries
+    /// (verified directly: undoing once after a cut+insert only reverts
+    /// the insert, leaving the cut text still missing) — pushing a flat
+    /// `1` here would leave Ctrl+U in a broken halfway state after every
+    /// single replacement, so the group size is the sum of their own
+    /// return values (each `true` means that call actually pushed an
+    /// entry) instead of an assumed constant.
+    fn editor_replace_current_and_advance(&mut self) {
+        let replacement = match &self.editor_find {
+            Some(state) => state.replace.value.clone(),
+            None => return,
+        };
+        let mut group = 0usize;
+        if let Some(editor) = &mut self.editor {
+            if editor.textarea.selection_range().is_some() {
+                group += usize::from(editor.textarea.cut());
+                group += usize::from(editor.textarea.insert_str(&replacement));
+            }
+        }
+        if group > 0 {
+            self.editor_undo_groups.push(group);
+            self.editor_redo_groups.clear();
+        }
+        self.editor_find_step(false);
+    }
+    /// Ctrl+Alt+Enter: replaces every occurrence. Always re-searches from
+    /// scratch each iteration (the buffer just changed) but only accepts a
+    /// match at or after `search_from` — which advances to the real cursor
+    /// position after each replacement — so a replacement that happens to
+    /// contain the query itself (e.g. "a" -> "aa") can never re-match its
+    /// own freshly-inserted text and loop forever. The *whole* replace-all
+    /// undoes as one Ctrl+U (one pushed group summing every individual
+    /// `cut`/`insert_str`'s own real return value — see
+    /// `editor_replace_current_and_advance`'s doc comment for why that sum
+    /// matters instead of an assumed constant), not one occurrence at a
+    /// time — cheap to get right now that `editor_undo_groups` is a real
+    /// stack instead of a single pending value.
+    fn editor_replace_all(&mut self) {
+        let (query, replacement) = match &self.editor_find {
+            Some(state) => (state.query.value.clone(), state.replace.value.clone()),
+            None => return,
+        };
+        if query.is_empty() {
+            return;
+        }
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        let mut count = 0usize;
+        let mut group = 0usize;
+        let mut search_from = (0usize, 0usize);
+        loop {
+            let matches = crate::editor::find_all_matches(editor.textarea.lines(), &query);
+            let Some(&(row, start, end)) = matches.iter().find(|&&(r, s, _)| (r, s) >= search_from)
+            else {
+                break;
+            };
+            editor.textarea.cancel_selection();
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, start as u16));
+            editor.textarea.start_selection();
+            editor
+                .textarea
+                .move_cursor(tui_textarea::CursorMove::Jump(row as u16, end as u16));
+            group += usize::from(editor.textarea.cut());
+            group += usize::from(editor.textarea.insert_str(&replacement));
+            search_from = editor.textarea.cursor();
+            count += 1;
+        }
+        editor.textarea.cancel_selection();
+        if group > 0 {
+            self.editor_undo_groups.push(group);
+            self.editor_redo_groups.clear();
+        }
+        self.set_status(format!(
+            "replaced {count} occurrence{}",
+            if count == 1 { "" } else { "s" }
+        ));
     }
     /// The typed filter for the `/`-menu: everything after the leading `/`
     /// up to the cursor, read live off the editor's own buffer rather than

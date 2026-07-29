@@ -17,15 +17,17 @@ pub enum SettingsSection {
     General,
     Theme,
     Git,
+    Editor,
     Notebooks,
     Snippets,
 }
 
 impl SettingsSection {
-    pub const ALL: [SettingsSection; 5] = [
+    pub const ALL: [SettingsSection; 6] = [
         SettingsSection::General,
         SettingsSection::Theme,
         SettingsSection::Git,
+        SettingsSection::Editor,
         SettingsSection::Notebooks,
         SettingsSection::Snippets,
     ];
@@ -35,6 +37,7 @@ impl SettingsSection {
             SettingsSection::General => "GENERAL",
             SettingsSection::Theme => "THEME",
             SettingsSection::Git => "GIT",
+            SettingsSection::Editor => "EDITOR",
             SettingsSection::Notebooks => "NOTEBOOKS",
             SettingsSection::Snippets => "SNIPPETS",
         }
@@ -116,6 +119,31 @@ impl GitField {
         GitField::AutoSync,
         GitField::AutoSyncEvery,
         GitField::RemoteTemplate,
+    ];
+}
+
+/// EDITOR's rows — every field is a plain bool toggle (no drill-down, same
+/// flat shape as GENERAL/GIT), gating one native-editor UX behavior each;
+/// see `EditorConfig`'s own doc comments for what each one does and why it
+/// defaults the way it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorField {
+    MouseSelection,
+    FindReplace,
+    OsClipboard,
+    SelectAllCtrlA,
+    LineNumbers,
+    MultiCursor,
+}
+
+impl EditorField {
+    pub const ALL: [EditorField; 6] = [
+        EditorField::MouseSelection,
+        EditorField::FindReplace,
+        EditorField::OsClipboard,
+        EditorField::SelectAllCtrlA,
+        EditorField::LineNumbers,
+        EditorField::MultiCursor,
     ];
 }
 
@@ -246,6 +274,26 @@ fn git_rows(app: &App) -> Vec<Line<'static>> {
     ]
 }
 
+fn editor_rows(app: &App) -> Vec<Line<'static>> {
+    let cfg = &app.config;
+    vec![
+        row_line(
+            app,
+            "mouse_selection",
+            cfg.editor.mouse_selection.to_string(),
+        ),
+        row_line(app, "find_replace", cfg.editor.find_replace.to_string()),
+        row_line(app, "os_clipboard", cfg.editor.os_clipboard.to_string()),
+        row_line(
+            app,
+            "select_all_ctrl_a",
+            cfg.editor.select_all_ctrl_a.to_string(),
+        ),
+        row_line(app, "line_numbers", cfg.editor.line_numbers.to_string()),
+        row_line(app, "multi_cursor", cfg.editor.multi_cursor.to_string()),
+    ]
+}
+
 /// NOTEBOOKS level 1 — one row per real notebook, showing its git remote
 /// (redacted) rather than the per-notebook sync-policy overrides this used
 /// to show instead; `notebook_field_rows` (level 2) covers those.
@@ -372,6 +420,7 @@ pub fn build(app: &App) -> Vec<Line<'static>> {
         SettingsSection::General => general_rows(app),
         SettingsSection::Theme => theme_rows(app),
         SettingsSection::Git => git_rows(app),
+        SettingsSection::Editor => editor_rows(app),
         SettingsSection::Notebooks => match &app.settings_notebook_drill {
             Some(name) => notebook_field_rows(app, name),
             None => notebook_list_rows(app),
