@@ -337,6 +337,29 @@ pub fn markdown_to_lines(
     muted: Color,
     link: Color,
 ) -> Vec<Line<'static>> {
+    markdown_to_lines_indexed(body, fg, accent, muted, link)
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect()
+}
+
+/// Same as `markdown_to_lines`, but pairs every rendered row with the
+/// 0-based index into `body.lines()` it was rendered from — lets a click on
+/// a rendered PREVIEW row (see `App::note_preview_source_line`) jump into
+/// `Mode::Edit` at the right line of the *raw* Markdown source, even though
+/// the rendered text itself (headers/bold/tables reformatted, syntax
+/// stripped) doesn't correspond character-for-character to it. Every row
+/// maps 1:1 to its source line except a table's separator row, which is
+/// consumed but produces no rendered row of its own — its index is reused
+/// by the header-divider row rendered in its place instead, so clicking the
+/// divider still lands on a real source line.
+pub fn markdown_to_lines_indexed(
+    body: &str,
+    fg: Color,
+    accent: Color,
+    muted: Color,
+    link: Color,
+) -> Vec<(usize, Line<'static>)> {
     let heading = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let text = Style::default().fg(fg);
     let dim = Style::default().fg(muted).add_modifier(Modifier::ITALIC);
@@ -349,26 +372,26 @@ pub fn markdown_to_lines(
 
     let mut in_code_block = false;
     let mut in_math_block = false;
-    let mut lines = Vec::new();
+    let mut lines: Vec<(usize, Line<'static>)> = Vec::new();
 
-    let mut source = body.lines().peekable();
-    while let Some(line) = source.next() {
+    let mut source = body.lines().enumerate().peekable();
+    while let Some((idx, line)) = source.next() {
         if line.trim_start().starts_with("```") {
             in_code_block = !in_code_block;
-            lines.push(Line::from(Span::styled(line.to_string(), dim)));
+            lines.push((idx, Line::from(Span::styled(line.to_string(), dim))));
             continue;
         }
         if in_code_block {
-            lines.push(Line::from(Span::styled(line.to_string(), dim)));
+            lines.push((idx, Line::from(Span::styled(line.to_string(), dim))));
             continue;
         }
         if line.trim_start().starts_with("$$") {
             in_math_block = !in_math_block;
-            lines.push(Line::from(Span::styled(line.to_string(), math)));
+            lines.push((idx, Line::from(Span::styled(line.to_string(), math))));
             continue;
         }
         if in_math_block {
-            lines.push(Line::from(Span::styled(line.to_string(), math)));
+            lines.push((idx, Line::from(Span::styled(line.to_string(), math))));
             continue;
         }
 
@@ -380,24 +403,28 @@ pub fn markdown_to_lines(
             .strip_prefix("<summary>")
             .and_then(|s| s.strip_suffix("</summary>"))
         {
-            lines.push(Line::from(Span::styled(format!("▸ {inner}"), heading)));
+            lines.push((idx, Line::from(Span::styled(format!("▸ {inner}"), heading))));
             continue;
         }
 
         if is_horizontal_rule(line) {
-            lines.push(Line::from(Span::styled("─".repeat(40), dim)));
+            lines.push((idx, Line::from(Span::styled("─".repeat(40), dim))));
             continue;
         }
 
         if line.trim_start().starts_with('|')
-            && source.peek().is_some_and(|next| is_table_separator(next))
+            && source
+                .peek()
+                .is_some_and(|(_, next)| is_table_separator(next))
         {
             let header = table_cells(line);
-            source.next(); // consume the separator row itself
+            let (sep_idx, _) = source.next().expect("peeked Some above"); // consume the separator row itself
             let mut rows = vec![header];
-            while let Some(&next) = source.peek() {
+            let mut row_indices = vec![idx];
+            while let Some(&(next_idx, next)) = source.peek() {
                 if next.trim_start().starts_with('|') {
                     rows.push(table_cells(next));
+                    row_indices.push(next_idx);
                     source.next();
                 } else {
                     break;
@@ -420,17 +447,20 @@ pub fn markdown_to_lines(
                     let style = if ri == 0 { heading } else { text };
                     spans.push(Span::styled(format!("{cell:<width$}"), style));
                 }
-                lines.push(Line::from(spans));
+                lines.push((row_indices[ri], Line::from(spans)));
                 if ri == 0 {
                     let rule_width =
                         widths.iter().sum::<usize>() + widths.len().saturating_sub(1) * 3;
-                    lines.push(Line::from(Span::styled("─".repeat(rule_width), dim)));
+                    lines.push((
+                        sep_idx,
+                        Line::from(Span::styled("─".repeat(rule_width), dim)),
+                    ));
                 }
             }
             continue;
         }
 
-        lines.push(if let Some(rest) = line.strip_prefix("### ") {
+        let rendered = if let Some(rest) = line.strip_prefix("### ") {
             Line::from(inline_spans(rest, heading, link_style))
         } else if let Some(rest) = line.strip_prefix("## ") {
             Line::from(inline_spans(rest, heading, link_style))
@@ -474,7 +504,8 @@ pub fn markdown_to_lines(
             Line::from(spans)
         } else {
             Line::from(inline_spans(line, text, link_style))
-        });
+        };
+        lines.push((idx, rendered));
     }
 
     lines

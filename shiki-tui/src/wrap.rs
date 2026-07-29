@@ -29,18 +29,35 @@ struct Atom {
 /// `width == 0` returns `lines` unchanged — there's nothing sensible to
 /// wrap into.
 pub fn wrap_lines(lines: &[Line<'static>], width: u16) -> Vec<Line<'static>> {
+    wrap_lines_grouped(lines, width)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Same as `wrap_lines`, but keeps each source line's wrapped rows in its
+/// own inner `Vec` instead of flattening them together — lets a caller that
+/// needs to know which wrapped row came from which source line (e.g.
+/// `App::refresh_note_preview_cache`, mapping a clicked PREVIEW row back to
+/// a raw Markdown source line) recover that by zipping each group's length
+/// against its own parallel list of source lines, without redoing the wrap
+/// computation itself. Every source line produces at least one row (even an
+/// empty one), so `result.len() == lines.len()` always holds.
+pub fn wrap_lines_grouped(lines: &[Line<'static>], width: u16) -> Vec<Vec<Line<'static>>> {
     if width == 0 {
-        return lines.to_vec();
+        return lines.iter().cloned().map(|l| vec![l]).collect();
     }
     let width = width as usize;
-    let mut out = Vec::with_capacity(lines.len());
-    for line in lines {
-        let atoms = line_to_atoms(line);
-        for row in pack_atoms(atoms, width) {
-            out.push(atoms_to_line(row));
-        }
-    }
-    out
+    lines
+        .iter()
+        .map(|line| {
+            let atoms = line_to_atoms(line);
+            pack_atoms(atoms, width)
+                .into_iter()
+                .map(atoms_to_line)
+                .collect()
+        })
+        .collect()
 }
 
 fn line_to_atoms(line: &Line<'static>) -> Vec<Atom> {
