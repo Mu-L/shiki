@@ -59,7 +59,7 @@ jobs:
             ext: tar.gz
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -97,7 +97,7 @@ jobs:
           7z a "shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}.zip" \
             "shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: shiki-${{ matrix.target }}
           path: dist/shiki-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.target }}.${{ matrix.ext }}
@@ -126,7 +126,7 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           # Explicit, not left to default to `github.ref` — that's not a
           # tag ref at all when this runs via `workflow_dispatch` (it's
@@ -141,7 +141,7 @@ jobs:
     needs: [release, resolve-tag]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           # main requires a pull request for everything pushed with the
@@ -381,7 +381,7 @@ jobs:
     needs: [release, resolve-tag, update-packaging-manifests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           token: ${{ secrets.RELEASE_TAG_PAT || github.token }}
@@ -485,7 +485,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
