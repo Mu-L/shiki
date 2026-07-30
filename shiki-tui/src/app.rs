@@ -422,7 +422,7 @@ pub struct App {
     /// How many consecutive clicks landed on the same cell within the
     /// double/triple-click window — capped at 3 (single/word/line).
     pub(crate) editor_click_count: u8,
-    /// Whether `tui_textarea::TextArea::start_selection` has already been
+    /// Whether `ratatui_textarea::TextArea::start_selection` has already been
     /// called for the drag gesture currently in progress — a single-click
     /// `Down` doesn't start a selection by itself (it might just be a plain
     /// click-to-position), so the *first* `Drag` event after it is what
@@ -1919,7 +1919,10 @@ pub fn global_search_layout(popup_area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-pub fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+pub fn run<B: Backend<Error = io::Error>>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> io::Result<()> {
     while !app.should_quit {
         if let Ok(size) = terminal.size() {
             app.last_frame_area = Rect::new(0, 0, size.width, size.height);
@@ -1998,7 +2001,7 @@ fn relaunch_into_updated_binary(exe_path: &std::path::Path) -> io::Result<()> {
 
 /// Leaves the alternate screen and disables raw mode so `$EDITOR` gets a
 /// normal terminal, then restores everything and forces a full redraw.
-fn suspend_and_edit<B: Backend>(
+fn suspend_and_edit<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     editor: &str,
     path: &std::path::Path,
