@@ -4,6 +4,17 @@ All notable changes to shiki are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project doesn't follow strict
 semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
+## [Unreleased]
+
+### Added
+
+- `general.remember_last_session` (on by default): quitting the TUI now saves exactly where you
+  were — the selected notebook, the folder inside it, the selected note or folder, and which panel
+  (NOTEBOOKS/NOTES/PREVIEW) had focus — and the next launch restores it verbatim instead of always
+  starting at the first notebook's root. Toggleable from the GENERAL tab in Settings (leader+`s`)
+  or by hand-editing `config.toml`. A renamed/deleted notebook or a moved note is silently ignored
+  rather than erroring — the app just falls back to its normal default startup state.
+
 ## [0.8.8] - 2026-07-29
 
 ### Added

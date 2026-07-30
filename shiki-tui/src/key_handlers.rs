@@ -292,6 +292,15 @@ impl App {
             self.set_status(format!("show_hints -> {}", self.config.general.show_hints));
             return;
         }
+        if field == GeneralField::RememberLastSession {
+            self.config.general.remember_last_session = !self.config.general.remember_last_session;
+            self.save_config();
+            self.set_status(format!(
+                "remember_last_session -> {}",
+                self.config.general.remember_last_session
+            ));
+            return;
+        }
         let (label, prefill) = match field {
             GeneralField::DefaultNotebook => (
                 "default_notebook",
@@ -303,7 +312,8 @@ impl App {
             }
             GeneralField::UseFavoriteEditor
             | GeneralField::MouseDragSelection
-            | GeneralField::ShowHints => unreachable!(),
+            | GeneralField::ShowHints
+            | GeneralField::RememberLastSession => unreachable!(),
         };
         self.show_settings = false;
         self.pending_input_title = Some(format!(" {label} "));
@@ -620,6 +630,39 @@ impl App {
         if let Ok(path) = Config::default_path() {
             let _ = self.config.save(&path);
         }
+    }
+    /// Persists `general.remember_last_session`'s state — called once, right
+    /// after the main loop in `run()` exits, just before the process actually
+    /// quits. See `App::restore_session` for the read side, applied at
+    /// startup. A no-op when the setting is off, or when there's no selected
+    /// notebook at all (an empty store) — nothing meaningful to remember.
+    pub(crate) fn save_session(&self) {
+        if !self.config.general.remember_last_session {
+            return;
+        }
+        let Some(notebook) = self.selected_notebook() else {
+            return;
+        };
+        let Ok(path) = Config::default_session_path() else {
+            return;
+        };
+        let selected = if self.selected_note < self.folders.len() {
+            self.folders
+                .get(self.selected_note)
+                .map(|name| shiki_config::session::SelectedEntry::Folder { name: name.clone() })
+        } else {
+            self.selected_note()
+                .map(|note| shiki_config::session::SelectedEntry::Note {
+                    stem: note.file_stem(),
+                })
+        };
+        let session = shiki_config::SessionState {
+            notebook: notebook.name.clone(),
+            notes_path: self.notes_path.clone(),
+            selected,
+            focus: self.focus.as_session_str().to_string(),
+        };
+        let _ = session.save(&path);
     }
     /// Queues `config.toml` for external editing — same
     /// `want_external_edit` mechanism a note's `E`/favorite-editor `i` use,
@@ -2530,6 +2573,7 @@ impl App {
                         GeneralField::UseFavoriteEditor => "use_favorite_editor",
                         GeneralField::MouseDragSelection => "mouse_drag_selection",
                         GeneralField::ShowHints => "show_hints",
+                        GeneralField::RememberLastSession => "remember_last_session",
                     };
                     self.save_config();
                     self.set_status(format!("{label} -> '{value}'"));
