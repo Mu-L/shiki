@@ -193,6 +193,8 @@ pub struct GlobalKeybindings {
     /// `logs`/`toggle_favorite_editor`.
     #[serde(default = "default_settings_key")]
     pub settings: String,
+    #[serde(default = "default_scratchpad_key")]
+    pub scratchpad: String,
 }
 
 impl Default for GlobalKeybindings {
@@ -207,6 +209,7 @@ impl Default for GlobalKeybindings {
             drawer: default_drawer_key(),
             undo_delete: default_undo_delete_key(),
             settings: default_settings_key(),
+            scratchpad: default_scratchpad_key(),
         }
     }
 }
@@ -245,6 +248,10 @@ fn default_toggle_favorite_editor_key() -> String {
 
 fn default_check_update_key() -> String {
     "U".into()
+}
+
+fn default_scratchpad_key() -> String {
+    "p".into()
 }
 
 /// Active only while the NOTEBOOKS panel has focus.
