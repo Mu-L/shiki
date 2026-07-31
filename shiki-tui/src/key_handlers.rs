@@ -2205,10 +2205,15 @@ impl App {
                         let _ = note.save();
                     }
                     self.reload_notes();
-                    self.focus = Focus::Notes;
                     if let Some(idx) = self.notes.iter().position(|n| n.path == note.path) {
                         self.selected_note = self.folders.len() + idx;
                     }
+                    // Jump straight to Preview so NOTEBOOKS/NOTES collapse and
+                    // the fresh note's own editor is what's full-screen (in the
+                    // narrow/short `single` layout tier, the inline editor
+                    // always renders into `areas.preview` — leaving focus on
+                    // Notes would render it into a zero-sized area there).
+                    self.focus = Focus::Preview;
                     self.set_status(format!("created '{title}'"));
                     // Drop straight into the inline editor — a fresh note
                     // (blank or templated) isn't useful to just sit on.
