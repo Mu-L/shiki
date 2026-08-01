@@ -315,6 +315,13 @@ The rest of the editor's mouse/keyboard UX is opt-in via `[editor]` (Settings' E
   distinct from the primary's plain reverse-video) — a terminal can only blink one real caret, so
   this is the compensating visual signal rather than an attempt to actually blink more than one.
 
+`[[wikilink]]` autocomplete is always on too, not gated by `[editor]`: typing `[[` opens an
+Obsidian-style fuzzy note picker (same fuzzy matching as `/` and global search), showing each
+candidate's folder breadcrumb so notes with duplicate titles in different folders stay
+distinguishable; picking one inserts `[[Title]]`. In PREVIEW, `Ctrl`+click on a rendered
+`[[wikilink]]` jumps straight to the note it resolves to — a plain click still enters edit mode
+everywhere, including on top of a wikilink.
+
 Navigation inside the editor is always on, not gated by `[editor]`: `PageUp`/`PageDown` move the
 cursor a page at a time, `Home`/`End` go to the start/end of the current line, `Ctrl+Home`/
 `Ctrl+End` jump to the very start/end of the note, and the mouse wheel scrolls too. `PageUp`/

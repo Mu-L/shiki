@@ -382,6 +382,7 @@
           <tr><td><code>E</code></td><td>Edit externally ($EDITOR)</td></tr>
           <tr><td><code>H</code></td><td>Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> views a revision's full content (frontmatter included, since that's what's actually in the commit), <code>r</code> reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by <code>s</code>/<code>u</code>/<code>auto_sync</code> like any other edit. The footer shows the count while reading a note (<code>{n} changes</code>)</td></tr>
           <tr><td><code>L</code></td><td>Links — the selected note's outgoing <code>[[wikilinks]]</code> (resolved against every note in the notebook, any folder depth) plus every other note that links back to it ("Outgoing"/"Backlinks" sections; a section with nothing in it is omitted). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> jumps to the selected note (an unresolved outgoing link reports that instead of jumping), <code>Esc</code>/<code>q</code> closes</td></tr>
+          <tr><td><code>Ctrl</code>+click</td><td>Click a rendered <code>[[wikilink]]</code> to jump straight to the note it resolves to — a plain click still enters edit mode everywhere, including on top of a wikilink</td></tr>
         </tbody>
       </table>
       <figure class="doc-shot-card">
@@ -751,6 +752,18 @@ os_clipboard = false
 select_all_ctrl_a = false
 line_numbers = false
 multi_cursor = false</pre>
+      <p style="max-width:70ch;">
+        <code>[[wikilink]]</code> autocomplete is always on too, not gated by <code>[editor]</code>:
+        typing <code>[[</code> opens an Obsidian-style fuzzy note picker (the same fuzzy matching
+        as <code>/</code> and global search), showing each candidate's folder breadcrumb so notes
+        with duplicate titles in different folders stay distinguishable — picking one inserts
+        <code>[[Title]]</code>. In PREVIEW, <code>Ctrl</code>+click on a rendered wikilink jumps
+        straight to the note it resolves to.
+      </p>
+      <figure class="doc-shot-card">
+        <img data-shot="wide-21-wikilink-autocomplete" width="1260" height="760" src="assets/screenshots/gallery/gruvbox-dark/wide-21-wikilink-autocomplete.png" alt="The [[wikilink]] autocomplete menu open mid-edit, showing fuzzy-matched note candidates with folder breadcrumbs" />
+        <figcaption>Typing <code>[[</code> opens a fuzzy note picker — same engine as <code>/</code> and global search.</figcaption>
+      </figure>
 
       <h3 id="config-notebooks"><code>[notebooks.&lt;name&gt;]</code> — per-notebook overrides</h3>
       <p style="max-width:70ch;">

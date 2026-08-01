@@ -348,10 +348,20 @@ capture() {
     send_text "i"
     send_text "/"
     shot "15-slash-menu"
-    # Removes the "/" and exits without saving any real change — the note
-    # must come back out exactly as empty as it went in, since setup_sample_data
-    # only runs once and this same file is reused by every theme/tier capture
-    # that follows.
+    # Removes the "/" first, then does the same for `[[` (wikilink
+    # autocomplete) on the exact same empty note — cheaper than jumping
+    # elsewhere, and the note still needs to come back out empty afterward
+    # either way.
+    send_key "BackSpace"
+    send_text "[["
+    shot "21-wikilink-autocomplete"
+    # Esc closes the menu but leaves the typed "[[" in the buffer (same
+    # convention as the slash-menu above) — 2 BackSpaces restore the note
+    # to exactly as empty as it went in, since setup_sample_data only runs
+    # once and this same file is reused by every theme/tier capture that
+    # follows.
+    send_key "Escape"
+    send_key "BackSpace"
     send_key "BackSpace"
     send_key "Escape"
     send_key "Escape"

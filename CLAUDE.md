@@ -367,6 +367,19 @@ none of them were using their own `selection` color for the one thing it's for. 
 by inspecting live ANSI output via `tmux capture-pane -e`, not just visually — e.g. gruvbox-dark's
 selected row now carries `48;2;60;56;54`, exactly `#3c3836`).
 
+**Gruvbox's `accent`/`link` are its iconic yellow (`#fabd2f` dark, `#b57614` light), not blue —
+every other included theme already sets `accent == link`, gruvbox was the one outlier still
+pointing both at `#458588` (a blue).** `render::panel_block`'s unfocused border switched from
+`BorderType::Rounded` to `BorderType::Plain` at the same time, for a fully square look across every
+panel/modal — don't reintroduce `Rounded` there. `render::panel_block_reading` is a new sibling to
+`panel_block`, not a parameter added to it: it always renders `BorderType::Plain` (never `Thick`)
+in the theme's accent color, used only by PREVIEW while actually displaying a note's body — a
+full-width `Thick` border around a wall of text reads as louder than the same emphasis on a narrow
+list panel (Notebooks/Notes), which still gets the regular focused/unfocused `Thick`/`Plain` split
+from `panel_block` unchanged. `docs/css/styles.css`/`docs/js/main.js`'s gruvbox theme-variable
+copies were updated to match, per this file's own "keep the marketing site's copies in sync"
+convention (see the Marketing site section below).
+
 **The tags modal (leader+`T`, `panel_tags.rs` + `App::toggle_tags`/`handle_tags_key`) is two
 levels deep, same shape as the tree view/global search's "browse then jump" pattern — it used to
 be read-only (`ListState::select` was never called, so its `.highlight_style` was unreachable).**
@@ -647,6 +660,33 @@ The scratchpad (`leader+p`) is intentionally an in-memory `InlineEditor`, not a 
 notebooks are independent git repositories and any file placed inside one can be picked up by
 auto-sync. `Esc` discards the buffer; `Ctrl+S` stages it for the existing new-note title/template
 flow, which is the only path that gives it a filesystem location.
+
+**`[[wikilink]]` autocomplete (typing `[[` in the inline editor) reuses the exact fuzzy-matching
+`SearchEngine` the notes-scope `/` jump and global search already use, rather than a separate
+substring filter.** `App.wikilink_candidates: Vec<Note>` is snapshotted once, the instant the menu
+opens (`open_wikilink_menu`, checked live off the buffer the same way `show_slash_menu`'s doc
+comment already reasons about its own trigger) — every note in the current notebook, any folder
+depth, excluding the note being edited (linking to yourself isn't useful); `wikilink_results:
+Vec<SearchHit>` is what actually gets re-scored on every keystroke (`refresh_wikilink_menu`), the
+same "expensive walk once, cheap re-score" split `global_search_pool`/`global_search` already
+established. `App::wikilink_query` reads the filter live off the buffer — the text between the
+closest preceding `[[` and the cursor — rather than tracking it as separate state, and returns
+`None` (closing the menu) the moment that text contains a stray `[`/`]`, covering both "backspaced
+past the opening `[[`" and "closed the pair by hand instead of picking a candidate." Each candidate
+row shows its folder breadcrumb alongside the title (`relative_folder` against the selected
+notebook's path), since — unlike the NOTES panel, always scoped to one folder — two notes named
+the same thing in different folders are otherwise indistinguishable in this list. Selecting one
+inserts `[[Title]]`, replacing the just-typed `[[query` in place.
+
+**Ctrl+Click on a rendered `[[wikilink]]` in PREVIEW (`App::try_follow_preview_wikilink`) jumps
+straight to the note it resolves to via `shiki_core::wikilinks::resolve_one`; a plain click still
+enters edit mode everywhere, including on top of a wikilink** — Ctrl is deliberately the opt-in
+gate here, the same way Alt+Click already gates adding a multi-cursor, so that clicking to edit a
+note that happens to contain links doesn't become impossible. `App::jump_to_note(path, title)` is
+the shared deep-link tail (breadcrumb + `reload_notes` + select + focus PREVIEW) factored out of
+the links modal's (`leader+L`) existing jump handler specifically so this feature didn't duplicate
+it — an unresolved link (no matching note) reports that in the status message rather than jumping
+anywhere or erroring.
 
 **The theme picker's `Enter` (and `shiki theme set`) only reset `config.theme.overrides` when the
 base theme name is actually *changing*, not on every confirm/set.** Both used to zero out

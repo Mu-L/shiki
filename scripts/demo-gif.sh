@@ -1269,6 +1269,39 @@ Sleep 500ms
 Escape
 Sleep 600ms
 
+# --- Phase 13b: wikilink autocomplete (v0.8.10) -- jump to Phase 10's own
+# "Release day retrospective" note via global search (same mechanism Phase
+# 5/13 already use, so this doesn't depend on tracking exactly which
+# notebook/folder Phase 13 left selected). Cursor lands at (0, 0) on
+# entering edit mode (same assumption Phase 13's own multi-cursor demo
+# already relies on for "errands"), so typing directly there prefixes the
+# note's first heading line rather than needing a dedicated "jump to end"
+# navigation step. Typing the second bracket opens the picker mid-line --
+# a wikilink is meaningful anywhere in a line, not just at its start,
+# unlike the slash-command menu. "hik" fuzzy-filters live down to "Weekend
+# hiking trip" (the same nucleo engine the slash jump and global search
+# already use) before Enter inserts the resolved link; a second Enter then
+# splits it onto its own line ahead of the original heading text.
+Space
+Type "g"
+Sleep 400ms
+Type "retrospective"
+Sleep 700ms
+Enter
+Sleep 700ms
+Type "i"
+Sleep 500ms
+Type "See [["
+Sleep 500ms
+Type "hik"
+Sleep 700ms
+Enter
+Sleep 900ms
+Enter
+Sleep 400ms
+Escape
+Sleep 600ms
+
 # --- Phase 14: theme picker, standalone (leader+`c`) — live-cycle through
 # the 3 newest built-in themes (Dracula, One Dark, Monokai — v0.8.4 grew
 # the set from 12 to 15) before cancelling back to the notebook's actual

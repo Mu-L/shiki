@@ -2944,7 +2944,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiki-cli"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-config"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "anyhow",
  "directories",
@@ -2973,7 +2973,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-core"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "chrono",
  "git2",
@@ -2989,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-tui"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "anyhow",
  "arboard",

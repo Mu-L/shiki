@@ -6,6 +6,19 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.8.10] - 2026-07-31
+
+### Added
+
+- `[[wikilink]]` autocomplete in the inline editor: typing `[[` opens an Obsidian-style fuzzy note
+  picker (reusing the existing `SearchEngine`, same fuzzy match `/` notebook-jump and global search
+  already use), showing each candidate's folder breadcrumb so notes with duplicate titles in
+  different folders stay distinguishable. Candidates are snapshotted once when the menu opens
+  (excluding the note being edited) and re-scored per keystroke, the same "expensive walk once,
+  cheap re-score" shape the `/`-command menu and global search already use. In PREVIEW, Ctrl+Click
+  on a rendered `[[wikilink]]` jumps straight to the linked note; a plain click still enters edit
+  mode everywhere, including on a wikilink, so this is purely additive.
+
 ### Changed
 
 - Deleting a notebook (notebooks-scope `d`) now asks a real question instead of always destroying
@@ -16,9 +29,20 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   Obsidian vault, an existing repo) where the folder was never shiki's to destroy in the first
   place. "Just untrack" sets a new `[notebooks.<name>] hidden = true` in `config.toml`; there's no
   in-app way to undo that yet, so reversing it means clearing the flag by hand and relaunching.
+- Gruvbox's `accent`/`link` now use the palette's iconic yellow (`#fabd2f` dark, `#b57614` light)
+  instead of blue, matching every other included theme's own convention of `accent == link`. All
+  panel/modal borders switched from Rounded to Plain when unfocused for a fully square look, and
+  PREVIEW gets a new thinner Plain (not Thick) accent-colored border specifically while reading a
+  note's body — a full-width Thick border around a wall of text read as visually louder than the
+  same emphasis on a narrow list panel. The marketing site's `docs/css`/`docs/js` theme copies were
+  updated to match, per this project's own "keep both in sync" convention.
 
 ### Fixed
 
+- Creating a note (`a` in Notes) now switches focus to Preview instead of leaving it on Notes: the
+  fresh note's editor used to only get the collapsed 1-column sliver on narrow/short terminals
+  (`single` layout tier renders only the focused panel), so it looked like nothing happened until
+  the terminal was resized wider.
 - Saving the scratchpad (leader+`p`, Ctrl+S) as a note no longer opens the template picker: since
   the scratchpad body always won over a rendered template anyway, picking a real template there
   previously created a note whose body was just the raw scratchpad text but whose `template:`
