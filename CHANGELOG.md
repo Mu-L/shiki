@@ -6,6 +6,26 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+### Changed
+
+- Deleting a notebook (notebooks-scope `d`) now asks a real question instead of always destroying
+  the directory: `[d]` deletes the notebook's files for real, `[r]` only stops tracking it as a
+  notebook and leaves the directory completely untouched on disk, `[Esc]` cancels. Previously this
+  confirm dialog was a plain "delete notebook and all its notes? (y/n)" that unconditionally called
+  `remove_dir_all` on `y` — dangerous for a notebook adopted from an external directory (an
+  Obsidian vault, an existing repo) where the folder was never shiki's to destroy in the first
+  place. "Just untrack" sets a new `[notebooks.<name>] hidden = true` in `config.toml`; there's no
+  in-app way to undo that yet, so reversing it means clearing the flag by hand and relaunching.
+
+### Fixed
+
+- Saving the scratchpad (leader+`p`, Ctrl+S) as a note no longer opens the template picker: since
+  the scratchpad body always won over a rendered template anyway, picking a real template there
+  previously created a note whose body was just the raw scratchpad text but whose `template:`
+  frontmatter field named a template that was never actually applied. It now skips straight to a
+  blank note using the scratchpad's own text, and `create_note_with_template` no longer stamps
+  `frontmatter.template` in any path unless that template's render genuinely became the note's body.
+
 ## [0.8.9] - 2026-07-30
 
 ### Added

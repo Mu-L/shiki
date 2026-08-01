@@ -23,7 +23,24 @@ pub(crate) enum GitOpKind {
 
 impl App {
     pub(crate) fn reload_notebooks(&mut self) {
-        self.notebooks = self.store.list().unwrap_or_default();
+        // A notebook "deleted" via the keep-files/just-untrack choice (see
+        // `App::handle_delete_notebook_confirm_key`) still fully exists on
+        // disk and in `self.store` — it's excluded here, and only here, so
+        // it stops showing up anywhere the notebook list is used, without
+        // needing its own invalidation logic anywhere else.
+        self.notebooks = self
+            .store
+            .list()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|nb| {
+                !self
+                    .config
+                    .notebooks
+                    .get(&nb.name)
+                    .is_some_and(|over| over.hidden)
+            })
+            .collect();
         if self.notebooks.is_empty() {
             self.selected_notebook = 0;
         } else {
