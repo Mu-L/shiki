@@ -49,7 +49,18 @@
       <a href="documentation.html" class="active">Docs</a>
       <a href="index.html#changelog">Changelog</a>
       <a href="https://github.com/sazardev/shiki">GitHub</a>
-      <span class="pill" id="version-pill" hidden></span>
+      <span class="version-chip-wrap" id="version-chip-wrap">
+        <button type="button" class="pill pill-button" id="version-pill" hidden></button>
+        <div class="version-popover" id="version-popover" role="dialog" aria-label="What's new" hidden>
+          <div class="version-popover-header">
+            <strong>What's new</strong>
+            <a href="https://github.com/sazardev/shiki/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog →</a>
+          </div>
+          <div class="version-popover-body changelog-body" id="version-popover-content">
+            <p class="changelog-loading">Loading changelog…</p>
+          </div>
+        </div>
+      </span>
     </nav>
   </header>
 

@@ -792,23 +792,28 @@ code, .code {
   margin-top: 32px;
 }
 
-#changelog-content h3 {
+/* .changelog-body is shared by the full on-page section (#changelog-content)
+   and the version-pill popover's body (#version-popover-content) — both
+   render the exact same renderChangelog() output, just at different sizes/
+   max-version counts, so they render it with the same rules rather than
+   two independently-maintained copies. */
+.changelog-body h3 {
   color: var(--accent);
   font-size: 1.1rem;
   margin: 32px 0 6px;
 }
 
-#changelog-content h3:first-child {
+.changelog-body h3:first-child {
   margin-top: 0;
 }
 
-#changelog-content .cl-date {
+.changelog-body .cl-date {
   color: var(--muted);
   font-size: 0.85rem;
   font-weight: 400;
 }
 
-#changelog-content h4 {
+.changelog-body h4 {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -816,17 +821,17 @@ code, .code {
   margin: 16px 0 6px;
 }
 
-#changelog-content ul {
+.changelog-body ul {
   margin: 0 0 8px;
   padding-left: 20px;
 }
 
-#changelog-content li {
+.changelog-body li {
   margin-bottom: 6px;
   font-size: 0.92rem;
 }
 
-#changelog-content li::marker {
+.changelog-body li::marker {
   color: var(--accent);
 }
 
@@ -838,6 +843,80 @@ code, .code {
 .changelog-more {
   margin-top: 24px;
 }
+
+/* ==========================================================================
+   Version-pill popover — a compact "what's new" card anchored to the nav's
+   version chip, present on every page (unlike the full #changelog section
+   above, which only exists on index.html). See initVersionPopover() in
+   main.js.
+   ========================================================================== */
+
+.version-chip-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.pill-button {
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.pill-button:hover,
+.pill-button[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pill-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.version-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, calc(100vw - 48px));
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.45);
+  padding: 16px 18px;
+  z-index: 20;
+  text-align: left;
+}
+
+.version-popover-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.version-popover-header strong {
+  color: var(--fg);
+}
+
+.version-popover-header a {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.version-popover-body {
+  margin-top: 0;
+}
+
+/* No dedicated narrow-viewport rule for .version-popover: `.topbar nav`
+   (which contains the whole chip+popover) is already `display: none` below
+   900px (see Responsive below), so the popover can never actually be open
+   at any width where it would need one. */
 
 /* ==========================================================================
    Footer
