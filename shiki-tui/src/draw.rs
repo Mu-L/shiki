@@ -196,7 +196,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     if let Some(dialog) = &app.confirm {
-        let popup_area = centered_rect(frame.area(), (dialog.message.len() as u16 + 12).max(30), 3);
+        let popup_area = centered_rect(frame.area(), (dialog.display_len() as u16 + 4).max(30), 3);
         frame.render_widget(Clear, popup_area);
         dialog.render(frame, popup_area, hex_to_color(&app.theme.warning));
     }

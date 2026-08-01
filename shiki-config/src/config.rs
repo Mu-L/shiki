@@ -846,6 +846,15 @@ pub struct NotebookGitOverride {
     /// value is ignored rather than honored.
     #[serde(default)]
     pub path: Option<String>,
+    /// Set when "delete notebook" was answered with "just remove the
+    /// reference" instead of "delete the files" — the directory on disk is
+    /// left completely untouched, this only tells `App::reload_notebooks`
+    /// to stop listing it as a tracked notebook. There's deliberately no
+    /// in-app "un-hide" yet; reversing this means clearing the flag (or the
+    /// whole `[notebooks.<name>]` table, if `path` isn't also set) by hand
+    /// in `config.toml` and relaunching.
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// `[git]` settings resolved for one specific notebook — see `Config::sync_for`.

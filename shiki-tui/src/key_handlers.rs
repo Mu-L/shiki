@@ -621,6 +621,7 @@ impl App {
             if over.auto_push.is_none()
                 && over.auto_sync.is_none()
                 && over.auto_sync_every.is_none()
+                && !over.hidden
             {
                 self.config.notebooks.remove(name);
             }
@@ -1816,11 +1817,59 @@ impl App {
             Err(err) => self.set_status(format!("couldn't open browser: {err}")),
         }
     }
+    /// Notebook delete gets a real three-way choice instead of the shared
+    /// y/n confirm every other delete target uses — a notebook's directory
+    /// can hold files that exist nowhere else (unlike a note/folder delete,
+    /// which always has `trash_path`'s safety net) and, for an adopted
+    /// notebook, might not even live under shiki's own data dir at all (an
+    /// Obsidian vault, an existing repo someone pointed shiki at). Answered
+    /// in `handle_delete_notebook_confirm_key`.
     fn start_delete_notebook(&mut self) {
         if let Some(nb) = self.selected_notebook() {
-            let message = format!("Delete notebook '{}' and all its notes?", nb.name);
+            let message = format!("Delete notebook '{}'?", nb.name);
             self.pending_delete = Some((DeleteTarget::Notebook, nb.path.clone()));
-            self.confirm = Some(confirm::ConfirmDialog::new(message));
+            self.confirm = Some(confirm::ConfirmDialog::with_hint(
+                message,
+                "[d] delete files  [r] keep files, just untrack  [Esc] cancel",
+            ));
+        }
+    }
+    /// The three-way answer to `start_delete_notebook`'s prompt. `d`
+    /// actually removes the directory (the old, only behavior); `r` leaves
+    /// the directory completely untouched on disk and just sets
+    /// `NotebookGitOverride::hidden` so `App::reload_notebooks` stops
+    /// listing it — anything else (`Esc`, `n`, ...) cancels.
+    fn handle_delete_notebook_confirm_key(&mut self, key: KeyEvent) {
+        self.confirm = None;
+        let Some((DeleteTarget::Notebook, path)) = self.pending_delete.take() else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        match key.code {
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                let _ = self.store.delete(&name);
+                self.reload_notebooks();
+                self.set_status(format!("notebook '{name}' deleted"));
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                self.config
+                    .notebooks
+                    .entry(name.clone())
+                    .or_default()
+                    .hidden = true;
+                self.save_config();
+                self.reload_notebooks();
+                self.set_status(format!(
+                    "notebook '{name}' untracked — files left in place at '{}'",
+                    path.display()
+                ));
+            }
+            _ => {
+                self.set_status("notebook delete cancelled".into());
+            }
         }
     }
     /// Handles either a note or a folder selection — folders never had a
@@ -2184,7 +2233,15 @@ impl App {
     /// (`apply_quick_template`), so the two can't drift into creating notes
     /// differently from each other.
     fn create_note_with_template(&mut self, title: String, template_choice: Option<String>) {
-        let body = match self.pending_new_note_body.take() {
+        let pending_body = self.pending_new_note_body.take();
+        // A scratchpad-originated body always wins over the template — see
+        // the caller's own guard, which skips the picker in that case — but
+        // the `@`-dropdown fast path can still hand in a `template_choice`
+        // alongside a pending scratchpad body, so this stays defensive here
+        // too: `frontmatter.template` must only ever record a template that
+        // actually rendered the body, not one that was picked but discarded.
+        let template_applied = pending_body.is_none() && template_choice.is_some();
+        let body = match pending_body {
             Some(body) => body,
             None => match &template_choice {
                 Some(name) => Config::default_templates_dir()
@@ -2204,9 +2261,11 @@ impl App {
         match self.selected_notebook().cloned() {
             Some(nb) => match nb.create_note_in(&self.notes_relative_path(), &title, body) {
                 Ok(mut note) => {
-                    if let Some(name) = &template_choice {
-                        note.frontmatter.template = Some(name.clone());
-                        let _ = note.save();
+                    if template_applied {
+                        if let Some(name) = &template_choice {
+                            note.frontmatter.template = Some(name.clone());
+                            let _ = note.save();
+                        }
                     }
                     self.reload_notes();
                     if let Some(idx) = self.notes.iter().position(|n| n.path == note.path) {
@@ -2456,11 +2515,21 @@ impl App {
                 } else {
                     value
                 };
+                // A scratchpad save already has its body — merging that
+                // freeform text with a template has no clear insertion
+                // point, so skip the picker entirely and create it blank
+                // rather than letting a chosen template silently not apply
+                // (see `create_note_with_template`'s own guard for the case
+                // where a template is still picked via the `@`-dropdown).
+                self.mode = Mode::Normal;
+                if self.pending_new_note_body.is_some() {
+                    self.create_note_with_template(title, None);
+                    return;
+                }
                 // The note itself isn't created yet — `open_template_picker`
                 // takes over from here and creates it once a template (or
                 // "blank") is actually chosen.
                 self.open_template_picker(title);
-                self.mode = Mode::Normal;
                 return;
             }
             Some(PendingInput::NewFolder) => {
@@ -2790,6 +2859,10 @@ impl App {
         self.mode = Mode::Normal;
     }
     fn handle_confirm_key(&mut self, key: KeyEvent) {
+        if matches!(self.pending_delete, Some((DeleteTarget::Notebook, _))) {
+            self.handle_delete_notebook_confirm_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 if let Some((target, path)) = self.pending_delete.take() {
@@ -2821,15 +2894,9 @@ impl App {
                                 format!("deleted '{name}'")
                             });
                         }
-                        DeleteTarget::Notebook => {
-                            let name = path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_default();
-                            let _ = self.store.delete(&name);
-                            self.reload_notebooks();
-                            self.set_status(format!("notebook '{name}' deleted"));
-                        }
+                        DeleteTarget::Notebook => unreachable!(
+                            "notebook deletes are intercepted earlier, in handle_delete_notebook_confirm_key"
+                        ),
                         DeleteTarget::Folder => {
                             let name = path
                                 .file_name()
