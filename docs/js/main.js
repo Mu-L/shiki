@@ -120,6 +120,26 @@ function initTheme() {
 
 const CHANGELOG_URL = "https://raw.githubusercontent.com/sazardev/shiki/main/CHANGELOG.md";
 const CHANGELOG_MAX_VERSIONS = 5;
+// The version-pill popover (see initVersionPopover below) shows fewer
+// entries than the full on-page section — it's a quick "what's new" glance
+// anchored to the pill, not a replacement for the full changelog.
+const CHANGELOG_POPOVER_MAX_VERSIONS = 3;
+
+// Both the full changelog section and the popover render the same
+// CHANGELOG.md — fetched once and cached (module-level promise, not just a
+// variable) so opening the popover on the homepage doesn't re-fetch what
+// loadChangelog() already pulled, and two rapid popover toggles before the
+// first fetch resolves don't fire a second request either.
+let changelogMarkdownPromise = null;
+function fetchChangelogMarkdown() {
+  if (!changelogMarkdownPromise) {
+    changelogMarkdownPromise = fetch(CHANGELOG_URL).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.text();
+    });
+  }
+  return changelogMarkdownPromise;
+}
 
 function escapeHtml(str) {
   return str
@@ -136,10 +156,10 @@ function renderInline(text) {
   return out;
 }
 
-function renderChangelog(markdown) {
+function renderChangelog(markdown, maxVersions = CHANGELOG_MAX_VERSIONS) {
   const lines = markdown.split("\n");
   let html = "";
-  let versionCount = 0;
+  let shownVersions = 0;
   let inList = false;
   let skipping = false;
   // Continuation lines of a wrapped bullet are accumulated here as *raw*
@@ -149,6 +169,23 @@ function renderChangelog(markdown) {
   // physical lines, and matching backtick/asterisk pairs line-by-line
   // (the previous approach) can't see across that line break.
   let pendingBullet = null;
+  // A version header (`## [x.y.z]`) is held here instead of appended to
+  // `html` immediately — flushed only once real content (a category header
+  // or a bullet) actually follows it. This is what keeps a currently-empty
+  // `## [Unreleased]` from rendering as a bare, content-less heading: if
+  // the *next* version header arrives before this one was ever flushed,
+  // it's simply discarded, and an empty section never counts against
+  // `maxVersions` either (so the cap always shows that many real entries,
+  // not fewer because one slot went to an empty section).
+  let pendingHeaderHtml = null;
+
+  const flushHeader = () => {
+    if (pendingHeaderHtml !== null) {
+      html += pendingHeaderHtml;
+      shownVersions += 1;
+      pendingHeaderHtml = null;
+    }
+  };
 
   const closeList = () => {
     flushBullet();
@@ -170,15 +207,15 @@ function renderChangelog(markdown) {
 
     const versionMatch = line.match(/^##\s+\[([^\]]+)\]\s*(-\s*(.+))?/);
     if (versionMatch) {
-      versionCount += 1;
-      if (versionCount > CHANGELOG_MAX_VERSIONS) {
+      closeList();
+      pendingHeaderHtml = null; // the previous section never got real content — drop its heading
+      if (shownVersions >= maxVersions) {
         skipping = true;
         continue;
       }
       skipping = false;
-      closeList();
       const date = versionMatch[3] ? `<span class="cl-date"> — ${escapeHtml(versionMatch[3])}</span>` : "";
-      html += `<h3>${escapeHtml(versionMatch[1])}${date}</h3>`;
+      pendingHeaderHtml = `<h3>${escapeHtml(versionMatch[1])}${date}</h3>`;
       continue;
     }
 
@@ -187,6 +224,7 @@ function renderChangelog(markdown) {
     const categoryMatch = line.match(/^###\s+(.+)/);
     if (categoryMatch) {
       closeList();
+      flushHeader();
       html += `<h4>${escapeHtml(categoryMatch[1])}</h4>`;
       continue;
     }
@@ -194,6 +232,7 @@ function renderChangelog(markdown) {
     const bulletMatch = line.match(/^-\s+(.+)/);
     if (bulletMatch) {
       flushBullet();
+      flushHeader();
       if (!inList) {
         html += "<ul>";
         inList = true;
@@ -222,13 +261,68 @@ async function loadChangelog() {
   const container = document.getElementById("changelog-content");
   if (!container) return; // this script is shared across pages — not every page has a changelog
   try {
-    const res = await fetch(CHANGELOG_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
+    const text = await fetchChangelogMarkdown();
     container.innerHTML = renderChangelog(text);
   } catch (err) {
     container.innerHTML = `<p class="changelog-error">Couldn't load the live changelog right now. See it directly on <a href="https://github.com/sazardev/shiki/blob/main/CHANGELOG.md">GitHub</a>.</p>`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Version-pill popover — clicking the "latest: vX.Y.Z" chip in the nav (see
+// loadLatestRelease below, which fills in its text) drops down a small card
+// with the most recent changelog entries, instead of the chip being a dead
+// label. Present on every page that includes this script (the chip itself
+// is in the shared nav markup), unlike the full changelog section, which
+// only exists on index.html — so this is the one place every page gets a
+// real "what's new" glance, not just the homepage.
+// ---------------------------------------------------------------------------
+
+function initVersionPopover() {
+  const wrap = document.getElementById("version-chip-wrap");
+  const button = document.getElementById("version-pill");
+  const popover = document.getElementById("version-popover");
+  const content = document.getElementById("version-popover-content");
+  if (!wrap || !button || !popover || !content) return; // shared script — not every page/state has all four
+
+  let loaded = false;
+
+  const open = () => {
+    popover.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    if (!loaded) {
+      loaded = true;
+      fetchChangelogMarkdown()
+        .then((text) => {
+          content.innerHTML = renderChangelog(text, CHANGELOG_POPOVER_MAX_VERSIONS);
+        })
+        .catch(() => {
+          loaded = false; // a later open() retries instead of being stuck on the error forever
+          content.innerHTML = `<p class="changelog-error">Couldn't load the live changelog right now. See it directly on <a href="https://github.com/sazardev/shiki/blob/main/CHANGELOG.md">GitHub</a>.</p>`;
+        });
+    }
+  };
+
+  const close = () => {
+    popover.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  };
+
+  button.setAttribute("aria-expanded", "false");
+  button.addEventListener("click", () => (popover.hidden ? open() : close()));
+
+  // Click-outside and Escape both close it — the same pair of dismissal
+  // gestures a native <select>/menu supports, so it doesn't feel like a
+  // half-built widget next to the rest of the browser's own UI.
+  document.addEventListener("click", (e) => {
+    if (!popover.hidden && !wrap.contains(e.target)) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !popover.hidden) {
+      close();
+      button.focus();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -461,4 +555,5 @@ document.addEventListener("DOMContentLoaded", () => {
   loadLatestRelease();
   loadContributors();
   initCopyButtons();
+  initVersionPopover();
 });
