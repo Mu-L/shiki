@@ -145,9 +145,13 @@ scoop install shiki
 **macOS ([Homebrew](https://brew.sh)):**
 
 ```sh
-brew tap sazardev/shiki
-brew install shiki
+brew install sazardev/shiki/shiki
 ```
+
+> **Note:** use the fully-qualified `owner/tap/formula` form above, not `brew tap sazardev/shiki`
+> followed by `brew install shiki` — homebrew/core has its own unrelated `shiki` formula (a syntax
+> highlighter), and a plain `brew install shiki` after tapping resolves to that one instead of this
+> project's formula.
 
 **Prebuilt binary (Linux/Windows/macOS), no package manager:**
 
