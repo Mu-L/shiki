@@ -300,8 +300,23 @@
           <tr><td><code>p</code></td><td>Scratchpad — open an in-memory editor; <code>Ctrl+S</code> saves its contents through the new-note title/template flow, while <code>Esc</code> discards it</td></tr>
           <tr><td><code>B</code></td><td>Links — the same modal as PREVIEW's <code>L</code> (outgoing wikilinks / backlinks / unlinked mentions for the selected note), reachable from any panel without focusing PREVIEW first</td></tr>
           <tr><td><code>t</code></td><td>Tasks — every <code>- [ ]</code> checkbox task across every notebook in one flat list, pending-only by default, sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (<code>notebook/folders…/note title</code>) so where a task lives is always visible, even mid-scroll. <code>Enter</code>/<code>space</code> toggles the task directly in its source file and updates the row in place; <code>l</code>/<code>o</code> jumps to the note; <code>a</code> also shows completed tasks. An optional <code>@due(YYYY-MM-DD)</code> tag renders the date next to the task: overdue in the theme's error color, due today in warning, future in muted. Relative specs — <code>@due(tomorrow)</code>, <code>@due(+3d)</code>, <code>@due(+2w)</code>, <code>@due(fri)</code> — are pinned to the real date the moment the note is saved. Also scriptable as <code>shiki tasks</code> (see CLI commands)</td></tr>
+          <tr><td><code>P</code></td><td>Publish the selected notebook to a themed PDF via <code>pretty-pdf</code> (external binary, auto-fetched on first use — see CLI commands), written to <code>{data_dir}/exports/{notebook}.pdf</code>, then opened. Theme comes from <code>export.pdf_theme</code>, cyclable in Settings → EXPORT</td></tr>
         </tbody>
       </table>
+      <div class="doc-shot-grid">
+        <figure class="doc-shot-card">
+          <img data-shot="wide-22-tasks-panel" width="1260" height="760" loading="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="The global tasks panel, showing overdue/today/future checkbox tasks color-coded by urgency" />
+          <figcaption>leader+<code>t</code> — every task, every notebook, sorted by urgency.</figcaption>
+        </figure>
+        <figure class="doc-shot-card">
+          <img data-shot="wide-23-links-mentions" width="1260" height="760" loading="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="The links modal showing a Mentions (unlinked) section, a plain-text mention that isn't a real wikilink yet" />
+          <figcaption>leader+<code>B</code> — "Mentions (unlinked)", one <code>c</code> away from becoming a real backlink.</figcaption>
+        </figure>
+        <figure class="doc-shot-card">
+          <img data-shot="wide-24-syntax-highlighting" width="1260" height="760" loading="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="A note's fenced Rust code block, rendered with real per-token syntax highlighting in PREVIEW" />
+          <figcaption>Real syntax highlighting for fenced code blocks, matched to your theme.</figcaption>
+        </figure>
+      </div>
 
       <h3><code>[keybindings.notebooks]</code> — active while NOTEBOOKS is focused</h3>
       <table class="ref-table">
@@ -466,9 +481,12 @@ body = "&gt; **Info:** {{cursor}}"</pre>
       </p>
       <pre class="code">shiki                     # launch TUI
 shiki new &lt;title&gt;         # create note + open $EDITOR
+shiki new "title" --body "text"     # create non-interactively, no $EDITOR spawned
+shiki new "title" --stdin --tags work,idea  # body piped in, tags attached, still no $EDITOR
 shiki daily               # create/open today's daily note
 shiki list                # list notes in the default notebook
 shiki list -n work        # list notes in "work"
+shiki list --json         # list/search/show all take --json for scripting (list/search: array, show: object)
 shiki show &lt;note&gt;         # show rendered content (ANSI)
 shiki edit &lt;note&gt;         # edit with $EDITOR
 shiki search &lt;query&gt;      # search and show results
@@ -477,17 +495,41 @@ shiki tasks --overdue --count  # just the number — made for waybar/polybar/tmu
 shiki tasks --today --json     # machine-readable, with due/overdue/location per task
 shiki graph               # [[wikilink]] connection graph, force-directed, drawn in the terminal
 shiki graph -n work --json     # nodes/edges/orphans as JSON, for graphviz/d3/gephi
+shiki export -n work --out bundle.html            # every note in "work" as one self-contained HTML file
+shiki export -n work --out bundle.md --format md  # or a plain concatenated Markdown bundle
+shiki publish -n work                     # render "work" to a themed PDF via pretty-pdf (auto-fetched, see below)
+shiki publish -n work --out report.pdf --theme dark   # custom path/theme; theme defaults to export.pdf_theme
 shiki sync                # git commit+push default notebook
 shiki sync -n work        # git sync in "work"
 shiki config              # show config path
 shiki notebook create &lt;name&gt;
-shiki notebook list
+shiki notebook list --json
 shiki notebook rename &lt;old&gt; &lt;new&gt;
 shiki notebook delete &lt;name&gt; --yes  # permanently deletes the notebook and every note in it
 shiki theme list          # list built-in themes, marking the active one
 shiki theme set &lt;name&gt;    # switch theme (persisted to config.toml)
 shiki theme create [--from &lt;name&gt;]  # scaffold all 19 color overrides from a real palette
 shiki doctor              # environment check: config, data dir, git, editor, terminal, keybindings, snippets</pre>
+      <div class="doc-shot-grid">
+        <figure class="doc-shot-card">
+          <img src="assets/screenshots/gallery/cli/graph.png" width="1260" height="760" loading="lazy" alt="shiki graph's output: a force-directed wikilink graph drawn in the terminal, with hubs, edges, and orphans" />
+          <figcaption><code>shiki graph</code> — hubs, edges, and orphans, drawn right in the terminal.</figcaption>
+        </figure>
+        <figure class="doc-shot-card">
+          <img src="assets/screenshots/gallery/cli/export.png" width="1260" height="760" loading="lazy" alt="shiki export bundling a notebook into a single HTML file, confirmed via ls" />
+          <figcaption><code>shiki export</code> — a whole notebook, one self-contained file.</figcaption>
+        </figure>
+      </div>
+      <p style="max-width:70ch;">
+        <code>shiki publish</code> (leader+<code>P</code> in the TUI) renders a notebook to a
+        themed PDF through <a href="https://github.com/sazardev/go-pretty-pdf" target="_blank"
+        rel="noopener">go-pretty-pdf</a>, a separate Go binary shelled out to as an external
+        process — never linked into shiki itself. The first run fetches and caches it
+        automatically, so this never requires a manual install step. <code>--theme</code> picks
+        one of <code>pretty-pdf</code>'s 17 built-in themes; the TUI's Settings → EXPORT tab
+        cycles the same set for <code>export.pdf_theme</code>, the config-level default
+        <code>shiki publish</code> falls back to when <code>--theme</code> isn't given.
+      </p>
       <div class="doc-callout">
         <strong>Something feels wrong? Run <code>shiki doctor</code> first.</strong>
         <p>
@@ -496,6 +538,12 @@ shiki doctor              # environment check: config, data dir, git, editor, te
           a config path that doesn't resolve, etc.) — and it's designed to still work and explain
           what's wrong even when your <code>config.toml</code> itself is broken, which is exactly
           the situation you're in when you'd reach for a diagnostic command in the first place.
+          It also checks: unrecognized keys anywhere in <code>config.toml</code>;
+          <code>general.default_notebook</code> actually matching an existing notebook;
+          <code>data_dir</code> being a real directory, not just existing; two notebooks
+          resolving to the same path on disk; <code>git.remote_template</code> containing its
+          <code>{notebook}</code> placeholder; and <code>git.sign_commits</code> having an actual
+          signing key configured.
         </p>
       </div>
     </div>
@@ -597,6 +645,12 @@ Content in **markdown**.
         PREVIEW renders them, and <code>L</code> (PREVIEW scope) shows both the links a note makes
         and every other note linking back to it. A link to a note that doesn't exist (yet) isn't
         an error; it just won't resolve until you create one with that title.
+      </p>
+      <p style="max-width:70ch;">
+        Notebooks also tolerate <code>.txt</code> and <code>.mdx</code> files alongside
+        <code>.md</code> when listing/reading notes — a notebook pointed at an existing Obsidian
+        vault or similar commonly has both. New notes are always created as <code>.md</code>;
+        renaming a <code>.txt</code>/<code>.mdx</code> note preserves its original extension.
       </p>
     </div>
   </section>
@@ -786,6 +840,22 @@ multi_cursor = false</pre>
         <figcaption>Typing <code>[[</code> opens a fuzzy note picker — same engine as <code>/</code> and global search.</figcaption>
       </figure>
 
+      <h3 id="config-export"><code>[export]</code> — PDF export theme</h3>
+      <p style="max-width:70ch;">
+        <code>shiki publish</code> (CLI) and leader+<code>P</code> (TUI) render a notebook to a
+        themed PDF via <a href="https://github.com/sazardev/go-pretty-pdf" target="_blank"
+        rel="noopener">go-pretty-pdf</a> — fetched and cached automatically on first use, no
+        manual install step.
+      </p>
+      <table class="ref-table config-ref-table">
+        <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>pdf_theme</code></td><td><code>"default"</code></td><td>One of go-pretty-pdf's 17 built-in themes: <code>default</code>, <code>minimal</code>, <code>modern</code>, <code>classic</code>, <code>corporate</code>, <code>dark</code>, <code>academic</code>, <code>editorial</code>, <code>sepia</code>, <code>terminal</code>, <code>blueprint</code>, <code>ivy</code>, <code>government</code>, <code>resume</code>, <code>legal</code>, <code>latex</code>, <code>gruvbox</code>. Cyclable from the EXPORT tab in Settings, or overridden per-invocation with <code>--theme</code></td></tr>
+        </tbody>
+      </table>
+      <pre class="code">[export]
+pdf_theme = "default"</pre>
+
       <h3 id="config-notebooks"><code>[notebooks.&lt;name&gt;]</code> — per-notebook overrides</h3>
       <p style="max-width:70ch;">
         Every field above in <code>[git]</code> is a <em>global default</em>. Any individual
@@ -850,8 +920,11 @@ body = "# [{{title}}] {{cursor}}"</pre>
         <figcaption><code>leader</code> then <code>s</code> — every option above, editable in place.</figcaption>
       </figure>
       <p style="max-width:70ch;">
-        <code>←</code>/<code>→</code> switches between six tabs — GENERAL, THEME, GIT, EDITOR,
-        NOTEBOOKS, SNIPPETS — mirroring the sections above one for one. <code>j</code>/<code>k</code> moves
+        <code>←</code>/<code>→</code> switches between seven tabs — GENERAL, THEME, GIT, EDITOR,
+        EXPORT, NOTEBOOKS, SNIPPETS — mirroring the sections above one for one. EXPORT is a
+        single field, <code>pdf_theme</code>, cycling through <code>pretty-pdf</code>'s 17
+        built-in themes (the default <code>shiki publish</code>/leader+<code>P</code> fall back
+        to). <code>j</code>/<code>k</code> moves
         within a tab, <code>Enter</code> edits or toggles the highlighted row (a true/false field
         flips immediately and saves; anything else opens a one-line prompt prefilled with its
         current value), and <code>Esc</code>/<code>q</code> closes. NOTEBOOKS and SNIPPETS are two
@@ -988,6 +1061,14 @@ os_clipboard = false
 select_all_ctrl_a = false
 line_numbers = false
 multi_cursor = false
+
+# PDF export (`shiki publish`, leader+`P`) — pdf_theme picks one of
+# go-pretty-pdf's 17 built-in themes: default, minimal, modern, classic,
+# corporate, dark, academic, editorial, sepia, terminal, blueprint, ivy,
+# government, resume, legal, latex, gruvbox. Cyclable from the EXPORT tab
+# in Settings.
+[export]
+pdf_theme = "default"
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.

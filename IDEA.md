@@ -208,9 +208,10 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `p` | Scratchpad — open an in-memory editor; `Ctrl+S` saves its contents through the new-note title/template flow, while `Esc` discards it |
 | `B` | Links — the same modal as PREVIEW's `L` (outgoing wikilinks / backlinks / unlinked mentions for the selected note), reachable from any panel without focusing PREVIEW first |
 | `t` | Tasks — every `- [ ]` checkbox task across every notebook in one flat list, pending-only by default, sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (`notebook/folders…/note title`) so where a task lives is always visible, even mid-scroll. `Enter`/`space` toggles the task directly in its source file (a normal note edit — flows through auto-sync like any other change) and updates the row in place so it can be immediately un-toggled; `l`/`o` jumps to the note; `a` also shows completed tasks. An optional `@due(YYYY-MM-DD)` tag anywhere in the task text renders the date next to it: overdue in the theme's error color, due today in warning, future in muted. Relative specs — `@due(tomorrow)`, `@due(+3d)`, `@due(+2w)`, `@due(fri)` — are pinned to the real date the moment the note is saved (inline or external editor), since they're relative to the day they were written. Also scriptable as `shiki tasks` (see CLI commands) |
+| `P` | Publish the selected notebook to a themed PDF via `pretty-pdf` (external binary, auto-fetched on first use — see CLI commands), written to `{data_dir}/exports/{notebook}.pdf`, then opened. Same rendering `shiki publish` uses; the theme comes from `export.pdf_theme`, cyclable in Settings → EXPORT |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
 | `u` | Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (`~/.config/shiki/trash/`) back to exactly where it came from. A single level of undo, not a full history: only the *most recent* delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything |
-| `s` | Settings — near-full-screen, paged by tab (`←`/`→` switches GENERAL/THEME/GIT/EDITOR/NOTEBOOKS/SNIPPETS, `j`/`k` moves within one). Doesn't repeat the keybindings tables — `?` (which-key) already covers those live. Every tab is editable with `Enter`: GENERAL/GIT booleans (`use_favorite_editor`, `auto_commit`/`auto_push`/`sign_commits`/`auto_sync`) toggle in place and save immediately; every other GENERAL/GIT field opens a prompt prefilled with its current value; THEME's `name` opens the theme picker (live preview, same as leader+`c`) and `overrides` stays informational; EDITOR is six plain boolean toggles for the native note editor's UX (see `[editor]` below); NOTEBOOKS lists every notebook's actual git remote (redacted) and drills into one to edit its remote plus its `auto_push`/`auto_sync`/`auto_sync_every` overrides (booleans cycle inherit → true → false → inherit); SNIPPETS supports `a` (new snippet) and `d` (delete, with confirmation), and drilling into one edits its `label` and its full multi-line `body` through the same inline editor a note's own body uses. `i`/`E` still jump straight to editing `config.toml` itself for anything not covered above (inline or externally, same convention as editing a note); on save, the config is re-read, re-applied, and takes effect immediately (no restart) — an invalid edit is reported and neither written nor applied, keeping the previous config running. `h`/`Esc`/`Backspace` backs out of a drilled-into notebook/snippet a level; `Esc`/`q` at the top level closes |
+| `s` | Settings — near-full-screen, paged by tab (`←`/`→` switches GENERAL/THEME/GIT/EDITOR/EXPORT/NOTEBOOKS/SNIPPETS, `j`/`k` moves within one). Doesn't repeat the keybindings tables — `?` (which-key) already covers those live. Every tab is editable with `Enter`: GENERAL/GIT booleans (`use_favorite_editor`, `auto_commit`/`auto_push`/`sign_commits`/`auto_sync`) toggle in place and save immediately; every other GENERAL/GIT field opens a prompt prefilled with its current value; THEME's `name` opens the theme picker (live preview, same as leader+`c`) and `overrides` stays informational; EDITOR is six plain boolean toggles for the native note editor's UX (see `[editor]` below); EXPORT is one field, `pdf_theme`, cycling through `pretty-pdf`'s 17 built-in themes (the default `shiki publish`/leader+`P` fall back to); NOTEBOOKS lists every notebook's actual git remote (redacted) and drills into one to edit its remote plus its `auto_push`/`auto_sync`/`auto_sync_every` overrides (booleans cycle inherit → true → false → inherit); SNIPPETS supports `a` (new snippet) and `d` (delete, with confirmation), and drilling into one edits its `label` and its full multi-line `body` through the same inline editor a note's own body uses. `i`/`E` still jump straight to editing `config.toml` itself for anything not covered above (inline or externally, same convention as editing a note); on save, the config is re-read, re-applied, and takes effect immediately (no restart) — an invalid edit is reported and neither written nor applied, keeping the previous config running. `h`/`Esc`/`Backspace` backs out of a drilled-into notebook/snippet a level; `Esc`/`q` at the top level closes |
 
 #### `[keybindings.notebooks]` — active while NOTEBOOKS is focused
 
@@ -344,16 +345,23 @@ shiki list -n work        # list notes in "work"
 shiki show <note>         # show rendered content (ANSI)
 shiki edit <note>         # edit with $EDITOR
 shiki search <query>      # search and show results
+shiki new "title" --body "text"     # create non-interactively, no $EDITOR spawned
+shiki new "title" --stdin --tags work,idea  # body piped in, tags attached, still no $EDITOR
+shiki list --json         # list/search/show all take --json for scripting (list/search: array, show: object)
 shiki tasks               # every pending checkbox task across notebooks, urgency-sorted
 shiki tasks --overdue --count  # just the number — made for waybar/polybar/tmux status modules
 shiki tasks --today --json     # machine-readable, with due/overdue/location per task
 shiki graph               # [[wikilink]] connection graph, force-directed, drawn in the terminal
 shiki graph -n work --json     # nodes/edges/orphans as JSON, for graphviz/d3/gephi
+shiki export -n work --out bundle.html            # every note in "work" as one self-contained HTML file
+shiki export -n work --out bundle.md --format md  # or a plain concatenated Markdown bundle
+shiki publish -n work                     # render "work" to a themed PDF via pretty-pdf (auto-fetched, see below)
+shiki publish -n work --out report.pdf --theme dark   # custom path/theme; theme defaults to export.pdf_theme
 shiki sync                # git commit+push default notebook
 shiki sync -n work        # git sync in "work"
 shiki config              # show config path
 shiki notebook create <name>
-shiki notebook list
+shiki notebook list --json
 shiki notebook rename <old> <new>
 shiki notebook delete <name> --yes  # permanently deletes the notebook and every note in it
 shiki theme list          # list built-in themes, marking the active one
@@ -362,9 +370,27 @@ shiki theme create [--from <name>]  # scaffold all 19 color overrides from a rea
 shiki doctor              # environment check: config, data dir, git, editor, terminal, keybindings, snippets
 ```
 
+`shiki publish` (leader+`P` in the TUI) renders a notebook to a themed PDF through
+[`go-pretty-pdf`](https://github.com/sazardev/go-pretty-pdf), a separate Go binary shelled out to
+as an external process (never linked into shiki itself) — the first run fetches and caches it
+automatically, so using this feature never requires a manual install step. `--theme` picks one of
+`pretty-pdf`'s 17 built-in themes; the TUI's Settings → EXPORT tab cycles the same set for
+`export.pdf_theme`, the config-level default `shiki publish` falls back to when `--theme` isn't
+given.
+
+`shiki doctor` also checks: unrecognized keys anywhere in `config.toml` (a generic diff against
+`Config::default()`'s own shape, not a hand-maintained list); `general.default_notebook` actually
+matching an existing notebook; `data_dir` being a real directory, not just existing; two notebooks
+resolving to the same path on disk; `git.remote_template` containing its `{notebook}` placeholder;
+and `git.sign_commits` having an actual signing key configured (`git config user.signingkey`).
+
 ---
 
 ## Filesystem layout
+
+Respects `$XDG_CONFIG_HOME`/`$XDG_DATA_HOME` if you have them set (most people don't, so the
+defaults below are what you'll actually see) — resolved via
+`directories::ProjectDirs::from("", "", "shiki")`.
 
 ### Data (`~/.local/share/shiki/`)
 
@@ -435,6 +461,10 @@ Content in **markdown**.
 
 [[wikilink]] to another note — navigable from the TUI.
 ```
+
+Notebooks also tolerate `.txt` and `.mdx` files alongside `.md` when listing/reading notes — a
+notebook pointed at an existing Obsidian vault or similar commonly has both. New notes are always
+created as `.md`; renaming a `.txt`/`.mdx` note preserves its original extension.
 
 ---
 
@@ -588,6 +618,14 @@ os_clipboard = false     # Ctrl+C/X/V use the real OS clipboard (falls back to O
 select_all_ctrl_a = false  # Ctrl+A selects everything instead of "start of line"
 line_numbers = false     # shows a line-number gutter
 multi_cursor = false     # Alt+Click adds a cursor, Ctrl+D adds the next occurrence
+
+# PDF export (`shiki publish`, leader+`P`) — pdf_theme picks one of
+# go-pretty-pdf's 17 built-in themes: default, minimal, modern, classic,
+# corporate, dark, academic, editorial, sepia, terminal, blueprint, ivy,
+# government, resume, legal, latex, gruvbox. Cyclable from the EXPORT tab
+# in Settings.
+[export]
+pdf_theme = "default"
 
 # Optional per-notebook overrides of [git] — anything left unset here falls
 # back to the global values above.

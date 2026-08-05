@@ -136,6 +136,15 @@ setup_sample_data() {
     git -C "$DATA/$nb" config user.name "shiki demo"
   done
 
+  # Computed relative to the actual capture date, not hardcoded, so the
+  # global tasks panel screenshot (below) always shows one real overdue,
+  # one due-today, and one future task — the three urgency colors — no
+  # matter when this script is actually run.
+  local due_overdue due_today due_future
+  due_overdue="$(date -d '-4 days' +%F 2>/dev/null || date -v-4d +%F)"
+  due_today="$(date +%F)"
+  due_future="$(date -d '+5 days' +%F 2>/dev/null || date -v+5d +%F)"
+
   write_note personal "recipe-homemade-pasta.md" "Recipe: homemade pasta" "2026-07-18" "[cooking, recipes]" \
 "## Ingredients
 
@@ -152,7 +161,8 @@ setup_sample_data() {
 4. Knead for 10 minutes until smooth and elastic.
 5. Rest wrapped in plastic for 30 minutes before rolling.
 
-Best paired with a simple brown butter and sage sauce."
+Best paired with a simple brown butter and sage sauce. See also [[Book recommendations]] for
+something to read while the dough rests."
 
   write_note personal "book-recommendations.md" "Book recommendations" "2026-07-15" "[reading, books]" \
 "## Currently reading
@@ -165,7 +175,10 @@ Best paired with a simple brown butter and sage sauce."
 - *A Philosophy of Software Design* — John Ousterhout
 - *The Left Hand of Darkness* — Ursula K. Le Guin
 
-Recommended by a friend: anything by Ted Chiang, starting with *Exhalation*."
+Recommended by a friend: anything by Ted Chiang, starting with *Exhalation*.
+
+Want to bring one along on the Weekend hiking trip — something short enough to finish by the
+campfire."
 
   write_note personal "weekend-hiking-trip.md" "Weekend hiking trip" "2026-07-10" "[outdoors, planning]" \
 "Planning a two-day trip along the ridge trail.
@@ -188,9 +201,9 @@ Product, Engineering, Design leads.
 
 ## Action items
 
-- [ ] Circulate the roadmap doc for async feedback
-- [ ] Schedule design review for the onboarding flow
-- [ ] Follow up with infra team on the migration timeline"
+- [ ] Circulate the roadmap doc for async feedback @due($due_overdue)
+- [ ] Schedule design review for the onboarding flow @due($due_today)
+- [ ] Follow up with infra team on the migration timeline @due($due_future)"
 
   write_note work "onboarding-checklist.md" "Onboarding checklist" "2026-07-12" "[work, hr]" \
 "## First week
@@ -223,6 +236,28 @@ Product, Engineering, Design leads.
 "TODO: buy milk
 TODO: call the dentist
 TODO: finish the quarterly report"
+
+  write_note personal "retry-helper-snippet.md" "Retry helper snippet" "2026-07-19" "[rust, ideas]" \
+"A small generic retry wrapper I keep copy-pasting between projects — should probably become its
+own crate at some point.
+
+\`\`\`rust
+pub fn retry<T, E>(attempts: u32, mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
+    let mut last_err = None;
+    for attempt in 0..attempts {
+        match f() {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(200 * (attempt + 1) as u64));
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
+\`\`\`
+
+Linear backoff is fine for now — exponential would be better under real load."
 
   for nb in personal work; do
     git -C "$DATA/$nb" add -A
@@ -412,6 +447,36 @@ capture() {
     shot "20-editor-find-replace"
     send_key "Escape"
     send_key "Escape"
+
+    # Global tasks view (leader+t) — works from any focus, no navigation
+    # needed first; the overdue/today/future @due tags on
+    # meeting-notes-q3-planning.md's action items (see setup_sample_data)
+    # show all three urgency colors at once.
+    send_text " t"
+    shot "22-tasks-panel"
+    send_key "Escape"
+
+    # Links modal on "Weekend hiking trip" — book-recommendations.md
+    # mentions it in plain text without a real [[wikilink]] (see
+    # setup_sample_data), so its Mentions (unlinked) section is non-empty.
+    # `hhhl` resets focus to NOTEBOOKS then into NOTES (personal is the
+    # default-selected notebook), `/` jumps to the note by title.
+    send_text "hhhl"
+    send_text "/"
+    send_text "hiking"
+    send_key "Return"
+    send_text " B"
+    shot "23-links-mentions"
+    send_key "Escape"
+
+    # Syntax-highlighted fenced code block — retry-helper-snippet.md's
+    # ```rust block (see setup_sample_data), viewed in PREVIEW.
+    send_text "hhhl"
+    send_text "/"
+    send_text "retry"
+    send_key "Return"
+    send_text "l"
+    shot "24-syntax-highlighting"
   else
     shot "overview"
   fi
@@ -426,6 +491,60 @@ for theme in "${THEMES[@]}"; do
   capture "$theme" stacked 60 40
   capture "$theme" single 40 12
 done
+
+# --- CLI-only terminal captures (no TUI, plain stdout) for `shiki graph` and
+# `shiki export` — these render fixed ANSI escapes (`graph.rs::render_canvas`),
+# not shiki's own themed colors, so one representative capture is enough
+# rather than repeating it per theme. Uses gruvbox-dark's background, same
+# as the marketing hero's own screenshot, for visual consistency with it.
+echo "== cli (graph, export) =="
+CLI_CFG="$WORK/config-cli/shiki"
+mkdir -p "$CLI_CFG"
+sed "s/^name = .*/name = \"gruvbox-dark\"/" "$CONFIG_BASE/config.toml" >"$CLI_CFG/config.toml"
+
+# `display_cmd` is what's echoed as a fake shell prompt line (the plain
+# "shiki ..." a real user would type); `real_cmd` is what actually runs
+# ($BIN's full temp-dir path — not something worth showing on screen).
+# `rows` is sized per-command rather than shared: `graph`'s canvas height
+# is `width / 3` (clamped 16..60) — at the terminal's own detected width
+# (crossterm::terminal::size(), i.e. `cols` here) that's taller than the
+# fixed-height `export` capture needs, and a too-short window silently
+# clips the bottom of the canvas/orphans list instead of erroring.
+capture_cli() {
+  local shotname="$1" display_cmd="$2" real_cmd="$3" cols="$4" rows="$5"
+  local title="shiki-ss-cli-$shotname"
+  local bg
+  bg="$(theme_bg "gruvbox-dark")"
+  LANG=C.utf8 LC_ALL=C.utf8 xterm -u8 -fa "$NERD_FONT" -fs 13 -bg "$bg" \
+    -xrm "XTerm*internalBorder: 0" -xrm "XTerm*borderWidth: 0" \
+    -geometry "${cols}x${rows}" -title "$title" \
+    -e env XDG_CONFIG_HOME="$WORK/config-cli" XDG_DATA_HOME="$DATA/.." LANG=C.utf8 LC_ALL=C.utf8 \
+    sh -c "printf '\$ %s\n' '$display_cmd'; $real_cmd; sleep 8" \
+    >/dev/null 2>&1 &
+  local xterm_pid=$!
+  sleep 1.5
+
+  local win=""
+  for _ in $(seq 1 30); do
+    win="$(xdotool search --name "$title" 2>/dev/null | head -1)"
+    [ -n "$win" ] && break
+    sleep 0.2
+  done
+  if [ -z "$win" ]; then
+    echo "warning: xterm window never appeared for cli/$shotname, skipping" >&2
+    kill -9 "$xterm_pid" 2>/dev/null || true
+    return
+  fi
+  sleep 0.5
+  mkdir -p "$OUT/cli"
+  import -window "$win" "$OUT/cli/$shotname.png"
+  kill -9 "$xterm_pid" 2>/dev/null || true
+  wait "$xterm_pid" 2>/dev/null || true
+}
+
+capture_cli "graph" "shiki graph -n personal" "$BIN graph -n personal" 130 58
+capture_cli "export" "shiki export -n personal --out notes.html" \
+  "$BIN export -n personal --out /tmp/shiki-ss-export.html && ls -la /tmp/shiki-ss-export.html" 100 14
 
 count=$(find "$OUT" -name '*.png' | wc -l)
 echo "Done — $count screenshots in $OUT"

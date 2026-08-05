@@ -72,6 +72,13 @@ BIN="$ROOT/target/release/shiki"
 echo "Building release binary..."
 cargo build --release -p shiki-cli --manifest-path "$ROOT/Cargo.toml"
 
+# Computed relative to the actual recording date, not hardcoded, so the
+# global tasks phase always shows one real overdue, one due-today, and one
+# future task regardless of when this script runs.
+DUE_OVERDUE="$(date -d '-4 days' +%F 2>/dev/null || date -v-4d +%F)"
+DUE_TODAY="$(date +%F)"
+DUE_FUTURE="$(date -d '+5 days' +%F 2>/dev/null || date -v+5d +%F)"
+
 # --- Rich sample data: 3 notebooks, 30 notes, folders 2 levels deep, long
 # bodies, varied tags — deliberately more than scripts/screenshots.sh's
 # minimal set, since this recording exists specifically to demonstrate
@@ -127,7 +134,9 @@ write_note personal "book-recommendations.md" "Book recommendations" "2026-07-15
 
 Recommended by a friend: anything by Ted Chiang, starting with *Exhalation*.
 Also want to revisit *Gödel, Escher, Bach* — tried it in college, bounced off it,
-might land better now."
+might land better now.
+
+Want to bring something short along on the Weekend hiking trip — maybe the Ted Chiang."
 
 write_note personal "gift-ideas.md" "Gift ideas" "2026-07-14" "[shopping, gifts]" \
 "## Mom's birthday (August)
@@ -224,6 +233,28 @@ if it won't come together, easier to add flour than take it away.
 Best paired with a simple brown butter and sage sauce, or a light tomato and
 basil if it's summer and the tomatoes are actually good."
 
+write_note personal "retry-helper-snippet.md" "Retry helper snippet" "2026-07-19" "[rust, ideas]" \
+"A small generic retry wrapper I keep copy-pasting between projects — should probably become its
+own crate at some point.
+
+\`\`\`rust
+pub fn retry<T, E>(attempts: u32, mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
+    let mut last_err = None;
+    for attempt in 0..attempts {
+        match f() {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(std::time::Duration::from_millis(200 * (attempt + 1) as u64));
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
+\`\`\`
+
+Linear backoff is fine for now — exponential would be better under real load."
+
 write_note personal "travel-bucket-list.md" "Travel bucket list" "2026-07-05" "[travel, dreams]" \
 "## Definitely happening (booked or budgeted)
 
@@ -254,9 +285,9 @@ write_note personal "weekend-hiking-trip.md" "Weekend hiking trip" "2026-07-10" 
 
 ## Gear checklist
 
-- [ ] Tent + stakes
-- [ ] Sleeping bag rated for the actual overnight low, not the daytime high
-- [ ] Water filter, not just tablets
+- [ ] Tent + stakes @due($DUE_OVERDUE)
+- [ ] Sleeping bag rated for the actual overnight low, not the daytime high @due($DUE_TODAY)
+- [ ] Water filter, not just tablets @due($DUE_FUTURE)
 - [ ] Headlamp + spare batteries
 - [ ] First aid kit, actually check what's in it before leaving
 
@@ -1325,6 +1356,86 @@ Sleep 500ms
 Type "?"
 Sleep 900ms
 Escape
+Sleep 900ms
+
+# --- Phase 16: global tasks view (leader+t, works from any focus) -- the
+# gear checklist on Weekend hiking trip now carries overdue/today/future
+# due tags (see the DUE_OVERDUE/DUE_TODAY/DUE_FUTURE setup above), so the
+# urgency-sorted list shows all three colors at once without any extra
+# setup. Enter toggles the highlighted task done in place.
+Space
+Type "t"
+Sleep 800ms
+Down@200ms 2
+Sleep 500ms
+Enter
+Sleep 700ms
+Escape
+Sleep 500ms
+
+# --- Phase 17: links modal mention repair -- the notes-scope "/" jump
+# (title-only fuzzy match, same mechanism Phase 4 already uses) finds
+# Weekend hiking trip unambiguously by title; global search (leader+g)
+# would also match Book recommendations' own plain-text mention of it by
+# body text, and -- once Phase 18 below creates today's daily note, whose
+# injected agenda links back to this same note by title -- would start
+# matching that too, so this deliberately stays a title-only jump instead.
+# Left x3 resets focus to NOTEBOOKS, Right moves into NOTES (same reset
+# pattern the earlier phases already rely on). leader+B opens the links
+# modal -- this note already has a real Backlink from Phase 13b's own
+# "Release day retrospective" wikilink, so the mention row isn't the
+# first one selected; one Down reaches "Book recommendations" under
+# "Mentions (unlinked)" before "c" repairs it into a real backlink.
+Left
+Left
+Left
+Sleep 400ms
+Right
+Sleep 400ms
+Type "/"
+Sleep 400ms
+Type "hiking"
+Sleep 700ms
+Enter
+Sleep 700ms
+Space
+Type "B"
+Sleep 700ms
+Down
+Sleep 500ms
+Type "c"
+Sleep 800ms
+Escape
+Sleep 500ms
+
+# --- Phase 18: daily note agenda -- Left x3 resets focus to NOTEBOOKS,
+# Right moves into NOTES, then "t" (notes-scope daily note) creates
+# today's daily. It opens with a "Due today" section already injected,
+# listing every overdue/due-today task across every notebook -- Right
+# moves focus into PREVIEW to read it, Down scrolls a little further into
+# that section.
+Left
+Left
+Left
+Sleep 400ms
+Right
+Sleep 400ms
+Type "t"
+Sleep 700ms
+Right
+Sleep 700ms
+Down@150ms 4
+Sleep 900ms
+
+# --- Phase 19: real syntax highlighting -- global search to the Retry
+# helper snippet note, landing straight in PREVIEW with its fenced Rust
+# code block rendered in real per-token color instead of flat dimmed text.
+Space
+Type "g"
+Sleep 400ms
+Type "retry helper"
+Sleep 700ms
+Enter
 Sleep 900ms
 
 # Quit off-screen — ending on the app itself, not a bare shell prompt with

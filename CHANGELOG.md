@@ -6,6 +6,8 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-04
+
 ### Added
 
 - `shiki tasks` — the tasks view as a scriptable CLI command: pending tasks across every notebook,
@@ -30,7 +32,15 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 - `c` in the links modal on a "Mentions (unlinked)" row repairs the missed link: the mentioning
   note's plain-text mention is wrapped into a real `[[wikilink]]` in place (preserving its casing,
   skipping text already inside links), and the row visibly migrates to Backlinks.
-
+- `shiki publish` (also leader+`P` in the TUI) renders a whole notebook to a themed PDF via
+  [`go-pretty-pdf`](https://github.com/sazardev/go-pretty-pdf), a separate Go binary shelled out to
+  as an external process — the first run fetches and caches it automatically, so this never needs a
+  manual install step. One of 17 built-in themes, picked via `--theme` or the new Settings → EXPORT
+  tab's `pdf_theme` field (defaults to `"default"`).
+- Clicking a row in NOTEBOOKS or NOTES now selects it and does exactly what `Enter`/`l` would —
+  jumps focus into NOTES (from NOTEBOOKS) or PREVIEW (from a note), or descends into a folder —
+  instead of doing nothing. Restricted to `Mode::Normal` with no modal open, same guard the
+  existing PREVIEW click-to-edit already uses.
 - Global tasks view (leader+`t`): every `- [ ]` checkbox task across every notebook in one modal,
   sorted by urgency (overdue first, then due today, then future, then undated), each row showing
   its location (`notebook/folders…/note title`) muted alongside the task so it's never lost while

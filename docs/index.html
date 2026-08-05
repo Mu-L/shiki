@@ -50,7 +50,7 @@
     "downloadUrl": "https://github.com/sazardev/shiki/releases/latest",
     "applicationCategory": "Utility",
     "operatingSystem": "Linux, Windows, macOS",
-    "softwareVersion": "0.8.10",
+    "softwareVersion": "0.9.0",
     "programmingLanguage": "Rust",
     "license": "https://github.com/sazardev/shiki/blob/main/LICENSE",
     "codeRepository": "https://github.com/sazardev/shiki",
@@ -240,6 +240,46 @@
           <p>Point a whole vault or individual notebooks at any existing directory on disk — an
           Obsidian vault, a plain markdown folder, anywhere — via <code>data_dir</code> or a
           per-notebook <code>path</code>. No migration, no symlinks, no duplicated files.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">☑</div>
+          <h3>Every task, across every notebook, in one view</h3>
+          <p>Plain <code>- [ ]</code> checkboxes anywhere in your notes become a single
+          urgency-sorted list — overdue, due today, future, undated — with an optional
+          <code>@due(tomorrow)</code>/<code>@due(fri)</code> tag that pins itself to a real date
+          the moment you save. Daily notes open with a "Due today" agenda built from all of them.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">◉</div>
+          <h3>See how your notes actually connect</h3>
+          <p><code>shiki graph</code> draws your <code>[[wikilink]]</code> network right in the
+          terminal — a deterministic, force-directed layout with hubs, edges, and orphans called
+          out. The links modal also surfaces "Mentions (unlinked)" — plain-text mentions you
+          probably meant to link — one keypress away from becoming a real backlink.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">▤</div>
+          <h3>Real syntax highlighting for code in your notes</h3>
+          <p>Fenced code blocks render with actual per-token coloring in PREVIEW, matched to your
+          active theme's light/dark bias — not flat dimmed text. Mermaid fences get their own
+          accent treatment instead of blending into a plain blockquote.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">❯_</div>
+          <h3>A real CLI, not just a TUI with flags</h3>
+          <p><code>--json</code> on every read command, non-interactive note creation
+          (<code>--body</code>/<code>--stdin</code>/<code>--tags</code>, no <code>$EDITOR</code>
+          required), and scriptable tasks/graph output — built for cron jobs, status bars, and
+          shell pipelines, not just the terminal UI.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⇩</div>
+          <h3>Export and publish, your format</h3>
+          <p><code>shiki export</code> bundles a whole notebook into one self-contained HTML or
+          Markdown file. <code>shiki publish</code> goes further — a themed PDF (17 built-in
+          themes) rendered through <a href="https://github.com/sazardev/go-pretty-pdf"
+          target="_blank" rel="noopener">go-pretty-pdf</a>, fetched automatically the first time
+          you need it.</p>
         </div>
       </div>
     </div>
