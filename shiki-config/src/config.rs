@@ -66,6 +66,94 @@ pub struct General {
     /// missing key to `false`. See `shiki_config::SessionState`.
     #[serde(default = "default_true")]
     pub remember_last_session: bool,
+    /// Shows the "Buy Me a Coffee" segment in the footer (right-aligned,
+    /// mouse-clickable — see `status_bar::coffee_hit_at`). Defaults to
+    /// `true`; off removes the segment entirely rather than leaving a
+    /// disabled/greyed-out placeholder.
+    #[serde(default = "default_true")]
+    pub show_coffee_link: bool,
+    /// When true, deleting a note/folder (notes-scope `d`, including a
+    /// Visual-mode batch delete) skips the "are you sure?" confirm dialog
+    /// and deletes immediately. Off by default — this is a genuine behavior
+    /// change, not a pure addition. Deliberately doesn't apply to notebook
+    /// delete, which asks a real three-way question (delete files / just
+    /// untrack / cancel), not a plain yes/no safety gate; every note/folder
+    /// delete is still restorable via leader+`u` regardless of this setting,
+    /// which is what makes skipping the prompt here reasonable at all.
+    #[serde(default)]
+    pub skip_delete_confirm: bool,
+    /// Shows each note's date next to its title in the NOTES list. Used to
+    /// be a runtime-only `App` field (notes-scope `D`, reset every launch);
+    /// promoted to a real config field so the choice persists. Off by
+    /// default, unchanged from the runtime-only behavior it replaces.
+    #[serde(default)]
+    pub show_dates: bool,
+    /// Typing `[[` in the inline editor opens the wikilink autocomplete
+    /// menu. Defaults to `true`; off falls through to a literal `[[` with
+    /// no menu, for anyone who finds the popup intrusive while typing.
+    #[serde(default = "default_true")]
+    pub wikilink_autocomplete: bool,
+    /// Creating a new daily note appends a "## Due today" section listing
+    /// pending/overdue tasks across every notebook (only on creation, never
+    /// on reopen — see `shiki_core::daily::create_or_open`). Defaults to
+    /// `true`; off creates a daily note with no agenda section at all.
+    #[serde(default = "default_true")]
+    pub daily_agenda: bool,
+    /// Hides the footer's character/word count and reading-time estimate
+    /// (PREVIEW) and note-count breakdown (browsing), leaving just the
+    /// essentials — notebook name, git status, editor mode. Off by default:
+    /// this is a visible reduction, not a pure addition.
+    #[serde(default)]
+    pub compact_footer: bool,
+    /// How long a footer status message stays visible before clearing
+    /// itself (`App::expire_status_message`), in seconds. Defaults to `2`.
+    /// The full message is always in the logs modal (leader+`l`) regardless
+    /// of how quickly the footer clears it.
+    #[serde(default = "default_status_message_timeout_secs")]
+    pub status_message_timeout_secs: u64,
+    /// Width, in terminal columns, of the notebook drawer (leader+`b`).
+    /// Defaults to `30`. Clamped against the frame's actual width at
+    /// render time regardless of this value, so an overly large number on
+    /// a narrow terminal can't push the drawer off-screen.
+    #[serde(default = "default_drawer_width")]
+    pub drawer_width: u16,
+    /// Whether the tasks view (leader+`t`) starts showing every task,
+    /// including already-done ones, instead of just pending — the
+    /// persisted default for the tasks-view `a` toggle, which used to
+    /// always reset to pending-only on every open. Defaults to `false`.
+    #[serde(default)]
+    pub tasks_show_done_default: bool,
+    /// Which order the NOTES list sorts by on a fresh launch — one of
+    /// `"filename"`, `"title"`, or `"date"` (case-insensitive; an
+    /// unrecognized value falls back to `"filename"`, the existing
+    /// default, same tolerance `pdf_theme` already has for a typo'd
+    /// theme name). The notes-scope `o` cycle still changes it for the
+    /// rest of the session on top of whichever default this resolves to.
+    #[serde(default = "default_note_sort")]
+    pub default_note_sort: String,
+    /// Maximum number of entries kept in the logs modal (leader+`l`) and
+    /// in the persisted log file (`Config::default_log_path`). Defaults to
+    /// `500`. Lowering this doesn't retroactively trim an existing log
+    /// file — it only caps growth going forward.
+    #[serde(default = "default_log_history_limit")]
+    pub log_history_limit: usize,
+    /// Days a deleted note/folder stays in the trash (`Config::default_trash_dir`)
+    /// before `App::purge_old_trash` (run once at startup) removes it for
+    /// good. `0` (the default) means never auto-purge — trash is only ever
+    /// cleared by hand today, and this stays that way unless explicitly
+    /// configured otherwise.
+    #[serde(default)]
+    pub trash_retention_days: u32,
+    /// Words-per-minute used for the footer's "N min read" estimate
+    /// (PREVIEW). Defaults to `200`, the same figure Medium/most
+    /// reading-time plugins use.
+    #[serde(default = "default_reading_wpm")]
+    pub reading_wpm: usize,
+    /// How many rows `PageUp`/`PageDown` (and the mouse wheel, where it
+    /// maps to the same delta) move at once, across every scrollable
+    /// list/modal in the TUI. Defaults to `10`.
+    #[serde(default = "default_page_step")]
+    pub page_step: usize,
 }
 
 impl Default for General {
@@ -79,8 +167,46 @@ impl Default for General {
             data_dir: None,
             show_hints: true,
             remember_last_session: true,
+            show_coffee_link: true,
+            skip_delete_confirm: false,
+            show_dates: false,
+            wikilink_autocomplete: true,
+            daily_agenda: true,
+            compact_footer: false,
+            status_message_timeout_secs: default_status_message_timeout_secs(),
+            drawer_width: default_drawer_width(),
+            tasks_show_done_default: false,
+            default_note_sort: default_note_sort(),
+            log_history_limit: default_log_history_limit(),
+            trash_retention_days: 0,
+            reading_wpm: default_reading_wpm(),
+            page_step: default_page_step(),
         }
     }
+}
+
+fn default_status_message_timeout_secs() -> u64 {
+    2
+}
+
+fn default_drawer_width() -> u16 {
+    30
+}
+
+fn default_note_sort() -> String {
+    "filename".into()
+}
+
+fn default_log_history_limit() -> usize {
+    500
+}
+
+fn default_reading_wpm() -> usize {
+    200
+}
+
+fn default_page_step() -> usize {
+    10
 }
 
 fn default_notebook_name() -> String {
@@ -207,6 +333,12 @@ pub struct GlobalKeybindings {
     /// backward-compatibility reason as `logs`/`toggle_favorite_editor`.
     #[serde(default = "default_tasks_panel_key")]
     pub tasks_panel: String,
+    /// Opens the query modal: a Dataview-style `where ... sort ...` DSL
+    /// filtering/sorting notes by frontmatter field, live across every
+    /// notebook — see `shiki_core::query`. Field-level default for the same
+    /// backward-compatibility reason as `logs`/`toggle_favorite_editor`.
+    #[serde(default = "default_query_panel_key")]
+    pub query_panel: String,
     /// Renders the selected notebook to a themed PDF via `pretty-pdf`
     /// (fetched/cached automatically on first use if not already on
     /// `$PATH`), then opens it. Field-level default for the same
@@ -242,6 +374,7 @@ impl Default for GlobalKeybindings {
             scratchpad: default_scratchpad_key(),
             links: default_global_links_key(),
             tasks_panel: default_tasks_panel_key(),
+            query_panel: default_query_panel_key(),
             publish: default_publish_key(),
             export: default_export_key(),
             zen_mode: default_zen_mode_key(),
@@ -267,6 +400,10 @@ fn default_global_links_key() -> String {
 
 fn default_tasks_panel_key() -> String {
     "t".into()
+}
+
+fn default_query_panel_key() -> String {
+    "q".into()
 }
 
 fn default_logs_key() -> String {
@@ -582,6 +719,13 @@ fn default_links_key() -> String {
 pub struct ThemeConfig {
     #[serde(default = "default_theme_name")]
     pub name: String,
+    /// When false, every Nerd Font glyph in the TUI (notebook/note icons,
+    /// git status, the list-selection marker, …) falls back to plain text
+    /// instead — for a terminal font that isn't Nerd-Fonts-patched. On by
+    /// default: the app has always shipped with icons on, so this only
+    /// changes anything for someone who explicitly opts out.
+    #[serde(default = "default_true")]
+    pub icons: bool,
     #[serde(flatten)]
     pub overrides: ThemeOverrides,
 }
@@ -686,6 +830,7 @@ impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
             name: default_theme_name(),
+            icons: default_true(),
             overrides: ThemeOverrides::default(),
         }
     }
@@ -914,6 +1059,22 @@ pub struct EditorConfig {
     /// not a pure addition, so it needs an explicit opt-in.
     #[serde(default)]
     pub typewriter_scroll: bool,
+    /// Alt+Up/Alt+Down moves the current line (or selected block) up/down
+    /// past its neighbor. Defaults to `true`: purely additive, doesn't touch
+    /// any existing binding.
+    #[serde(default = "default_true")]
+    pub move_line: bool,
+    /// Alt+D duplicates the current line (or selected block) directly below
+    /// itself. Defaults to `true`: purely additive, doesn't touch any
+    /// existing binding.
+    #[serde(default = "default_true")]
+    pub duplicate_line: bool,
+    /// Tab/Shift+Tab indent/outdent every line touched by an active
+    /// selection, instead of Tab inserting a literal tab and Shift+Tab doing
+    /// nothing. Defaults to `true`: purely additive, only changes behavior
+    /// when there's a selection to act on.
+    #[serde(default = "default_true")]
+    pub block_indent_select: bool,
 }
 
 impl Default for EditorConfig {
@@ -931,6 +1092,9 @@ impl Default for EditorConfig {
             paste_url_as_link: true,
             snippet_expand_tab: true,
             typewriter_scroll: false,
+            move_line: true,
+            duplicate_line: true,
+            block_indent_select: true,
         }
     }
 }
@@ -950,12 +1114,28 @@ pub struct ExportConfig {
     /// publish time.
     #[serde(default = "default_pdf_theme")]
     pub pdf_theme: String,
+    /// Directory PDFs are saved into, e.g. `{data_dir}/exports/{notebook}.pdf`
+    /// on Linux. Empty (the default) means "use the app's own data dir" —
+    /// see `App::resolved_export_dir` (shiki-tui) / the equivalent inline
+    /// resolution in `shiki publish` (shiki-cli). Set this to point exports
+    /// somewhere else instead (a synced folder, Desktop, etc).
+    #[serde(default)]
+    pub export_dir: String,
+    /// When true, publishing always opens a prompt asking exactly where to
+    /// save the PDF (prefilled with the resolved default path), instead of
+    /// silently writing to `export_dir`/the default location every time.
+    /// Off by default: this changes existing behavior (an extra prompt on
+    /// every publish) rather than being a pure addition.
+    #[serde(default)]
+    pub ask_export_path: bool,
 }
 
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
             pdf_theme: default_pdf_theme(),
+            export_dir: String::new(),
+            ask_export_path: false,
         }
     }
 }
@@ -996,6 +1176,15 @@ pub struct NotebookGitOverride {
     /// in `config.toml` and relaunching.
     #[serde(default)]
     pub hidden: bool,
+    /// Whether this notebook's notes are encrypted at rest (`age::scrypt`,
+    /// passphrase-based — see `shiki_core::crypto`). Unlike `auto_push`/
+    /// `auto_sync`, there's no global default to inherit from: encryption
+    /// is opt-in per notebook, off unless explicitly set. The passphrase
+    /// itself is never stored here (or anywhere on disk) — it's typed in
+    /// each session (TUI) or each invocation (`shiki notebook encrypt/
+    /// decrypt`).
+    #[serde(default)]
+    pub encrypt: bool,
 }
 
 /// `[git]` settings resolved for one specific notebook — see `Config::sync_for`.
@@ -1072,6 +1261,15 @@ pub struct Config {
     /// at all, only ever the user's own additions/overrides.
     #[serde(default)]
     pub snippets: std::collections::HashMap<String, SnippetConfig>,
+    /// Named, saved `shiki query`/leader+`q` DSL strings, keyed by name —
+    /// e.g. `[queries] due-soon = "where due < today sort due asc"`. Same
+    /// `HashMap` (not `Vec`) shape as `snippets` above, and for the exact
+    /// same reason: an empty `Vec<_>` would serialize as a bare `queries =
+    /// []` line that a later hand-added `[queries.foo]`-style table would
+    /// conflict with. Ad-hoc (unsaved) queries typed directly into the CLI
+    /// arg or the TUI modal don't touch this map at all.
+    #[serde(default)]
+    pub queries: std::collections::HashMap<String, String>,
 }
 
 impl Config {
@@ -1086,6 +1284,12 @@ impl Config {
                 .and_then(|o| o.auto_sync_every)
                 .unwrap_or(self.git.auto_sync_every),
         }
+    }
+    /// Whether `notebook_name` is configured to encrypt its notes at rest.
+    /// No global default to inherit from (unlike `sync_for`'s fields) —
+    /// encryption is opt-in per notebook, so absent simply means off.
+    pub fn encrypt_for(&self, notebook_name: &str) -> bool {
+        self.notebooks.get(notebook_name).is_some_and(|o| o.encrypt)
     }
     /// Returns a map of notebook names to their custom absolute paths,
     /// as configured in `[notebooks.<name>] path = "..."`.
@@ -1265,7 +1469,34 @@ fn section_comment(line: &str) -> Option<&'static str> {
 #   notebook) show a small hint line explaining non-obvious input.
 # - remember_last_session: when true, quitting saves exactly where you were
 #   (notebook, folder, selected note/folder, focused panel) and the next
-#   launch restores it instead of starting at the first notebook's root."
+#   launch restores it instead of starting at the first notebook's root.
+# - show_coffee_link: shows the Buy Me a Coffee segment in the footer.
+#   Defaults to true.
+# - skip_delete_confirm: when true, deleting a note/folder skips the
+#   confirm dialog (still restorable via leader+`u`). Doesn't apply to
+#   notebook delete, which asks a real delete-vs-untrack question.
+# - show_dates: shows each note's date next to its title in the NOTES list.
+# - wikilink_autocomplete: typing `[[` opens the note-picker menu. Defaults
+#   to true.
+# - daily_agenda: a new daily note gets a \"## Due today\" section listing
+#   pending tasks across every notebook. Defaults to true.
+# - compact_footer: hides char/word count, reading time, and note-count
+#   detail from the footer, leaving just the essentials.
+# - status_message_timeout_secs: how long a footer status message stays
+#   visible before clearing itself. Defaults to 2.
+# - drawer_width: width in columns of the notebook drawer (leader+`b`).
+#   Defaults to 30.
+# - tasks_show_done_default: whether the tasks view starts showing every
+#   task, including done ones, instead of just pending.
+# - default_note_sort: \"filename\", \"title\", or \"date\" — which order the
+#   NOTES list sorts by on launch. Defaults to \"filename\".
+# - log_history_limit: max entries kept in the logs modal and log file.
+#   Defaults to 500.
+# - trash_retention_days: days a deleted note/folder stays in the trash
+#   before being auto-purged at startup. 0 (the default) means never.
+# - reading_wpm: words-per-minute for the footer's \"N min read\" estimate.
+#   Defaults to 200.
+# - page_step: how many rows PageUp/PageDown move at once. Defaults to 10."
         }
         "[keybindings]" => {
             "\
@@ -1285,7 +1516,9 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # tab_inactive, panel_title, cursor, link, tag, muted. Anything left unset
 # falls back to `name`'s own value for that slot. `shiki theme create
 # [--from <theme>]` scaffolds all 19 here at once from a real palette,
-# instead of hand-typing hex codes with no example to copy from."
+# instead of hand-typing hex codes with no example to copy from.
+# - icons: when false, every Nerd Font glyph falls back to plain text —
+#   for a terminal font that isn't Nerd-Fonts-patched. Defaults to true."
         }
         "[git]" => {
             "\
@@ -1325,7 +1558,12 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # - snippet_expand_tab: Tab expands a matching snippet trigger instead of
 #   inserting a literal tab. Defaults to true.
 # - typewriter_scroll: keeps the cursor's line vertically centered while
-#   typing. Defaults to false."
+#   typing. Defaults to false.
+# - move_line: Alt+Up/Alt+Down move the current line past its neighbor.
+#   Defaults to true.
+# - duplicate_line: Alt+D duplicates the current line. Defaults to true.
+# - block_indent_select: Tab/Shift+Tab with a selection indent/outdent every
+#   line it spans. Defaults to true."
         }
         "[export]" => {
             "\
@@ -1334,7 +1572,11 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # corporate, dark, academic, editorial, sepia, terminal, blueprint, ivy,
 # government, resume, legal, latex, gruvbox. The `pretty-pdf` binary this
 # feature shells out to is fetched automatically on first use if it isn't
-# already on $PATH — see `shiki doctor`."
+# already on $PATH — see `shiki doctor`.
+# - export_dir: directory PDFs are saved into, e.g. \"{data_dir}/exports\".
+#   Empty (the default) means the app's own data dir.
+# - ask_export_path: when true, publishing always prompts for the exact
+#   save path instead of silently writing to export_dir. Defaults to false."
         }
         "[notebooks]" => {
             "\
@@ -1526,6 +1768,7 @@ mod tests {
         let overrides = ThemeOverrides::from_theme(&base);
         let config = ThemeConfig {
             name: "nord".into(),
+            icons: true,
             overrides,
         };
         // Every one of `Theme`'s 19 color fields — including the 14 that
@@ -1543,6 +1786,7 @@ mod tests {
         };
         let config = ThemeConfig {
             name: "nord".into(),
+            icons: true,
             overrides,
         };
         let base = crate::themes::by_name("nord").unwrap();

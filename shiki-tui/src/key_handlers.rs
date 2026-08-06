@@ -4,9 +4,9 @@ use shiki_core::{wikilinks, Note, Notebook};
 
 use crate::app::{
     drawer_area, global_search_layout, global_search_popup_area, is_notebook_git_action,
-    looks_like_git_url, looks_like_path, relative_folder, shift, App, BatchOp, DeleteTarget,
-    EditorFindState, FindField, Focus, Mode, PendingInput, PreviewSelection, QuickCommand,
-    SelectedEntry, TrashedEntry, UpdateMsg, UpdateState, PAGE_STEP,
+    looks_like_git_url, looks_like_path, relative_folder, shift, App, BatchOp, ConflictView,
+    DeleteTarget, EditorFindState, FindField, Focus, Mode, PassphrasePurpose, PendingInput,
+    PreviewSelection, QuickCommand, SelectedEntry, TrashedEntry, UpdateMsg, UpdateState,
 };
 use crate::editor::InlineEditor;
 use crate::icons;
@@ -23,6 +23,14 @@ use crate::{
 /// `- `/`* `/`+ ` marker's own width, the same convention CommonMark's
 /// nested-list rules already expect.
 const LIST_INDENT_STEP: usize = 2;
+
+/// Which whole side of a conflict to keep — v1's resolution model (see
+/// `App::resolve_selected_conflict`'s doc comment for why line-level manual
+/// merging isn't offered here).
+enum ConflictSideChoice {
+    Ours,
+    Theirs,
+}
 
 impl App {
     fn open_theme_picker(&mut self) {
@@ -218,10 +226,12 @@ impl App {
             KeyCode::PageDown => {
                 let len = self.settings_row_count();
                 self.settings_selected =
-                    (self.settings_selected + PAGE_STEP as usize).min(len.saturating_sub(1));
+                    (self.settings_selected + self.page_step() as usize).min(len.saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.settings_selected = self.settings_selected.saturating_sub(PAGE_STEP as usize);
+                self.settings_selected = self
+                    .settings_selected
+                    .saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.settings_selected = 0,
             KeyCode::End => self.settings_selected = self.settings_row_count().saturating_sub(1),
@@ -322,6 +332,68 @@ impl App {
             ));
             return;
         }
+        if field == GeneralField::ShowCoffeeLink {
+            self.config.general.show_coffee_link = !self.config.general.show_coffee_link;
+            self.save_config();
+            self.set_status(format!(
+                "show_coffee_link -> {}",
+                self.config.general.show_coffee_link
+            ));
+            return;
+        }
+        if field == GeneralField::SkipDeleteConfirm {
+            self.config.general.skip_delete_confirm = !self.config.general.skip_delete_confirm;
+            self.save_config();
+            self.set_status(format!(
+                "skip_delete_confirm -> {}",
+                self.config.general.skip_delete_confirm
+            ));
+            return;
+        }
+        if field == GeneralField::ShowDates {
+            self.config.general.show_dates = !self.config.general.show_dates;
+            self.show_dates = self.config.general.show_dates;
+            self.save_config();
+            self.set_status(format!("show_dates -> {}", self.config.general.show_dates));
+            return;
+        }
+        if field == GeneralField::WikilinkAutocomplete {
+            self.config.general.wikilink_autocomplete = !self.config.general.wikilink_autocomplete;
+            self.save_config();
+            self.set_status(format!(
+                "wikilink_autocomplete -> {}",
+                self.config.general.wikilink_autocomplete
+            ));
+            return;
+        }
+        if field == GeneralField::DailyAgenda {
+            self.config.general.daily_agenda = !self.config.general.daily_agenda;
+            self.save_config();
+            self.set_status(format!(
+                "daily_agenda -> {}",
+                self.config.general.daily_agenda
+            ));
+            return;
+        }
+        if field == GeneralField::CompactFooter {
+            self.config.general.compact_footer = !self.config.general.compact_footer;
+            self.save_config();
+            self.set_status(format!(
+                "compact_footer -> {}",
+                self.config.general.compact_footer
+            ));
+            return;
+        }
+        if field == GeneralField::TasksShowDoneDefault {
+            self.config.general.tasks_show_done_default =
+                !self.config.general.tasks_show_done_default;
+            self.save_config();
+            self.set_status(format!(
+                "tasks_show_done_default -> {}",
+                self.config.general.tasks_show_done_default
+            ));
+            return;
+        }
         let (label, prefill) = match field {
             GeneralField::DefaultNotebook => (
                 "default_notebook",
@@ -331,19 +403,50 @@ impl App {
             GeneralField::DailyTemplate => {
                 ("daily_template", self.config.general.daily_template.clone())
             }
+            GeneralField::StatusMessageTimeoutSecs => (
+                "status_message_timeout_secs",
+                self.config.general.status_message_timeout_secs.to_string(),
+            ),
+            GeneralField::DrawerWidth => {
+                ("drawer_width", self.config.general.drawer_width.to_string())
+            }
+            GeneralField::DefaultNoteSort => (
+                "default_note_sort",
+                self.config.general.default_note_sort.clone(),
+            ),
+            GeneralField::LogHistoryLimit => (
+                "log_history_limit",
+                self.config.general.log_history_limit.to_string(),
+            ),
+            GeneralField::TrashRetentionDays => (
+                "trash_retention_days",
+                self.config.general.trash_retention_days.to_string(),
+            ),
+            GeneralField::ReadingWpm => {
+                ("reading_wpm", self.config.general.reading_wpm.to_string())
+            }
+            GeneralField::PageStep => ("page_step", self.config.general.page_step.to_string()),
             GeneralField::UseFavoriteEditor
             | GeneralField::MouseDragSelection
             | GeneralField::ShowHints
-            | GeneralField::RememberLastSession => unreachable!(),
+            | GeneralField::RememberLastSession
+            | GeneralField::ShowCoffeeLink
+            | GeneralField::SkipDeleteConfirm
+            | GeneralField::ShowDates
+            | GeneralField::WikilinkAutocomplete
+            | GeneralField::DailyAgenda
+            | GeneralField::CompactFooter
+            | GeneralField::TasksShowDoneDefault => unreachable!(),
         };
         self.show_settings = false;
         self.pending_input_title = Some(format!(" {label} "));
         self.start_input(PendingInput::SettingsGeneralText, prefill);
     }
     /// THEME — `name` opens the existing theme picker (reusing its
-    /// live-preview/commit logic rather than duplicating it); `overrides`
-    /// is informational only, since 19 individual color slots don't fit a
-    /// single-row edit.
+    /// live-preview/commit logic rather than duplicating it); `icons`
+    /// toggles in place, same "flip and save immediately" shape as
+    /// GIT/EDITOR's booleans; `overrides` is informational only, since 19
+    /// individual color slots don't fit a single-row edit.
     fn handle_theme_field_enter(&mut self) {
         use crate::panel_settings::ThemeField;
         match ThemeField::ALL[self.settings_selected] {
@@ -351,6 +454,11 @@ impl App {
                 self.show_settings = false;
                 self.reopen_settings_after_theme_picker = true;
                 self.open_theme_picker();
+            }
+            ThemeField::Icons => {
+                self.config.theme.icons = !self.config.theme.icons;
+                self.save_config();
+                self.set_status(format!("icons -> {}", self.config.theme.icons));
             }
             ThemeField::Overrides => {
                 self.set_status(
@@ -482,25 +590,61 @@ impl App {
                 self.config.editor.typewriter_scroll = !self.config.editor.typewriter_scroll;
                 ("typewriter_scroll", self.config.editor.typewriter_scroll)
             }
+            EditorField::MoveLine => {
+                self.config.editor.move_line = !self.config.editor.move_line;
+                ("move_line", self.config.editor.move_line)
+            }
+            EditorField::DuplicateLine => {
+                self.config.editor.duplicate_line = !self.config.editor.duplicate_line;
+                ("duplicate_line", self.config.editor.duplicate_line)
+            }
+            EditorField::BlockIndentSelect => {
+                self.config.editor.block_indent_select = !self.config.editor.block_indent_select;
+                (
+                    "block_indent_select",
+                    self.config.editor.block_indent_select,
+                )
+            }
         };
         self.save_config();
         self.set_status(format!("{label} -> {new_val}"));
     }
-    /// EXPORT's only field — cycles `pdf_theme` through `PDF_THEMES`
-    /// (wrapping) and saves immediately, same "advance in place, no prompt"
-    /// shape as `toggle_git_bool`/`toggle_editor_bool`, just over a fixed
-    /// string list instead of a bool.
+    /// EXPORT — `pdf_theme` cycles through `PDF_THEMES` (wrapping) and saves
+    /// immediately, same "advance in place, no prompt" shape as
+    /// `toggle_git_bool`/`toggle_editor_bool`; `ask_export_path` toggles in
+    /// place the same way; `export_dir` opens a text prompt
+    /// (`PendingInput::SettingsExportText`, resolved back via
+    /// `ExportField::ALL[settings_selected]` once confirmed, same pattern as
+    /// `SettingsGeneralText`/`SettingsGitText`).
     fn handle_export_field_enter(&mut self) {
-        use crate::panel_settings::PDF_THEMES;
-        let current = self.config.export.pdf_theme.as_str();
-        let next_index = PDF_THEMES
-            .iter()
-            .position(|t| *t == current)
-            .map(|i| (i + 1) % PDF_THEMES.len())
-            .unwrap_or(0);
-        self.config.export.pdf_theme = PDF_THEMES[next_index].to_string();
-        self.save_config();
-        self.set_status(format!("pdf_theme -> {}", self.config.export.pdf_theme));
+        use crate::panel_settings::{ExportField, PDF_THEMES};
+        match ExportField::ALL[self.settings_selected] {
+            ExportField::PdfTheme => {
+                let current = self.config.export.pdf_theme.as_str();
+                let next_index = PDF_THEMES
+                    .iter()
+                    .position(|t| *t == current)
+                    .map(|i| (i + 1) % PDF_THEMES.len())
+                    .unwrap_or(0);
+                self.config.export.pdf_theme = PDF_THEMES[next_index].to_string();
+                self.save_config();
+                self.set_status(format!("pdf_theme -> {}", self.config.export.pdf_theme));
+            }
+            ExportField::AskExportPath => {
+                self.config.export.ask_export_path = !self.config.export.ask_export_path;
+                self.save_config();
+                self.set_status(format!(
+                    "ask_export_path -> {}",
+                    self.config.export.ask_export_path
+                ));
+            }
+            ExportField::ExportDir => {
+                let prefill = self.config.export.export_dir.clone();
+                self.show_settings = false;
+                self.pending_input_title = Some(" export_dir ".to_string());
+                self.start_input(PendingInput::SettingsExportText, prefill);
+            }
+        }
     }
     /// SNIPPETS level 1's `a` — prompts for a brand-new trigger; the
     /// snippet itself (empty label/body) is created once that's confirmed
@@ -567,7 +711,7 @@ impl App {
                         .map(|s| s.body.clone())
                         .unwrap_or_default();
                     let mut editor = InlineEditor::from_contents(&body);
-                    let title = format!(" {}  Editing snippet body — '{trigger}' ", icons::GEAR);
+                    let title = format!(" {}Editing snippet body — '{trigger}' ", icons::GEAR);
                     self.style_inline_editor(&mut editor, title);
                     self.editor = Some(editor);
                     self.editing_snippet = Some(trigger);
@@ -632,6 +776,16 @@ impl App {
                         Some(format!(" Auto-sync every N changes — '{name}' "));
                     self.start_input(PendingInput::SettingsNotebookAutoSyncEvery, prefill);
                 }
+                NotebookField::Encryption => {
+                    self.show_settings = false;
+                    self.reopen_settings_after_passphrase = true;
+                    let purpose = if self.config.encrypt_for(&name) {
+                        PassphrasePurpose::Disable
+                    } else {
+                        PassphrasePurpose::Enable
+                    };
+                    self.start_passphrase_prompt(name, purpose);
+                }
             },
             _ => {}
         }
@@ -664,7 +818,9 @@ impl App {
                 };
                 ("auto_sync", over.auto_sync)
             }
-            NotebookField::Remote | NotebookField::AutoSyncEvery => return,
+            NotebookField::Remote | NotebookField::AutoSyncEvery | NotebookField::Encryption => {
+                return
+            }
         };
         self.prune_empty_notebook_override(name);
         self.save_config();
@@ -683,6 +839,7 @@ impl App {
                 && over.auto_sync.is_none()
                 && over.auto_sync_every.is_none()
                 && !over.hidden
+                && !over.encrypt
             {
                 self.config.notebooks.remove(name);
             }
@@ -692,6 +849,279 @@ impl App {
         if let Ok(path) = Config::default_path() {
             let _ = self.config.save(&path);
         }
+    }
+    /// The passphrase-derived key `notebook_name`'s note I/O should use
+    /// right now — `None` when the notebook isn't configured as encrypted
+    /// at all, *or* when it is but nothing's been typed in yet this
+    /// session (in which case reads/writes on it will surface a clear
+    /// `Error::Encryption` rather than silently succeeding on garbage).
+    pub(crate) fn resolved_notebook_crypto(
+        &self,
+        notebook_name: &str,
+    ) -> Option<shiki_core::crypto::NotebookCrypto> {
+        if !self.config.encrypt_for(notebook_name) {
+            return None;
+        }
+        self.notebook_passphrases
+            .get(notebook_name)
+            .map(|p| shiki_core::crypto::NotebookCrypto::new(p.clone()))
+    }
+    /// Opens a masked passphrase prompt for `notebook` — see
+    /// `PassphrasePurpose` for what the answer will be used for.
+    pub(crate) fn start_passphrase_prompt(&mut self, notebook: String, purpose: PassphrasePurpose) {
+        let title = match purpose {
+            PassphrasePurpose::Unlock => format!(" Passphrase — unlock '{notebook}' "),
+            PassphrasePurpose::Enable => format!(" New passphrase — encrypt '{notebook}' "),
+            PassphrasePurpose::EnableConfirm => " Confirm passphrase ".to_string(),
+            PassphrasePurpose::Disable => format!(" Passphrase — decrypt '{notebook}' "),
+        };
+        self.passphrase_prompt_notebook = Some(notebook);
+        self.passphrase_purpose = Some(purpose);
+        self.pending_input_title = Some(title);
+        self.start_masked_input(PendingInput::NotebookPassphrase, String::new());
+    }
+    /// Called when `reload_notes` hits an encrypted-but-locked notebook
+    /// (`Error::Encryption` from `list_dir`, meaning no passphrase is
+    /// cached yet, or the cached one was wrong) — clears any wrong cached
+    /// passphrase and opens the unlock prompt, unless one's already open.
+    pub(crate) fn maybe_prompt_for_notebook_passphrase(&mut self) {
+        if self.pending_input.is_some() || self.confirm.is_some() {
+            return;
+        }
+        let Some(name) = self.selected_notebook().map(|nb| nb.name.clone()) else {
+            return;
+        };
+        if self.passphrase_prompt_notebook.as_deref() == Some(name.as_str()) {
+            return;
+        }
+        self.notebook_passphrases.remove(&name);
+        self.start_passphrase_prompt(name, PassphrasePurpose::Unlock);
+    }
+    /// Verifies the typed passphrase against the notebook's canary
+    /// (`.shiki-encryption`, committed to git alongside the encrypted
+    /// notes — so it's already there on every machine after a pull) before
+    /// trusting it at all. On success this also persists `encrypt = true`
+    /// into *this machine's own* config.toml, not just the in-memory cache
+    /// — `config.toml` never travels with the git repo (it lives outside
+    /// it entirely, precisely so the passphrase itself never can), so a
+    /// second/third/… machine that only ever `git clone`d or `git pull`ed
+    /// this notebook has no `[notebooks.<name>]` entry for it at all until
+    /// this happens once. Without this, a successful *read* on that
+    /// machine would work (content is sniffed directly, not gated by the
+    /// config flag), but a subsequent *write* on the same machine would
+    /// silently fall back to plaintext, since `resolved_notebook_crypto`
+    /// consults the config flag, not just whatever's cached in memory.
+    fn unlock_notebook_passphrase(&mut self, notebook: &str, passphrase: String) {
+        let Some(nb) = self.notebooks.iter().find(|n| n.name == notebook).cloned() else {
+            self.set_status(format!("'{notebook}' no longer available"));
+            return;
+        };
+        let crypto = shiki_core::crypto::NotebookCrypto::new(passphrase.clone());
+        let canary_path = nb.path.join(shiki_core::crypto::CANARY_FILE);
+        let verified = match std::fs::read_to_string(&canary_path) {
+            Ok(canary) => shiki_core::crypto::verify_canary(&crypto, &canary),
+            // No canary at all is unexpected for a notebook `encrypt` ever
+            // wrote (it's committed alongside the encrypted notes) — fall
+            // back to "trust it, let list_dir prove it" rather than
+            // refusing outright, so an older/hand-set-up encrypted
+            // notebook without one still works.
+            Err(_) => Ok(true),
+        };
+        match verified {
+            Ok(true) => {
+                self.notebook_passphrases
+                    .insert(notebook.to_string(), passphrase);
+                self.config
+                    .notebooks
+                    .entry(notebook.to_string())
+                    .or_default()
+                    .encrypt = true;
+                self.save_config();
+                self.reload_notebooks();
+            }
+            Ok(false) => {
+                self.set_status("canary file is corrupted, not just a wrong passphrase".into());
+            }
+            Err(e) => {
+                self.set_status(format!("wrong passphrase: {e}"));
+                // Reopen immediately rather than leaving the user stuck —
+                // nothing else currently re-triggers this prompt on demand.
+                self.start_passphrase_prompt(notebook.to_string(), PassphrasePurpose::Unlock);
+            }
+        }
+    }
+    /// `Enter` on a `NotebookPassphrase` prompt — dispatches on
+    /// `PassphrasePurpose`, taken (not just read) along with which notebook
+    /// it's for, so a stray leftover value can't linger into an unrelated
+    /// later prompt.
+    fn confirm_notebook_passphrase(&mut self) {
+        // Deliberately *not* trimmed, unlike every other text prompt
+        // (`confirm_input`'s shared `value`) — a passphrase's leading/
+        // trailing whitespace is part of it, not accidental formatting.
+        let passphrase = self.input.value.clone();
+        let Some(notebook) = self.passphrase_prompt_notebook.take() else {
+            return;
+        };
+        let Some(purpose) = self.passphrase_purpose.take() else {
+            return;
+        };
+        match purpose {
+            PassphrasePurpose::Unlock => self.unlock_notebook_passphrase(&notebook, passphrase),
+            PassphrasePurpose::Enable => {
+                if passphrase.is_empty() {
+                    self.set_status("passphrase must not be empty — encryption not enabled".into());
+                    self.maybe_reopen_settings_after_passphrase();
+                    return;
+                }
+                self.passphrase_pending_first = Some(passphrase);
+                self.start_passphrase_prompt(notebook, PassphrasePurpose::EnableConfirm);
+                // Re-set: `start_passphrase_prompt` doesn't know this
+                // chained prompt should still reopen Settings when it
+                // eventually finishes/cancels.
+                self.reopen_settings_after_passphrase = true;
+            }
+            PassphrasePurpose::EnableConfirm => {
+                let first = self.passphrase_pending_first.take();
+                if first.as_deref() != Some(passphrase.as_str()) {
+                    self.set_status("passphrases did not match — encryption not enabled".into());
+                    self.maybe_reopen_settings_after_passphrase();
+                    return;
+                }
+                self.enable_notebook_encryption(&notebook, passphrase);
+                self.maybe_reopen_settings_after_passphrase();
+            }
+            PassphrasePurpose::Disable => {
+                self.disable_notebook_encryption(&notebook, passphrase);
+                self.maybe_reopen_settings_after_passphrase();
+            }
+        }
+    }
+    fn maybe_reopen_settings_after_passphrase(&mut self) {
+        if self.reopen_settings_after_passphrase {
+            self.reopen_settings_after_passphrase = false;
+            self.show_settings = true;
+        }
+    }
+    /// Turns encryption on for a plaintext notebook: writes the canary
+    /// (`.shiki-encryption`) first, so a mistyped passphrase is caught
+    /// before anything real is touched, then re-encrypts every existing
+    /// note, flips the config flag, and commits. Any failure partway
+    /// through (a bad file permission, disk full) leaves some notes
+    /// re-encrypted and some not — same "no data lost, just retry" spirit
+    /// as a failed push elsewhere in this codebase, since re-running this
+    /// (once the underlying problem's fixed) just re-encrypts everything
+    /// again, which is idempotent.
+    fn enable_notebook_encryption(&mut self, name: &str, passphrase: String) {
+        let Some(nb) = self.notebooks.iter().find(|n| n.name == name).cloned() else {
+            self.set_status(format!("'{name}' no longer available"));
+            return;
+        };
+        let crypto = shiki_core::crypto::NotebookCrypto::new(passphrase.clone());
+        let canary = match shiki_core::crypto::canary_blob(&crypto) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("could not set up encryption: {e}"));
+                return;
+            }
+        };
+        if let Err(e) = std::fs::write(nb.path.join(shiki_core::crypto::CANARY_FILE), canary) {
+            self.set_status(format!("could not write canary file: {e}"));
+            return;
+        }
+        let notes = match nb.all_notes_recursive() {
+            Ok(n) => n,
+            Err(e) => {
+                self.set_status(format!("could not read existing notes: {e}"));
+                return;
+            }
+        };
+        for note in &notes {
+            if let Err(e) = note.save_with_crypto(Some(&crypto)) {
+                self.set_status(format!(
+                    "could not re-encrypt '{}': {e}",
+                    note.path.display()
+                ));
+                return;
+            }
+        }
+        self.config
+            .notebooks
+            .entry(name.to_string())
+            .or_default()
+            .encrypt = true;
+        self.save_config();
+        self.notebook_passphrases
+            .insert(name.to_string(), passphrase);
+        match shiki_core::git::commit_all(&nb.path, "shiki: enable encryption") {
+            Ok(_) => self.set_status(format!(
+                "'{name}' is now encrypted ({} note{} re-encrypted)",
+                notes.len(),
+                if notes.len() == 1 { "" } else { "s" }
+            )),
+            Err(e) => self.set_status(format!("encrypted '{name}' but could not commit: {e}")),
+        }
+        self.reload_notebooks();
+    }
+    /// Reverses `enable_notebook_encryption`: verifies the passphrase
+    /// against the canary *before* touching any real note (a wrong
+    /// passphrase must never get the chance to overwrite a note with
+    /// corrupted plaintext), decrypts everything back, removes the canary,
+    /// clears the config flag, and commits.
+    fn disable_notebook_encryption(&mut self, name: &str, passphrase: String) {
+        let Some(nb) = self.notebooks.iter().find(|n| n.name == name).cloned() else {
+            self.set_status(format!("'{name}' no longer available"));
+            return;
+        };
+        let crypto = shiki_core::crypto::NotebookCrypto::new(passphrase);
+        let canary_path = nb.path.join(shiki_core::crypto::CANARY_FILE);
+        let canary = match std::fs::read_to_string(&canary_path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("could not read canary file: {e}"));
+                return;
+            }
+        };
+        match shiki_core::crypto::verify_canary(&crypto, &canary) {
+            Ok(true) => {}
+            Ok(false) => {
+                self.set_status("canary file is corrupted, not just a wrong passphrase".into());
+                return;
+            }
+            Err(e) => {
+                self.set_status(format!("wrong passphrase: {e}"));
+                return;
+            }
+        }
+        let nb_unlocked = nb.clone().with_crypto(Some(crypto));
+        let notes = match nb_unlocked.all_notes_recursive() {
+            Ok(n) => n,
+            Err(e) => {
+                self.set_status(format!("could not decrypt existing notes: {e}"));
+                return;
+            }
+        };
+        for note in &notes {
+            if let Err(e) = note.save_with_crypto(None) {
+                self.set_status(format!("could not decrypt '{}': {e}", note.path.display()));
+                return;
+            }
+        }
+        std::fs::remove_file(&canary_path).ok();
+        if let Some(over) = self.config.notebooks.get_mut(name) {
+            over.encrypt = false;
+        }
+        self.prune_empty_notebook_override(name);
+        self.save_config();
+        self.notebook_passphrases.remove(name);
+        match shiki_core::git::commit_all(&nb.path, "shiki: disable encryption") {
+            Ok(_) => self.set_status(format!(
+                "'{name}' is now decrypted ({} note{} restored to plain text)",
+                notes.len(),
+                if notes.len() == 1 { "" } else { "s" }
+            )),
+            Err(e) => self.set_status(format!("decrypted '{name}' but could not commit: {e}")),
+        }
+        self.reload_notebooks();
     }
     /// Persists `general.remember_last_session`'s state — called once, right
     /// after the main loop in `run()` exits, just before the process actually
@@ -750,11 +1180,11 @@ impl App {
                 self.logs_selected = self.logs_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.logs_selected = (self.logs_selected + PAGE_STEP as usize)
+                self.logs_selected = (self.logs_selected + self.page_step() as usize)
                     .min(self.log_history.len().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.logs_selected = self.logs_selected.saturating_sub(PAGE_STEP as usize);
+                self.logs_selected = self.logs_selected.saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.logs_selected = 0,
             KeyCode::End => self.logs_selected = self.log_history.len().saturating_sub(1),
@@ -893,14 +1323,48 @@ impl App {
             }
         }
     }
+    /// Loads every note from every notebook into `global_search_pool` —
+    /// same pool `open_global_search` builds, reused here so which-key's
+    /// note results and the standalone global search modal can never
+    /// disagree about which notes exist or how they're identified
+    /// (`pool_index`). Safe to share the one field since the two modals
+    /// are never open at the same time.
     fn open_which_key(&mut self) {
         self.which_key_input.clear();
         self.which_key_selected = 0;
+        self.global_search_pool = self.store.all_notes().unwrap_or_default();
+        self.which_key_note_hits.clear();
         self.show_which_key = true;
+    }
+    /// Re-scores `global_search_pool` against the current which-key query
+    /// (title + body + notebook name, same haystack `refresh_global_search`
+    /// scores against) — called on every keystroke, not from
+    /// `which_key_filtered_entries` itself, since `SearchEngine::search_text`
+    /// needs `&mut self` but that function is `&self` (called from
+    /// rendering). Deliberately empty while the query is empty: an
+    /// unfiltered which-key should still read as "browse every keybinding,"
+    /// not also dump every note in every notebook.
+    fn refresh_which_key_notes(&mut self) {
+        let query = self.which_key_input.value.clone();
+        if query.is_empty() {
+            self.which_key_note_hits.clear();
+            return;
+        }
+        let haystacks: Vec<String> = self
+            .global_search_pool
+            .iter()
+            .map(|(nb, note)| format!("{} {} {}", nb.name, note.frontmatter.title, note.body))
+            .collect();
+        let haystack_refs: Vec<&str> = haystacks.iter().map(String::as_str).collect();
+        let mut hits = self.search_engine.search_text(&query, &haystack_refs);
+        hits.truncate(8);
+        self.which_key_note_hits = hits;
     }
     /// Every keybinding entry whose key, action label, or scope name
     /// contains the current query (case-insensitive) — all of them if the
-    /// query is empty. Backs both rendering and `Enter`'s execute-in-place.
+    /// query is empty — plus, once the query is non-empty, up to 8 matching
+    /// notes from `which_key_note_hits` (see `refresh_which_key_notes`).
+    /// Backs both rendering and `Enter`'s execute-in-place.
     pub fn which_key_filtered_entries(&self) -> Vec<WhichKeyRow> {
         let query = self.which_key_input.value.to_lowercase();
         let bound = self
@@ -913,7 +1377,7 @@ impl App {
             .nav_rows()
             .into_iter()
             .map(|(scope, key, label)| WhichKeyRow::Nav { scope, key, label });
-        bound
+        let mut rows: Vec<WhichKeyRow> = bound
             .chain(nav)
             .filter(|row| {
                 query.is_empty()
@@ -921,26 +1385,40 @@ impl App {
                     || row.label().to_lowercase().contains(&query)
                     || row.scope().to_lowercase().contains(&query)
             })
-            .collect()
+            .collect();
+        rows.extend(self.which_key_note_hits.iter().filter_map(|hit| {
+            let (nb, note) = self.global_search_pool.get(hit.index)?;
+            Some(WhichKeyRow::NoteHit {
+                pool_index: hit.index,
+                label: format!("{}  —  {}", note.frontmatter.title, nb.name),
+            })
+        }));
+        rows
     }
     fn handle_which_key_key(&mut self, key: KeyEvent) {
         let len = self.which_key_filtered_entries().len();
         match key.code {
             KeyCode::Esc => self.show_which_key = false,
-            // Executes the highlighted entry directly — the which-key modal
-            // doubles as a fast command palette: type to filter, Enter to run,
-            // instead of memorizing the key and closing the modal first.
+            // Executes the highlighted entry directly, or jumps straight to
+            // it if it's a note — the which-key modal doubles as a fast
+            // command palette: type to filter (actions AND notes), Enter to
+            // run/open, instead of memorizing the key and closing the modal
+            // first.
             KeyCode::Enter => {
-                let action = self
+                match self
                     .which_key_filtered_entries()
                     .get(self.which_key_selected)
-                    .and_then(|row| match row {
-                        WhichKeyRow::Bound { action, .. } => Some(*action),
-                        WhichKeyRow::Nav { .. } => None,
-                    });
-                if let Some(action) = action {
-                    self.show_which_key = false;
-                    self.handle_action(action);
+                    .cloned()
+                {
+                    Some(WhichKeyRow::Bound { action, .. }) => {
+                        self.show_which_key = false;
+                        self.handle_action(action);
+                    }
+                    Some(WhichKeyRow::NoteHit { pool_index, .. }) => {
+                        self.show_which_key = false;
+                        self.jump_to_global_hit(pool_index);
+                    }
+                    Some(WhichKeyRow::Nav { .. }) | None => {}
                 }
             }
             KeyCode::Down => {
@@ -958,10 +1436,12 @@ impl App {
             KeyCode::Backspace => {
                 self.which_key_input.backspace();
                 self.which_key_selected = 0;
+                self.refresh_which_key_notes();
             }
             KeyCode::Char(c) => {
                 self.which_key_input.push(c);
                 self.which_key_selected = 0;
+                self.refresh_which_key_notes();
             }
             _ => {}
         }
@@ -1029,11 +1509,13 @@ impl App {
                 self.outline_selected = self.outline_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.outline_selected = (self.outline_selected + PAGE_STEP as usize)
+                self.outline_selected = (self.outline_selected + self.page_step() as usize)
                     .min(self.outline_headings.len().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.outline_selected = self.outline_selected.saturating_sub(PAGE_STEP as usize);
+                self.outline_selected = self
+                    .outline_selected
+                    .saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.outline_selected = 0,
             KeyCode::End => {
@@ -1053,16 +1535,29 @@ impl App {
             shiki_core::git::file_history(&nb.path, &relative).unwrap_or_default();
         self.history_selected = 0;
         self.history_viewing = None;
+        self.history_diff_viewing = None;
         self.show_history = true;
         if self.history_entries.is_empty() {
             self.set_status("no history yet — sync (`s`) to commit this note first".into());
         }
     }
     fn handle_history_key(&mut self, key: KeyEvent) {
+        if self.history_diff_viewing.is_some() {
+            match key.code {
+                KeyCode::Esc => self.history_diff_viewing = None,
+                KeyCode::Char('r') => self.start_revert_selected_history(),
+                _ => {}
+            }
+            return;
+        }
         if self.history_viewing.is_some() {
             match key.code {
                 KeyCode::Esc => self.history_viewing = None,
                 KeyCode::Char('r') => self.start_revert_selected_history(),
+                KeyCode::Char('d') => {
+                    self.history_viewing = None;
+                    self.view_selected_history_diff();
+                }
                 _ => {}
             }
             return;
@@ -1070,6 +1565,7 @@ impl App {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.show_history = false,
             KeyCode::Enter => self.view_selected_history(),
+            KeyCode::Char('d') => self.view_selected_history_diff(),
             KeyCode::Char('r') => self.start_revert_selected_history(),
             KeyCode::Char('j') | KeyCode::Down => {
                 if self.history_selected + 1 < self.history_entries.len() {
@@ -1080,11 +1576,13 @@ impl App {
                 self.history_selected = self.history_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.history_selected = (self.history_selected + PAGE_STEP as usize)
+                self.history_selected = (self.history_selected + self.page_step() as usize)
                     .min(self.history_entries.len().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.history_selected = self.history_selected.saturating_sub(PAGE_STEP as usize);
+                self.history_selected = self
+                    .history_selected
+                    .saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.history_selected = 0,
             KeyCode::End => self.history_selected = self.history_entries.len().saturating_sub(1),
@@ -1102,8 +1600,54 @@ impl App {
             return;
         };
         match shiki_core::git::show_file_at(&nb.path, &entry.commit_id, &relative) {
-            Ok(content) => self.history_viewing = Some((entry.commit_id, content)),
+            // The blob is a real git revision, so it's ciphertext for an
+            // encrypted notebook — decrypt before showing it, the same way
+            // a live `Note::from_file_with_crypto` read does. A wrong/
+            // missing passphrase surfaces as the same clear error the
+            // normal read path already gives, not raw armor text.
+            Ok(content) => match nb.crypto.as_ref() {
+                Some(crypto) if shiki_core::crypto::looks_encrypted(&content) => {
+                    match crypto.decrypt(&content) {
+                        Ok(plain) => self.history_viewing = Some((entry.commit_id, plain)),
+                        Err(e) => self.set_status(format!("could not decrypt revision: {e}")),
+                    }
+                }
+                _ => self.history_viewing = Some((entry.commit_id, content)),
+            },
             Err(e) => self.set_status(format!("could not load revision: {e}")),
+        }
+    }
+    /// Fetches and shows the highlighted revision's diff against its parent
+    /// — "what did this commit actually change here," the `d` alternative
+    /// to `Enter`'s full-content view. The very first commit in the file's
+    /// history has no parent to diff against, so every line comes back as
+    /// an addition — the correct answer (the whole file really is new at
+    /// that point), not an error.
+    fn view_selected_history_diff(&mut self) {
+        let Some((nb, relative)) = self.selected_note_relative_path() else {
+            return;
+        };
+        // A real tree diff of two ciphertext blobs is meaningless noise —
+        // libgit2 has no notion of what's inside them, so it can't tell
+        // "the whole file changed" from "one word changed." Rather than
+        // show that noise, degrade to the same decrypted full-content view
+        // `Enter` already gives; a real diff over decrypted text is future
+        // work, not something this v1 attempts.
+        if nb.crypto.is_some() {
+            self.view_selected_history();
+            if self.history_viewing.is_some() {
+                self.set_status(
+                    "diff isn't available for encrypted notebooks — showing content instead".into(),
+                );
+            }
+            return;
+        }
+        let Some(entry) = self.history_entries.get(self.history_selected).cloned() else {
+            return;
+        };
+        match shiki_core::git::diff_file_at(&nb.path, &entry.commit_id, &relative) {
+            Ok(lines) => self.history_diff_viewing = Some((entry.commit_id, lines)),
+            Err(e) => self.set_status(format!("could not load diff: {e}")),
         }
     }
     /// Stages a revert of the currently highlighted (or viewed) revision
@@ -1117,6 +1661,7 @@ impl App {
             .history_viewing
             .as_ref()
             .map(|(id, _)| id.clone())
+            .or_else(|| self.history_diff_viewing.as_ref().map(|(id, _)| id.clone()))
             .or_else(|| {
                 self.history_entries
                     .get(self.history_selected)
@@ -1150,10 +1695,265 @@ impl App {
                 self.set_status(format!("reverted to {short}"));
                 self.show_history = false;
                 self.history_viewing = None;
+                self.history_diff_viewing = None;
                 self.history_count_cache = None;
             }
             Err(e) => self.set_status(format!("revert error: {e}")),
         }
+    }
+    /// Reopens the conflict resolver for the currently selected notebook,
+    /// if it's genuinely mid-merge — the manual "I closed the modal with
+    /// `Esc` and want it back" path, since closing it (unlike every other
+    /// close-only-forward modal) doesn't resolve or abort anything.
+    pub(crate) fn reopen_conflicts_if_merging(&mut self) {
+        let Some(nb) = self.selected_notebook().cloned() else {
+            self.set_status("no notebook selected".into());
+            return;
+        };
+        if !shiki_core::git::merge_in_progress(&nb.path) {
+            self.set_status(format!("'{}' has no merge in progress", nb.name));
+            return;
+        }
+        match shiki_core::git::conflicted_files(&nb.path) {
+            Ok(files) => {
+                self.conflict_notebook = nb.name.clone();
+                self.conflict_files = files;
+                self.conflict_selected = 0;
+                self.conflict_branch = self.config.git.branch.clone();
+                self.conflict_viewing = None;
+                self.show_conflicts = true;
+            }
+            Err(e) => self.set_status(format!("could not read conflicts: {e}")),
+        }
+    }
+    /// Dispatcher for the conflict resolver modal — two tiers, same shape
+    /// as `handle_history_key`'s diff-viewing/list split: `conflict_viewing`
+    /// drills into one file's side-by-side ours/theirs diff; otherwise it's
+    /// the flat conflicted-file list.
+    fn handle_conflicts_key(&mut self, key: KeyEvent) {
+        if self.conflict_viewing.is_some() {
+            match key.code {
+                KeyCode::Esc => self.conflict_viewing = None,
+                KeyCode::Char('o') => self.resolve_selected_conflict(ConflictSideChoice::Ours),
+                KeyCode::Char('t') => self.resolve_selected_conflict(ConflictSideChoice::Theirs),
+                KeyCode::Char('e') => self.mark_selected_conflict_resolved(),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if let Some(view) = &mut self.conflict_viewing {
+                        view.scroll = view.scroll.saturating_add(1);
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if let Some(view) = &mut self.conflict_viewing {
+                        view.scroll = view.scroll.saturating_sub(1);
+                    }
+                }
+                KeyCode::PageDown => {
+                    let step = self.page_step().max(0) as u16;
+                    if let Some(view) = &mut self.conflict_viewing {
+                        view.scroll = view.scroll.saturating_add(step);
+                    }
+                }
+                KeyCode::PageUp => {
+                    let step = self.page_step().max(0) as u16;
+                    if let Some(view) = &mut self.conflict_viewing {
+                        view.scroll = view.scroll.saturating_sub(step);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.show_conflicts = false,
+            KeyCode::Enter => self.view_selected_conflict(),
+            KeyCode::Char('o') => self.resolve_selected_conflict(ConflictSideChoice::Ours),
+            KeyCode::Char('t') => self.resolve_selected_conflict(ConflictSideChoice::Theirs),
+            KeyCode::Char('a') => self.start_abort_merge(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.conflict_selected + 1 < self.conflict_files.len() {
+                    self.conflict_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.conflict_selected = self.conflict_selected.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.conflict_selected = (self.conflict_selected + self.page_step() as usize)
+                    .min(self.conflict_files.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.conflict_selected = self
+                    .conflict_selected
+                    .saturating_sub(self.page_step() as usize);
+            }
+            KeyCode::Home => self.conflict_selected = 0,
+            KeyCode::End => self.conflict_selected = self.conflict_files.len().saturating_sub(1),
+            _ => {}
+        }
+    }
+    /// Loads the selected conflicted file's real side-by-side diff (ours
+    /// and theirs, each against the common ancestor) via
+    /// `shiki_core::git::conflict_diff` — the genuine two-pane comparison
+    /// this modal exists for, not the unified single-pane style the history
+    /// modal uses (there, there's only ever one side to show).
+    fn view_selected_conflict(&mut self) {
+        let Some(nb) = self.conflict_notebook_ref() else {
+            return;
+        };
+        let Some(file) = self.conflict_files.get(self.conflict_selected).cloned() else {
+            return;
+        };
+        match shiki_core::git::conflict_diff(&nb.path, &file) {
+            Ok((ours, theirs)) => {
+                self.conflict_viewing = Some(ConflictView {
+                    file,
+                    ours,
+                    theirs,
+                    scroll: 0,
+                });
+            }
+            Err(e) => self.set_status(format!("could not load conflict: {e}")),
+        }
+    }
+    /// Resolves the current file (the one drilled into, or the selected row
+    /// in the flat list) to one whole side — "keep ours"/"keep theirs" is
+    /// v1's resolution model; manual line-level merging isn't supported
+    /// here (see `mark_selected_conflict_resolved` for the escape hatch:
+    /// edit the file externally, then mark it resolved as-is).
+    fn resolve_selected_conflict(&mut self, side: ConflictSideChoice) {
+        let Some(nb) = self.conflict_notebook_ref() else {
+            return;
+        };
+        let Some(file) = self.conflict_target_file() else {
+            return;
+        };
+        let sides = match shiki_core::git::conflict_sides(&nb.path, &file) {
+            Ok(s) => s,
+            Err(e) => {
+                self.set_status(format!("could not read conflict: {e}"));
+                return;
+            }
+        };
+        let content = match side {
+            ConflictSideChoice::Ours => sides.ours,
+            ConflictSideChoice::Theirs => sides.theirs,
+        };
+        let Some(content) = content else {
+            self.set_status("that side doesn't have this file (it was deleted there)".into());
+            return;
+        };
+        self.finish_resolving_conflict_file(&nb.path.clone(), &file, &content);
+    }
+    /// The escape hatch for anything more than a whole-side pick: the user
+    /// edits the file by hand (external editor, or shiki's own editor
+    /// outside this modal) to remove the conflict markers themselves, then
+    /// `e` stages whatever's currently on disk as the resolution — no
+    /// separate write, just re-reading and re-staging the working copy.
+    fn mark_selected_conflict_resolved(&mut self) {
+        let Some(nb) = self.conflict_notebook_ref() else {
+            return;
+        };
+        let Some(file) = self.conflict_target_file() else {
+            return;
+        };
+        let content = match std::fs::read_to_string(nb.path.join(&file)) {
+            Ok(c) => c,
+            Err(e) => {
+                self.set_status(format!("could not read '{}': {e}", file.display()));
+                return;
+            }
+        };
+        self.finish_resolving_conflict_file(&nb.path.clone(), &file, &content);
+    }
+    fn finish_resolving_conflict_file(
+        &mut self,
+        nb_path: &std::path::Path,
+        file: &std::path::Path,
+        content: &str,
+    ) {
+        match shiki_core::git::resolve_conflict(nb_path, file, content) {
+            Ok(()) => {
+                self.conflict_files.retain(|f| f != file);
+                self.conflict_selected = self
+                    .conflict_selected
+                    .min(self.conflict_files.len().saturating_sub(1));
+                self.conflict_viewing = None;
+                self.set_status(format!(
+                    "resolved '{}' ({} left)",
+                    file.display(),
+                    self.conflict_files.len()
+                ));
+                if self.conflict_files.is_empty() {
+                    self.pending_finish_merge = Some(self.conflict_notebook.clone());
+                    self.confirm = Some(confirm::ConfirmDialog::new(
+                        "all conflicts resolved — commit this merge?".to_string(),
+                    ));
+                }
+            }
+            Err(e) => self.set_status(format!("could not resolve '{}': {e}", file.display())),
+        }
+    }
+    fn start_abort_merge(&mut self) {
+        self.pending_abort_merge = Some(self.conflict_notebook.clone());
+        self.confirm = Some(confirm::ConfirmDialog::new(
+            "abort this merge? unresolved changes will be discarded".to_string(),
+        ));
+    }
+    /// Commits the resolved merge — the `y` side of the "commit this
+    /// merge?" confirm staged in `finish_resolving_conflict_file`.
+    fn finish_merge_notebook(&mut self, notebook: &str) {
+        let Some(nb) = self.notebooks.iter().find(|n| n.name == notebook).cloned() else {
+            self.set_status(format!("'{notebook}' no longer available"));
+            return;
+        };
+        let message = format!("shiki: merge '{}'", self.conflict_branch);
+        match shiki_core::git::finish_merge(&nb.path, &message) {
+            Ok(()) => {
+                self.show_conflicts = false;
+                self.conflict_files.clear();
+                self.conflict_viewing = None;
+                self.refresh_notes_preserve_selection();
+                self.set_status(format!("'{notebook}': merge committed"));
+            }
+            Err(e) => self.set_status(format!("could not finish merge: {e}")),
+        }
+    }
+    /// Discards the in-progress merge — the `y` side of `start_abort_merge`'s
+    /// confirm.
+    fn abort_merge_notebook(&mut self, notebook: &str) {
+        let Some(nb) = self.notebooks.iter().find(|n| n.name == notebook).cloned() else {
+            self.set_status(format!("'{notebook}' no longer available"));
+            return;
+        };
+        match shiki_core::git::abort_merge(&nb.path) {
+            Ok(()) => {
+                self.show_conflicts = false;
+                self.conflict_files.clear();
+                self.conflict_viewing = None;
+                self.refresh_notes_preserve_selection();
+                self.set_status(format!("'{notebook}': merge aborted"));
+            }
+            Err(e) => self.set_status(format!("could not abort merge: {e}")),
+        }
+    }
+    fn conflict_notebook_ref(&mut self) -> Option<Notebook> {
+        let nb = self
+            .notebooks
+            .iter()
+            .find(|n| n.name == self.conflict_notebook)
+            .cloned();
+        if nb.is_none() {
+            self.set_status(format!("'{}' no longer available", self.conflict_notebook));
+        }
+        nb
+    }
+    /// The file a resolve action targets: whichever one is drilled into, or
+    /// the selected row in the flat list otherwise.
+    fn conflict_target_file(&self) -> Option<std::path::PathBuf> {
+        self.conflict_viewing
+            .as_ref()
+            .map(|v| v.file.clone())
+            .or_else(|| self.conflict_files.get(self.conflict_selected).cloned())
     }
     /// Flattens the selected notebook's whole folder tree and opens the tree
     /// view — every folder and note expanded at once, instead of navigating
@@ -1179,11 +1979,11 @@ impl App {
                 self.tree_selected = self.tree_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.tree_selected = (self.tree_selected + PAGE_STEP as usize)
+                self.tree_selected = (self.tree_selected + self.page_step() as usize)
                     .min(self.tree_note_count().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.tree_selected = self.tree_selected.saturating_sub(PAGE_STEP as usize);
+                self.tree_selected = self.tree_selected.saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.tree_selected = 0,
             KeyCode::End => self.tree_selected = self.tree_note_count().saturating_sub(1),
@@ -1251,11 +2051,11 @@ impl App {
                 self.link_selected = self.link_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.link_selected = (self.link_selected + PAGE_STEP as usize)
+                self.link_selected = (self.link_selected + self.page_step() as usize)
                     .min(self.link_selectable_count().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.link_selected = self.link_selected.saturating_sub(PAGE_STEP as usize);
+                self.link_selected = self.link_selected.saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.link_selected = 0,
             KeyCode::End => self.link_selected = self.link_selectable_count().saturating_sub(1),
@@ -1361,10 +2161,11 @@ impl App {
 
     /// Opens the global tasks view: every checkbox task across every
     /// notebook (`NotebookStore::all_notes`, the same walk global search
-    /// does on open), pending-only by default. Built fresh every time it
-    /// opens, same as the tags/links modals.
+    /// does on open), pending-only unless `config.general.tasks_show_done_default`
+    /// says otherwise. Built fresh every time it opens, same as the
+    /// tags/links modals.
     fn open_tasks(&mut self) {
-        self.tasks_show_done = false;
+        self.tasks_show_done = self.config.general.tasks_show_done_default;
         self.task_selected = 0;
         self.rebuild_task_rows();
         if self.task_rows.is_empty() {
@@ -1392,11 +2193,11 @@ impl App {
                 self.task_selected = self.task_selected.saturating_sub(1);
             }
             KeyCode::PageDown => {
-                self.task_selected = (self.task_selected + PAGE_STEP as usize)
+                self.task_selected = (self.task_selected + self.page_step() as usize)
                     .min(self.task_selectable_count().saturating_sub(1));
             }
             KeyCode::PageUp => {
-                self.task_selected = self.task_selected.saturating_sub(PAGE_STEP as usize);
+                self.task_selected = self.task_selected.saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.task_selected = 0,
             KeyCode::End => self.task_selected = self.task_selectable_count().saturating_sub(1),
@@ -1416,7 +2217,11 @@ impl App {
     /// the row in place — deliberately *not* a rebuild, so a task checked
     /// off while the pending-only filter is active stays visible (checked,
     /// struck through) and can be immediately un-toggled instead of
-    /// vanishing out from under the cursor.
+    /// vanishing out from under the cursor. The one exception is completing
+    /// an `@every(...)` task: `shiki_core::tasks::toggle` itself spawned a
+    /// brand-new line for the next occurrence, which the in-place patch
+    /// below has no way to also insert — a full `rebuild_task_rows` is the
+    /// only way that new row can show up at all.
     fn toggle_selected_task(&mut self) {
         let Some(row) = self.task_rows.get(self.task_selected) else {
             return;
@@ -1427,19 +2232,24 @@ impl App {
         match shiki_core::tasks::toggle(&note_path, &task.raw_line, task.occurrence) {
             Ok(toggled) => {
                 let done = toggled.done;
-                let task = &mut self.task_rows[self.task_selected].task;
-                task.done = toggled.done;
-                task.raw_line = toggled.raw_line;
-                task.occurrence = toggled.occurrence;
-                // A toggle is a real note edit: refresh the panels/caches
-                // underneath the modal and count it toward auto_sync, the
-                // same as any other save.
                 self.refresh_notes_preserve_selection();
                 self.note_changed(&notebook);
-                self.set_status(format!(
-                    "task {}",
-                    if done { "completed" } else { "reopened" }
-                ));
+                if let Some(next_due) = toggled.spawned_next {
+                    self.rebuild_task_rows();
+                    self.task_selected = self
+                        .task_selected
+                        .min(self.task_selectable_count().saturating_sub(1));
+                    self.set_status(format!("task completed — next due {next_due}"));
+                } else {
+                    let task = &mut self.task_rows[self.task_selected].task;
+                    task.done = toggled.done;
+                    task.raw_line = toggled.raw_line;
+                    task.occurrence = toggled.occurrence;
+                    self.set_status(format!(
+                        "task {}",
+                        if done { "completed" } else { "reopened" }
+                    ));
+                }
             }
             Err(e) => self.set_status(format!("couldn't toggle task: {e}")),
         }
@@ -1468,6 +2278,106 @@ impl App {
             }
         }
         self.show_tasks = false;
+    }
+    /// Loads the note pool **once**, on open — same "expensive walk once,
+    /// cheap re-filter per keystroke" split `global_search_pool`/
+    /// `wikilink_candidates` already established, rather than re-walking
+    /// every notebook's frontmatter on every typed character.
+    fn open_query(&mut self) {
+        self.query_input.clear();
+        self.query_selected = 0;
+        self.query_error = None;
+        self.query_rows.clear();
+        self.query_pool = self.store.all_notes().unwrap_or_default();
+        self.show_query = true;
+    }
+    /// Re-parses and re-evaluates the DSL against the already-loaded
+    /// `query_pool` — pure in-memory work, safe to redo on every keystroke.
+    /// An empty box clears results without showing an error (nothing typed
+    /// yet isn't the same as an invalid query); a genuinely malformed DSL
+    /// clears the results and shows the parse error in their place instead
+    /// of crashing or silently keeping stale rows on screen.
+    fn refresh_query(&mut self) {
+        let text = self.query_input.value.trim();
+        if text.is_empty() {
+            self.query_error = None;
+            self.query_rows.clear();
+            self.query_selected = 0;
+            return;
+        }
+        let today = chrono::Local::now().date_naive();
+        match shiki_core::query::parse(text) {
+            Ok(q) => {
+                self.query_error = None;
+                self.query_rows = shiki_core::query::run_query(&self.query_pool, &q, None, today);
+            }
+            Err(e) => {
+                self.query_error = Some(e.to_string());
+                self.query_rows.clear();
+            }
+        }
+        self.query_selected = self
+            .query_selected
+            .min(self.query_rows.len().saturating_sub(1));
+    }
+    /// Navigation is arrows/PageUp/PageDown/Home/End only, deliberately no
+    /// `j`/`k` — same reasoning as `which.rs`: those letters need to be
+    /// typeable into the query itself.
+    fn handle_query_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.show_query = false,
+            KeyCode::Enter => self.jump_to_query_note(),
+            KeyCode::Down => {
+                if self.query_selected + 1 < self.query_rows.len() {
+                    self.query_selected += 1;
+                }
+            }
+            KeyCode::Up => self.query_selected = self.query_selected.saturating_sub(1),
+            KeyCode::PageDown => {
+                self.query_selected = (self.query_selected + self.page_step() as usize)
+                    .min(self.query_rows.len().saturating_sub(1));
+            }
+            KeyCode::PageUp => {
+                self.query_selected = self
+                    .query_selected
+                    .saturating_sub(self.page_step() as usize);
+            }
+            KeyCode::Home => self.query_selected = 0,
+            KeyCode::End => self.query_selected = self.query_rows.len().saturating_sub(1),
+            KeyCode::Backspace => {
+                self.query_input.backspace();
+                self.refresh_query();
+            }
+            KeyCode::Char(c) => {
+                self.query_input.push(c);
+                self.refresh_query();
+            }
+            _ => {}
+        }
+    }
+    /// Cross-notebook jump to the selected result's note — same shape as
+    /// `jump_to_task_note`/`jump_to_global_hit`.
+    fn jump_to_query_note(&mut self) {
+        let Some(row) = self.query_rows.get(self.query_selected) else {
+            return;
+        };
+        let notebook = row.notebook.clone();
+        let note_path = row.path.clone();
+        if let Some(nb_idx) = self.notebooks.iter().position(|n| n.name == notebook) {
+            self.selected_notebook = nb_idx;
+            let nb_path = self.notebooks[nb_idx].path.clone();
+            self.notes_path = relative_folder(&note_path, &nb_path);
+            self.reload_notes();
+            if let Some(idx) = self.notes.iter().position(|n| n.path == note_path) {
+                self.selected_note = self.folders.len() + idx;
+            }
+            self.focus = Focus::Preview;
+            if let Some(note) = self.selected_note() {
+                let title = note.frontmatter.title.clone();
+                self.set_status(format!("opened '{title}'"));
+            }
+        }
+        self.show_query = false;
     }
     /// The tags modal has two levels: the tag list itself, and (after
     /// drilling into one) the notes that carry it — reset to level 1 every
@@ -1587,13 +2497,14 @@ impl App {
                 self.global_search_selected = self.global_search_selected.saturating_sub(1)
             }
             KeyCode::PageDown => {
-                self.global_search_selected = (self.global_search_selected + PAGE_STEP as usize)
+                self.global_search_selected = (self.global_search_selected
+                    + self.page_step() as usize)
                     .min(self.global_search_results.len().saturating_sub(1));
             }
             KeyCode::PageUp => {
                 self.global_search_selected = self
                     .global_search_selected
-                    .saturating_sub(PAGE_STEP as usize);
+                    .saturating_sub(self.page_step() as usize);
             }
             KeyCode::Home => self.global_search_selected = 0,
             KeyCode::End => {
@@ -1799,7 +2710,7 @@ impl App {
             return;
         }
         if self.show_drawer {
-            let area = drawer_area(self.last_frame_area);
+            let area = drawer_area(self.last_frame_area, self.config.general.drawer_width);
             let hit = panel_drawer::drawer_hit_at(self.drawer_statuses.len(), area, column, row);
             match hit {
                 Some(panel_drawer::DrawerHit::Notebook(index)) => {
@@ -1872,7 +2783,7 @@ impl App {
         }
 
         let footer = layout::split(self.last_frame_area, self.focus, self.zen_mode).status_bar;
-        if status_bar::coffee_hit_at(footer, column, row) {
+        if status_bar::coffee_hit_at(footer, column, row, self.config.general.show_coffee_link) {
             self.open_coffee_link();
         }
     }
@@ -2223,10 +3134,15 @@ impl App {
     /// and, in `Mode::Visual`, the whole selected range at once instead of
     /// just the one item under the cursor.
     fn start_delete_note(&mut self) {
+        let skip_confirm = self.config.general.skip_delete_confirm;
         if self.mode == Mode::Visual {
             let entries = self.visual_selected_entries();
             if entries.is_empty() {
                 self.set_status("nothing selected".into());
+                return;
+            }
+            if skip_confirm {
+                self.apply_batch_delete(entries);
                 return;
             }
             let (notes, folders) = entries.iter().fold((0, 0), |(n, f), e| match e {
@@ -2246,7 +3162,11 @@ impl App {
                 note.file_stem()
             );
             self.pending_delete = Some((DeleteTarget::Note, note.path.clone()));
-            self.confirm = Some(confirm::ConfirmDialog::new(message));
+            if skip_confirm {
+                self.handle_confirm_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+            } else {
+                self.confirm = Some(confirm::ConfirmDialog::new(message));
+            }
         } else if let (Some(folder), Some(nb)) = (self.selected_folder(), self.selected_notebook())
         {
             let path = nb.path.join(self.notes_relative_path()).join(folder);
@@ -2254,7 +3174,11 @@ impl App {
                 "Delete folder '{folder}' and everything inside it? Restorable with leader+u."
             );
             self.pending_delete = Some((DeleteTarget::Folder, path));
-            self.confirm = Some(confirm::ConfirmDialog::new(message));
+            if skip_confirm {
+                self.handle_confirm_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+            } else {
+                self.confirm = Some(confirm::ConfirmDialog::new(message));
+            }
         }
     }
     fn start_rename_notebook(&mut self) {
@@ -2410,6 +3334,22 @@ impl App {
             .into_owned();
         self.start_input(PendingInput::ExportNotebook, prefill);
     }
+    /// Opens when `[export].ask_export_path` is on — prefilled with the same
+    /// path `publish_notebook` would otherwise silently use
+    /// (`App::resolved_export_dir`), so accepting it as-is behaves exactly
+    /// like the setting being off.
+    pub(crate) fn start_publish_path_prompt(&mut self) {
+        let Some(nb) = self.selected_notebook() else {
+            self.set_status("no notebook selected".into());
+            return;
+        };
+        let prefill = self
+            .resolved_export_dir()
+            .join(format!("{}.pdf", nb.name))
+            .to_string_lossy()
+            .into_owned();
+        self.start_input(PendingInput::PublishPath, prefill);
+    }
     fn create_daily_note(&mut self) {
         let Some(nb) = self.selected_notebook().cloned() else {
             self.set_status("no notebook selected".into());
@@ -2427,10 +3367,16 @@ impl App {
         // if the daily is actually being created (an existing one opens
         // untouched — create_or_open ignores the agenda then).
         let agenda = self
-            .store
-            .all_notes()
-            .ok()
-            .and_then(|pool| shiki_core::tasks::agenda_section(&pool, today));
+            .config
+            .general
+            .daily_agenda
+            .then(|| {
+                self.store
+                    .all_notes()
+                    .ok()
+                    .and_then(|pool| shiki_core::tasks::agenda_section(&pool, today))
+            })
+            .flatten();
         match shiki_core::daily::create_or_open(
             &nb,
             today,
@@ -2620,21 +3566,41 @@ impl App {
         // too: `frontmatter.template` must only ever record a template that
         // actually rendered the body, not one that was picked but discarded.
         let template_applied = pending_body.is_none() && template_choice.is_some();
-        let body = match pending_body {
+        let rendered = match pending_body {
             Some(body) => body,
             None => match &template_choice {
                 Some(name) => Config::default_templates_dir()
                     .ok()
                     .and_then(|dir| shiki_core::Template::load(&dir, name).ok())
                     .map(|template| {
+                        let now = chrono::Local::now();
                         let mut vars = std::collections::HashMap::new();
                         vars.insert("title", title.clone());
-                        vars.insert("date", chrono::Local::now().format("%Y-%m-%d").to_string());
+                        vars.insert("date", now.format("%Y-%m-%d").to_string());
+                        vars.insert("time", now.format("%H:%M").to_string());
+                        vars.insert(
+                            "notebook",
+                            self.selected_notebook()
+                                .map(|nb| nb.name.clone())
+                                .unwrap_or_default(),
+                        );
                         template.render(&vars)
                     })
                     .unwrap_or_default(),
                 None => String::new(),
             },
+        };
+        // A literal `{{cursor}}` marker (same convention slash-menu snippets
+        // use) is never meant to be saved to disk — split it out before the
+        // note is written, and remember where the split landed so the
+        // cursor can be moved there once the inline editor actually opens.
+        let (before, cursor_marker) = match rendered.split_once("{{cursor}}") {
+            Some((before, after)) => (before.to_string(), Some(after.to_string())),
+            None => (rendered, None),
+        };
+        let body = match &cursor_marker {
+            Some(after) => format!("{before}{after}"),
+            None => before.clone(),
         };
 
         match self.selected_notebook().cloned() {
@@ -2643,7 +3609,7 @@ impl App {
                     if template_applied {
                         if let Some(name) = &template_choice {
                             note.frontmatter.template = Some(name.clone());
-                            let _ = note.save();
+                            let _ = note.save_with_crypto(nb.crypto.as_ref());
                         }
                     }
                     self.reload_notes();
@@ -2660,6 +3626,19 @@ impl App {
                     // Drop straight into the inline editor — a fresh note
                     // (blank or templated) isn't useful to just sit on.
                     self.start_edit_inline();
+                    if cursor_marker.is_some() {
+                        if let Some(editor) = &mut self.editor {
+                            let target_row = before.matches('\n').count();
+                            let target_col =
+                                before.rsplit('\n').next().unwrap_or("").chars().count();
+                            editor
+                                .textarea
+                                .move_cursor(ratatui_textarea::CursorMove::Jump(
+                                    target_row as u16,
+                                    target_col as u16,
+                                ));
+                        }
+                    }
                 }
                 Err(e) => self.set_status(format!("could not create note: {e}")),
             },
@@ -2685,10 +3664,33 @@ impl App {
             ratatui::style::Style::default().fg(hex_to_color(&self.theme.fg)),
         );
     }
+    /// `Note::from_file` has no notion of git conflict markers — a file
+    /// left mid-merge (`<<<<<<< HEAD` etc.) parses as if it simply had no
+    /// `---` frontmatter block at all (`synthesize_frontmatter` falls
+    /// through and treats the markers as ordinary body text), so editing
+    /// and saving it through the normal note-save path would happily
+    /// commit those markers as real content. Gate entry into edit mode on
+    /// `merge_in_progress` instead — reading/browsing stays allowed (the
+    /// selected notebook's `git_status`/`merge_active` is already
+    /// refreshed by `refresh_git_status`), only the write path is blocked.
+    fn merge_blocks_editing(&mut self) -> bool {
+        let Some(nb) = self.selected_notebook() else {
+            return false;
+        };
+        if self.merge_active {
+            self.set_status(format!(
+                "'{}' has a merge in progress — resolve conflicts first (press p)",
+                nb.name
+            ));
+            true
+        } else {
+            false
+        }
+    }
     fn start_edit_inline(&mut self) {
         if let Some(note) = self.selected_note() {
             let mut editor = InlineEditor::from_contents(&note.body);
-            let title = format!(" {}  Editing: {} ", icons::PENCIL, note.frontmatter.title);
+            let title = format!(" {}Editing: {} ", icons::PENCIL, note.frontmatter.title);
             self.style_inline_editor(&mut editor, title);
             // Only ever rendered while the note is completely empty (see
             // `InlineEditor::render`'s placeholder branch) — the `/`-menu
@@ -2711,7 +3713,7 @@ impl App {
             return;
         }
         let mut editor = InlineEditor::from_contents("");
-        self.style_inline_editor(&mut editor, format!(" {}  Scratchpad ", icons::PENCIL));
+        self.style_inline_editor(&mut editor, format!(" {}Scratchpad ", icons::PENCIL));
         editor
             .textarea
             .set_placeholder_text("Scratchpad — Ctrl+S saves as a note; Esc discards");
@@ -2736,7 +3738,7 @@ impl App {
         };
         let contents = std::fs::read_to_string(&path).unwrap_or_default();
         let mut editor = InlineEditor::from_contents(&contents);
-        let title = format!(" {}  Editing: config.toml ", icons::GEAR);
+        let title = format!(" {}Editing: config.toml ", icons::GEAR);
         self.style_inline_editor(&mut editor, title);
         self.editor = Some(editor);
         self.editing_config = true;
@@ -2780,7 +3782,8 @@ impl App {
             if let Some(normalized) = shiki_core::tasks::normalize_due_tags(&note.body, today) {
                 note.body = normalized;
             }
-            let _ = note.save();
+            let crypto = self.selected_notebook().and_then(|nb| nb.crypto.clone());
+            let _ = note.save_with_crypto(crypto.as_ref());
             self.note_changed(&note.frontmatter.notebook);
         }
         self.mode = Mode::Normal;
@@ -2829,6 +3832,7 @@ impl App {
             Action::ToggleSettings => self.toggle_settings(),
             Action::Scratchpad => self.start_scratchpad(),
             Action::ToggleTasks => self.open_tasks(),
+            Action::ToggleQuery => self.open_query(),
             Action::PublishNotebook => self.publish_notebook(),
             Action::ExportNotebook => self.start_export_notebook(),
             Action::ToggleZenMode => self.toggle_zen_mode(),
@@ -2856,6 +3860,8 @@ impl App {
             Action::ToggleTreeView => self.open_tree(),
             Action::ToggleDates => {
                 self.show_dates = !self.show_dates;
+                self.config.general.show_dates = self.show_dates;
+                self.save_config();
                 self.set_status(format!(
                     "note dates: {}",
                     if self.show_dates { "on" } else { "off" }
@@ -2875,6 +3881,9 @@ impl App {
             }
 
             Action::EditInline => {
+                if self.merge_blocks_editing() {
+                    return;
+                }
                 if self.config.general.use_favorite_editor {
                     if let Some(note) = self.selected_note() {
                         let editor = self
@@ -2888,6 +3897,9 @@ impl App {
                 }
             }
             Action::EditExternal => {
+                if self.merge_blocks_editing() {
+                    return;
+                }
                 if let Some(note) = self.selected_note() {
                     self.want_external_edit =
                         Some((note.path.clone(), self.config.general.editor.clone()));
@@ -3113,6 +4125,13 @@ impl App {
                     }
                 }
             }
+            Some(PendingInput::PublishPath) => {
+                if value.is_empty() {
+                    self.set_status("publish cancelled (empty path)".into());
+                } else if let Some(nb) = self.selected_notebook().cloned() {
+                    self.publish_notebook_to(nb, std::path::PathBuf::from(&value));
+                }
+            }
             Some(PendingInput::SettingsNotebookRemote) => {
                 self.show_settings = true;
                 if let Some(name) = self.settings_notebook_drill.clone() {
@@ -3163,10 +4182,36 @@ impl App {
             Some(PendingInput::SettingsGeneralText) => {
                 use crate::panel_settings::GeneralField;
                 self.show_settings = true;
-                if value.is_empty() {
-                    self.set_status("unchanged (empty)".into());
-                } else {
-                    let label = match GeneralField::ALL[self.settings_selected] {
+                let field = GeneralField::ALL[self.settings_selected];
+                // default_note_sort is free text ("filename"/"title"/"date",
+                // tolerantly parsed — see NoteSort::from_config_str), so an
+                // empty value here isn't "cancelled" the way it is for
+                // every other field; it just resolves to the fallback.
+                //
+                // A labeled block (not an early `return`) so a parse error
+                // still reaches this arm's shared tail below, which is
+                // itself just the very end of this match arm — but more
+                // importantly so it can't ever skip the *function's* own
+                // tail after the outer `match kind` closes
+                // (`pending_input_title = None; mode = Mode::Normal;`),
+                // which an early `return` from inside a nested macro would.
+                let label: Option<&'static str> = 'field: {
+                    if value.is_empty() && field != GeneralField::DefaultNoteSort {
+                        self.set_status("unchanged (empty)".into());
+                        break 'field None;
+                    }
+                    macro_rules! parse_or_report {
+                        ($ty:ty) => {
+                            match value.parse::<$ty>() {
+                                Ok(n) => n,
+                                Err(_) => {
+                                    self.set_status(format!("'{value}' isn't a whole number"));
+                                    break 'field None;
+                                }
+                            }
+                        };
+                    }
+                    Some(match field {
                         GeneralField::DefaultNotebook => {
                             self.config.general.default_notebook = value.clone();
                             "default_notebook"
@@ -3179,11 +4224,48 @@ impl App {
                             self.config.general.daily_template = value.clone();
                             "daily_template"
                         }
+                        GeneralField::StatusMessageTimeoutSecs => {
+                            self.config.general.status_message_timeout_secs = parse_or_report!(u64);
+                            "status_message_timeout_secs"
+                        }
+                        GeneralField::DrawerWidth => {
+                            self.config.general.drawer_width = parse_or_report!(u16);
+                            "drawer_width"
+                        }
+                        GeneralField::DefaultNoteSort => {
+                            self.config.general.default_note_sort = value.clone();
+                            "default_note_sort"
+                        }
+                        GeneralField::LogHistoryLimit => {
+                            self.config.general.log_history_limit = parse_or_report!(usize);
+                            "log_history_limit"
+                        }
+                        GeneralField::TrashRetentionDays => {
+                            self.config.general.trash_retention_days = parse_or_report!(u32);
+                            "trash_retention_days"
+                        }
+                        GeneralField::ReadingWpm => {
+                            self.config.general.reading_wpm = parse_or_report!(usize);
+                            "reading_wpm"
+                        }
+                        GeneralField::PageStep => {
+                            self.config.general.page_step = parse_or_report!(usize);
+                            "page_step"
+                        }
                         GeneralField::UseFavoriteEditor => "use_favorite_editor",
                         GeneralField::MouseDragSelection => "mouse_drag_selection",
                         GeneralField::ShowHints => "show_hints",
                         GeneralField::RememberLastSession => "remember_last_session",
-                    };
+                        GeneralField::ShowCoffeeLink => "show_coffee_link",
+                        GeneralField::SkipDeleteConfirm => "skip_delete_confirm",
+                        GeneralField::ShowDates => "show_dates",
+                        GeneralField::WikilinkAutocomplete => "wikilink_autocomplete",
+                        GeneralField::DailyAgenda => "daily_agenda",
+                        GeneralField::CompactFooter => "compact_footer",
+                        GeneralField::TasksShowDoneDefault => "tasks_show_done_default",
+                    })
+                };
+                if let Some(label) = label {
                     self.save_config();
                     self.set_status(format!("{label} -> '{value}'"));
                 }
@@ -3237,6 +4319,14 @@ impl App {
                     | GitField::AutoSync => {}
                 }
             }
+            Some(PendingInput::SettingsExportText) => {
+                // Empty is meaningful here too ("use the default location"),
+                // same as GitField::RemoteTemplate above — not "cancelled".
+                self.show_settings = true;
+                self.config.export.export_dir = value.clone();
+                self.save_config();
+                self.set_status(format!("export_dir -> '{value}'"));
+            }
             Some(PendingInput::SettingsSnippetTrigger) => {
                 self.show_settings = true;
                 if value.is_empty() {
@@ -3281,10 +4371,20 @@ impl App {
                     self.apply_pending_batch(&value);
                 }
             }
+            Some(PendingInput::NotebookPassphrase) => self.confirm_notebook_passphrase(),
             None => {}
         }
-        self.pending_input_title = None;
-        self.mode = Mode::Normal;
+        // A guard, not a no-op: `confirm_notebook_passphrase`'s `Enable`
+        // purpose immediately chains into a second masked prompt
+        // (`EnableConfirm`) by calling `start_masked_input` from *within*
+        // this same match — unconditionally resetting to `Mode::Normal`
+        // afterward would silently break that chained prompt's input
+        // routing (keys would stop reaching `handle_insert_key`) the
+        // instant it opened.
+        if self.pending_input.is_none() {
+            self.pending_input_title = None;
+            self.mode = Mode::Normal;
+        }
     }
     fn handle_confirm_key(&mut self, key: KeyEvent) {
         if matches!(self.pending_delete, Some((DeleteTarget::Notebook, _))) {
@@ -3383,6 +4483,10 @@ impl App {
                             path.display()
                         )),
                     }
+                } else if let Some(notebook) = self.pending_finish_merge.take() {
+                    self.finish_merge_notebook(&notebook);
+                } else if let Some(notebook) = self.pending_abort_merge.take() {
+                    self.abort_merge_notebook(&notebook);
                 }
             }
             _ => {
@@ -3392,6 +4496,8 @@ impl App {
                 self.pending_batch_delete = None;
                 self.pending_delete_snippet = None;
                 self.pending_notebook_adopt = None;
+                self.pending_finish_merge = None;
+                self.pending_abort_merge = None;
             }
         }
         self.confirm = None;
@@ -3571,10 +4677,25 @@ impl App {
                         | Some(PendingInput::SettingsNotebookAutoSyncEvery)
                         | Some(PendingInput::SettingsGeneralText)
                         | Some(PendingInput::SettingsGitText)
+                        | Some(PendingInput::SettingsExportText)
                         | Some(PendingInput::SettingsSnippetTrigger)
                         | Some(PendingInput::SettingsSnippetLabel)
                 ) {
                     self.show_settings = true;
+                }
+                // `NotebookPassphrase` is reachable from two different
+                // places (an auto-unlock prompt when switching into a
+                // locked notebook, or Settings' Encryption field) — only
+                // the latter should reopen Settings on cancel, hence the
+                // flag instead of unconditionally listing the variant above.
+                if kind == Some(PendingInput::NotebookPassphrase) {
+                    self.passphrase_prompt_notebook = None;
+                    self.passphrase_purpose = None;
+                    self.passphrase_pending_first = None;
+                    if self.reopen_settings_after_passphrase {
+                        self.reopen_settings_after_passphrase = false;
+                        self.show_settings = true;
+                    }
                 }
             }
             KeyCode::Enter => self.confirm_input(),
@@ -3734,25 +4855,26 @@ impl App {
                 self.editor_add_cursor_vertical(1);
             }
             // Alt+Up/Alt+Down move the current line past its neighbor;
-            // Alt+D duplicates it. Always on, like Ctrl+Home/Ctrl+End below
-            // — none of these three combos are used for anything else in
-            // the editor. Excludes Ctrl so it can't shadow the
+            // Alt+D duplicates it. Excludes Ctrl so it can't shadow the
             // Ctrl+Alt+Up/Down multi-cursor bindings above.
             KeyCode::Up
                 if key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.move_line =>
             {
                 self.editor_move_line(-1);
             }
             KeyCode::Down
                 if key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.move_line =>
             {
                 self.editor_move_line(1);
             }
             KeyCode::Char('d')
                 if key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.config.editor.duplicate_line =>
             {
                 self.editor_duplicate_line();
             }
@@ -3765,10 +4887,11 @@ impl App {
             // reverse (outdent), with no snippet step — there's nothing to
             // "un-expand".
             KeyCode::Tab => {
-                let has_selection = self
-                    .editor
-                    .as_ref()
-                    .is_some_and(|e| e.textarea.selection_range().is_some());
+                let has_selection = self.config.editor.block_indent_select
+                    && self
+                        .editor
+                        .as_ref()
+                        .is_some_and(|e| e.textarea.selection_range().is_some());
                 if has_selection {
                     self.indent_selected_lines(1);
                 } else if self.config.editor.snippet_expand_tab && self.try_expand_snippet_on_tab()
@@ -3779,10 +4902,11 @@ impl App {
                 }
             }
             KeyCode::BackTab => {
-                let has_selection = self
-                    .editor
-                    .as_ref()
-                    .is_some_and(|e| e.textarea.selection_range().is_some());
+                let has_selection = self.config.editor.block_indent_select
+                    && self
+                        .editor
+                        .as_ref()
+                        .is_some_and(|e| e.textarea.selection_range().is_some());
                 if has_selection {
                     self.indent_selected_lines(-1);
                 } else if !(self.config.editor.auto_list_continue && self.try_indent_list_line(-1))
@@ -3793,8 +4917,8 @@ impl App {
             // Always replaces the generic forward for these two — see
             // `editor_scroll_cursor`'s own doc comment for why forwarding
             // them to `ratatui-textarea` does nothing in this editor.
-            KeyCode::PageDown => self.editor_scroll_cursor(PAGE_STEP),
-            KeyCode::PageUp => self.editor_scroll_cursor(-PAGE_STEP),
+            KeyCode::PageDown => self.editor_scroll_cursor(self.page_step()),
+            KeyCode::PageUp => self.editor_scroll_cursor(-self.page_step()),
             // Smart Home (no modifiers): toggles between the first
             // non-whitespace character and column 0, instead of always
             // column 0 — the common modern-editor convention (VS Code,
@@ -3900,7 +5024,7 @@ impl App {
         // completes the pair, anywhere in the line — unlike `/`,
         // a wikilink is meaningful mid-sentence ("see [[Some
         // Note]] for details"), not just at line start.
-        if key.code == KeyCode::Char('[') {
+        if key.code == KeyCode::Char('[') && self.config.general.wikilink_autocomplete {
             let opens_wikilink = self.editor.as_ref().is_some_and(|e| {
                 let (row, col) = crate::editor::cursor_tuple(&e.textarea);
                 e.textarea
@@ -4605,7 +5729,7 @@ impl App {
     }
     /// Moves the editor's cursor `delta` logical rows (clamped to the
     /// buffer), preserving column as closely as the target row allows —
-    /// drives both `PageUp`/`PageDown` (`delta = ±PAGE_STEP`) and mouse
+    /// drives both `PageUp`/`PageDown` (`delta = ±self.page_step()`) and mouse
     /// wheel scrolling. This exists because forwarding `PageUp`/`PageDown`
     /// to `ratatui-textarea` (as the generic catch-all does for every other
     /// key) does nothing at all in this editor: verified live.
@@ -4750,7 +5874,10 @@ impl App {
             .unwrap_or_default();
         let anchor = crate::editor::cursor_tuple(&editor.textarea);
         self.editor_find = Some(EditorFindState {
-            query: InputBox { value: seed },
+            query: InputBox {
+                value: seed,
+                masked: false,
+            },
             replace: InputBox::default(),
             focus: FindField::Query,
             anchor,
@@ -5000,20 +6127,28 @@ impl App {
             _ => {}
         }
     }
-    /// Substitutes `{{title}}`/`{{date}}` in a snippet body the same way
-    /// note templates are rendered (`shiki_core::Template::render`), then
-    /// splits off a literal `{{cursor}}` marker if present — shared by
-    /// `apply_slash_command` (the `/`-menu) and `try_expand_snippet_on_tab`
-    /// (Tab-expansion), the two places a snippet's body actually gets
-    /// turned into text.
+    /// Substitutes `{{title}}`/`{{date}}`/`{{time}}`/`{{notebook}}` in a
+    /// snippet body the same way note templates are rendered
+    /// (`shiki_core::Template::render`), then splits off a literal
+    /// `{{cursor}}` marker if present — shared by `apply_slash_command`
+    /// (the `/`-menu) and `try_expand_snippet_on_tab` (Tab-expansion), the
+    /// two places a snippet's body actually gets turned into text.
     fn render_snippet_template(&self, body: &str) -> (String, Option<String>) {
         let title = self
             .selected_note()
             .map(|n| n.frontmatter.title.clone())
             .unwrap_or_default();
+        let now = chrono::Local::now();
         let mut vars = std::collections::HashMap::new();
         vars.insert("title", title);
-        vars.insert("date", chrono::Local::now().format("%Y-%m-%d").to_string());
+        vars.insert("date", now.format("%Y-%m-%d").to_string());
+        vars.insert("time", now.format("%H:%M").to_string());
+        vars.insert(
+            "notebook",
+            self.selected_notebook()
+                .map(|nb| nb.name.clone())
+                .unwrap_or_default(),
+        );
         let rendered = shiki_core::Template {
             name: String::new(),
             contents: body.to_string(),
@@ -5153,8 +6288,8 @@ impl App {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.move_selection(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_selection(-1),
-            KeyCode::PageDown => self.move_selection(PAGE_STEP),
-            KeyCode::PageUp => self.move_selection(-PAGE_STEP),
+            KeyCode::PageDown => self.move_selection(self.page_step()),
+            KeyCode::PageUp => self.move_selection(-self.page_step()),
             KeyCode::Home => self.jump_to_start(),
             KeyCode::End => self.jump_to_end(),
             KeyCode::Esc if self.mode == Mode::Visual => self.mode = Mode::Normal,
@@ -5254,8 +6389,16 @@ impl App {
             self.handle_tasks_key(key);
             return;
         }
+        if self.show_query {
+            self.handle_query_key(key);
+            return;
+        }
         if self.show_history {
             self.handle_history_key(key);
+            return;
+        }
+        if self.show_conflicts {
+            self.handle_conflicts_key(key);
             return;
         }
         if self.show_outline {

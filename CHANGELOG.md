@@ -6,6 +6,69 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+### Added
+
+- Writing-comfort improvements to the native note editor (`Mode::Edit`), each independently
+  toggleable from the EDITOR tab in Settings (`leader` then `s`): list/checkbox auto-continuation
+  on `Enter` (with ordered-list auto-increment, empty-item exit, and `Backspace` cleanup),
+  bold/italic wrap shortcuts (`Ctrl+B`/`Ctrl+Alt+I`), bracket/quote auto-pairing
+  (`(`, `` ` ``, `"`), pasting a bare URL over a selection as a markdown link, move line
+  (`Alt+↑`/`Alt+↓`), duplicate line (`Alt+D`), block indent/outdent on a selection
+  (`Tab`/`Shift+Tab`), snippet expansion via trigger + `Tab`, and opt-in typewriter scrolling.
+- Zen mode (`leader` then `z`): forces the full-screen single-panel layout for distraction-free
+  writing.
+- Outline modal (PREVIEW `o`, or `Ctrl+O` while editing): jump to any heading in the note.
+- `[editor]` config gained `move_line`, `duplicate_line`, and `block_indent_select` toggles (all
+  on by default) so the move/duplicate/block-indent behaviors above can be turned off the same
+  way every other editor convenience already can.
+- `[export]` gained `export_dir` (where PDFs are saved — empty means the app's own data dir) and
+  `ask_export_path` (prompt for the exact save path on every publish instead of using it
+  silently), both editable from the EXPORT tab in Settings.
+- `[theme].icons` (Settings, THEME tab): turn off to fall back to plain text everywhere instead
+  of Nerd Font glyphs, for a terminal font that isn't Nerd-Fonts-patched.
+- Six new `[general]` toggles, all editable from the GENERAL tab in Settings: `show_coffee_link`
+  (hide the footer's Buy Me a Coffee segment), `skip_delete_confirm` (delete a note/folder
+  immediately, still restorable via `leader`+`u`), `show_dates` (persists the notes-scope `D`
+  toggle instead of resetting every launch), `wikilink_autocomplete` (disable the `[[` menu),
+  `daily_agenda` (skip the "Due today" section on new daily notes), and `compact_footer` (hide
+  char/word count and reading time, leaving just the essentials).
+- Eight more `[general]` tuning knobs, all editable from the GENERAL tab in Settings:
+  `status_message_timeout_secs` (how long a footer message stays visible), `drawer_width` (the
+  notebook drawer's width in columns), `tasks_show_done_default` (whether the tasks view starts
+  showing done tasks too), `default_note_sort` (which order NOTES sorts by on launch —
+  `"filename"`/`"title"`/`"date"`), `log_history_limit` (max entries kept in the logs modal/file),
+  `trash_retention_days` (auto-purge trash older than N days at startup — `0` means never),
+  `reading_wpm` (words-per-minute for the "N min read" estimate), and `page_step` (how many rows
+  `PageUp`/`PageDown` move at once, everywhere).
+- The which-key modal (`?`) now doubles as a unified command palette: once the filter query is
+  non-empty, it also fuzzy-matches notes across every notebook (title/body/notebook name, same
+  scoring the standalone global search modal uses) and lists up to 8 under a "notes" section —
+  `Enter` on one jumps straight to it, same as it already runs the highlighted action on a
+  keybinding row. Replaces `shiki-tui/src/command.rs`'s `CommandPalette`, which was unused dead
+  code that only duplicated the existing title-only note search (`/`, `leader`+`g`) without ever
+  being wired up to anything — removed rather than kept alongside the real thing.
+- Note templates and snippets gained two more substitution variables, `{{time}}` and
+  `{{notebook}}`, alongside the existing `{{title}}`/`{{date}}`/`{{cursor}}` — available in note
+  templates (`a`, the `@`-dropdown), the daily note, and `/`-menu snippets alike.
+- Note history (PREVIEW `H`) gained a real diff view: `d` on a revision shows a unified diff
+  against its parent (colored `-`/`+` lines, computed by libgit2 itself) instead of the full file
+  content — "what did this commit actually change here," the same thing `git log -p` shows for one
+  commit. Works from either the revision list or the existing full-content view; `r` (revert)
+  still acts on whichever revision is currently being looked at, in either view.
+- Recurring tasks: an `@every(<spec>)` tag (`day`/`daily`, `week`/`weekly`, `month`/`monthly`,
+  `year`/`yearly`, or `Nd`/`Nw`/`Nm`) marks a checkbox task as recurring. Completing one (never
+  un-completing) inserts its next occurrence right below it, unchecked, with `@due` advanced by
+  that interval from the task's existing due date (or from today if it had none) — a repeat icon
+  plus the raw spec shows next to the task text in the tasks view.
+
+### Fixed
+
+- The template picker's `{{cursor}}` marker (`a` → title → pick a template) was never actually
+  handled — it saved the literal text `{{cursor}}` into the new note's file and always opened the
+  editor at the top, unlike the identical marker in `/`-menu snippets, which already worked
+  correctly. Fixed to split it out before saving (so it's never written to disk) and jump the
+  cursor to exactly where it was in the template, same as snippets already do.
+
 ## [0.9.0] - 2026-08-04
 
 ### Added

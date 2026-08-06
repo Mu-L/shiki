@@ -25,6 +25,9 @@ pub enum Action {
     /// Opens the global tasks view: every `- [ ]` checkbox across every
     /// notebook, toggleable in place without opening the note.
     ToggleTasks,
+    /// Opens the query modal: a Dataview-style `where ... sort ...` DSL
+    /// over frontmatter, filtered/sorted live across every notebook.
+    ToggleQuery,
     /// Renders the selected notebook to a themed PDF via `pretty-pdf`
     /// (go-pretty-pdf), then opens it.
     PublishNotebook,
@@ -150,6 +153,7 @@ impl KeyMaps {
         // "what links here?" is answerable without focusing PREVIEW first.
         bind(&mut global, &cfg.global.links, Action::ShowLinks);
         bind(&mut global, &cfg.global.tasks_panel, Action::ToggleTasks);
+        bind(&mut global, &cfg.global.query_panel, Action::ToggleQuery);
         bind(&mut global, &cfg.global.publish, Action::PublishNotebook);
         bind(&mut global, &cfg.global.export, Action::ExportNotebook);
         bind(&mut global, &cfg.global.zen_mode, Action::ToggleZenMode);
@@ -307,18 +311,29 @@ pub enum WhichKeyRow {
         key: String,
         label: &'static str,
     },
+    /// A note matching the current filter, from a fuzzy search across every
+    /// notebook (`App.global_search_pool`, same pool/scoring the standalone
+    /// global search modal uses) — only ever appended while the filter is
+    /// non-empty, so an empty which-key still reads as "browse every
+    /// keybinding" and doesn't also dump every note in every notebook.
+    /// `pool_index` is the row's index into `global_search_pool`, resolved
+    /// by `App::jump_to_global_hit` on `Enter`, the same jump global
+    /// search's own `Enter` uses.
+    NoteHit { pool_index: usize, label: String },
 }
 
 impl WhichKeyRow {
     pub fn scope(&self) -> &'static str {
         match self {
             WhichKeyRow::Bound { scope, .. } | WhichKeyRow::Nav { scope, .. } => scope,
+            WhichKeyRow::NoteHit { .. } => "notes",
         }
     }
 
     pub fn key(&self) -> &str {
         match self {
             WhichKeyRow::Bound { key, .. } | WhichKeyRow::Nav { key, .. } => key,
+            WhichKeyRow::NoteHit { .. } => "",
         }
     }
 
@@ -326,13 +341,15 @@ impl WhichKeyRow {
         match self {
             WhichKeyRow::Bound { action, .. } => action_label(*action),
             WhichKeyRow::Nav { label, .. } => label,
+            WhichKeyRow::NoteHit { label, .. } => label,
         }
     }
 
-    pub fn icon(&self) -> char {
+    pub fn icon(&self) -> crate::icons::Icon {
         match self {
             WhichKeyRow::Bound { action, .. } => action_icon(*action),
             WhichKeyRow::Nav { .. } => crate::icons::ARROW,
+            WhichKeyRow::NoteHit { .. } => crate::icons::NOTE,
         }
     }
 }
@@ -386,6 +403,7 @@ pub fn action_label(action: Action) -> &'static str {
         Action::ShowHistory => "note history (view/revert)",
         Action::ShowLinks => "links (outgoing / backlinks / mentions)",
         Action::ToggleTasks => "tasks (all notebooks)",
+        Action::ToggleQuery => "query notes (frontmatter filter/sort)",
         Action::PublishNotebook => "publish notebook to PDF",
         Action::ExportNotebook => "export notebook to HTML/Markdown",
         Action::ToggleZenMode => "zen mode (full-screen, hide side panels)",
@@ -393,7 +411,7 @@ pub fn action_label(action: Action) -> &'static str {
     }
 }
 
-pub fn action_icon(action: Action) -> char {
+pub fn action_icon(action: Action) -> crate::icons::Icon {
     match action {
         Action::ThemePicker => crate::icons::EYE,
         Action::GlobalSearch | Action::JumpSearch => crate::icons::SEARCH,
@@ -418,6 +436,7 @@ pub fn action_icon(action: Action) -> char {
         Action::ToggleTreeView => crate::icons::TREE,
         Action::ToggleDates | Action::ShowHistory => crate::icons::HISTORY,
         Action::ToggleVisual | Action::ToggleTasks => crate::icons::CHECK,
+        Action::ToggleQuery => crate::icons::FILTER,
         Action::CopyEntries => crate::icons::CLIPBOARD,
         Action::ShowLinks => crate::icons::LINK,
         Action::UndoDelete => crate::icons::UNDO,

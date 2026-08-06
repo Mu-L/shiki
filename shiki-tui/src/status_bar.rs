@@ -15,15 +15,16 @@ fn word_count(body: &str) -> usize {
     body.split_whitespace().count()
 }
 
-/// Rounded up to the nearest minute at the common 200wpm estimate (the
-/// same figure Medium/most reading-time plugins use), with a floor of 1
-/// for any non-empty note — "0 min read" reads as broken, not as "very
-/// short".
-fn reading_time_minutes(words: usize) -> usize {
+/// Rounded up to the nearest minute at `wpm` (`config.general.reading_wpm`,
+/// defaulting to 200 — the same figure Medium/most reading-time plugins
+/// use), with a floor of 1 for any non-empty note — "0 min read" reads as
+/// broken, not as "very short". A configured `0` is treated the same as
+/// "not set" (falls back to 1 word/minute rather than dividing by zero).
+fn reading_time_minutes(words: usize, wpm: usize) -> usize {
     if words == 0 {
         return 0;
     }
-    words.div_ceil(200).max(1)
+    words.div_ceil(wpm.max(1)).max(1)
 }
 
 /// Only worth announcing when it's not the default — a "NORMAL" label on
@@ -66,11 +67,15 @@ pub const COFFEE_URL: &str = "https://buymeacoffee.com/sazarcode";
 /// `coffee_hit_at` can never disagree about where the clickable area
 /// actually is, the same reasoning `git_status_color`/`git_status_suffix`
 /// being shared between the footer and the drawer was already built on.
-fn right_text() -> (String, std::ops::Range<usize>) {
-    let coffee = format!("{} Support", icons::COFFEE);
-    let prefix = "  ";
+fn right_text(show_coffee_link: bool) -> (String, std::ops::Range<usize>) {
+    let coffee = if show_coffee_link {
+        format!("{}Support", icons::COFFEE)
+    } else {
+        String::new()
+    };
+    let prefix = if coffee.is_empty() { "" } else { "  " };
     let suffix = format!(
-        "   {} ? help   v{}  ",
+        "   {}? help   v{}  ",
         icons::KEYBOARD,
         env!("CARGO_PKG_VERSION")
     );
@@ -84,12 +89,13 @@ fn right_text() -> (String, std::ops::Range<usize>) {
 /// the same right-alignment math ratatui applies when rendering
 /// `right_text()`'s output into `area` — a plain function of coordinates,
 /// not `&App`, so it's unit-testable the same way `panel_drawer::drawer_hit_at`
-/// is.
-pub fn coffee_hit_at(area: Rect, column: u16, row: u16) -> bool {
+/// is. Always misses when `show_coffee_link` is off, since the segment's
+/// range then collapses to zero width.
+pub fn coffee_hit_at(area: Rect, column: u16, row: u16, show_coffee_link: bool) -> bool {
     if row != area.y {
         return false;
     }
-    let (text, range) = right_text();
+    let (text, range) = right_text(show_coffee_link);
     let content_width = text.chars().count() as u16;
     if content_width > area.width {
         return false; // clipped from the left, same as ratatui would render it
@@ -128,38 +134,45 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .map(|nb| nb.name.as_str())
         .unwrap_or("-");
     spans.push(Span::styled(
-        format!("{} {notebook_name}", icons::NOTEBOOK),
+        format!("{}{notebook_name}", icons::NOTEBOOK),
         plain.fg(fg),
     ));
-    spans.push(sep.clone());
 
-    // Contextual metadata: character count of the note actually being read
-    // (Notes/Preview, something selected), otherwise how many notes are in
-    // view (e.g. while still browsing NOTEBOOKS).
-    let meta = match app.selected_note() {
-        Some(note) if matches!(app.focus, Focus::Notes | Focus::Preview) => {
-            let words = word_count(&note.body);
-            format!(
-                "{} {} chars · {words} words · {} min read",
-                icons::NOTE,
-                note.body.chars().count(),
-                reading_time_minutes(words)
-            )
-        }
-        _ => format!("{} {} notes", icons::NOTE, app.notes.len()),
-    };
-    spans.push(Span::styled(meta, plain.fg(fg)));
+    // Contextual metadata (char/word count, reading time, note-count
+    // breakdown, revision count) — skipped entirely in compact mode,
+    // leaving just the essentials (notebook, git status, editor mode).
+    if !app.config.general.compact_footer {
+        spans.push(sep.clone());
 
-    // Note version history — how many commits have touched this specific
-    // note, only while actually reading one in PREVIEW (not while just
-    // browsing NOTES, where it'd compete with the char/note count above).
-    if app.focus == Focus::Preview {
-        if let Some(count) = app.note_revision_count() {
-            spans.push(sep.clone());
-            spans.push(Span::styled(
-                format!("{} {count} changes", icons::HISTORY),
-                plain.fg(muted),
-            ));
+        // Character count of the note actually being read (Notes/Preview,
+        // something selected), otherwise how many notes are in view (e.g.
+        // while still browsing NOTEBOOKS).
+        let meta = match app.selected_note() {
+            Some(note) if matches!(app.focus, Focus::Notes | Focus::Preview) => {
+                let words = word_count(&note.body);
+                format!(
+                    "{}{} chars · {words} words · {} min read",
+                    icons::NOTE,
+                    note.body.chars().count(),
+                    reading_time_minutes(words, app.config.general.reading_wpm)
+                )
+            }
+            _ => format!("{}{} notes", icons::NOTE, app.notes.len()),
+        };
+        spans.push(Span::styled(meta, plain.fg(fg)));
+
+        // Note version history — how many commits have touched this
+        // specific note, only while actually reading one in PREVIEW (not
+        // while just browsing NOTES, where it'd compete with the char/note
+        // count above).
+        if app.focus == Focus::Preview {
+            if let Some(count) = app.note_revision_count() {
+                spans.push(sep.clone());
+                spans.push(Span::styled(
+                    format!("{}{count} changes", icons::HISTORY),
+                    plain.fg(muted),
+                ));
+            }
         }
     }
 
@@ -180,12 +193,24 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         spans.push(sep.clone());
         let gs = &app.git_status;
         let branch = gs.branch.as_deref().unwrap_or("?");
-        let extras = crate::render::git_status_suffix(gs);
-        let color = crate::render::git_status_color(&app.theme, gs);
-        spans.push(Span::styled(
-            format!("{} {branch}{extras}", icons::GIT),
-            plain.fg(color),
-        ));
+        // A merge in progress outranks the normal dirty/ahead/behind
+        // display — that state is meaningless mid-merge (the working tree
+        // is full of conflict resolution, not ordinary pending changes),
+        // and this is the one thing most worth surfacing prominently: it's
+        // what's blocking edit mode (`merge_blocks_editing`) until resolved.
+        if app.merge_active {
+            spans.push(Span::styled(
+                format!("{}{branch} MERGING", icons::WARNING),
+                plain.fg(hex_to_color(&app.theme.warning)),
+            ));
+        } else {
+            let extras = crate::render::git_status_suffix(gs);
+            let color = crate::render::git_status_color(&app.theme, gs);
+            spans.push(Span::styled(
+                format!("{}{branch}{extras}", icons::GIT),
+                plain.fg(color),
+            ));
+        }
     }
 
     spans.push(sep.clone());
@@ -195,19 +220,19 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         muted
     };
     spans.push(Span::styled(
-        format!("{} {}", icons::PENCIL, app.editor_status_label()),
+        format!("{}{}", icons::PENCIL, app.editor_status_label()),
         plain.fg(editor_color),
     ));
 
     if app.leader_pending {
         spans.push(sep.clone());
         spans.push(Span::styled(
-            format!("{} leader…", icons::KEYBOARD),
+            format!("{}leader…", icons::KEYBOARD),
             plain.fg(accent).add_modifier(Modifier::BOLD),
         ));
     }
 
-    let (right, coffee_range) = right_text();
+    let (right, coffee_range) = right_text(app.config.general.show_coffee_link);
 
     if let Some(status) = &app.status_message {
         // Truncated to whatever room is actually left, so a long message
@@ -249,38 +274,46 @@ mod tests {
 
     #[test]
     fn coffee_hit_at_lands_inside_the_coffee_segment() {
-        let (text, range) = right_text();
+        let (text, range) = right_text(true);
         let width = text.chars().count() as u16;
         let area = Rect::new(0, 5, width, 1);
         let text_start = area.x; // content exactly fills the area here
         let mid_col = text_start + (range.start as u16 + range.end as u16) / 2;
-        assert!(coffee_hit_at(area, mid_col, 5));
+        assert!(coffee_hit_at(area, mid_col, 5, true));
     }
 
     #[test]
     fn coffee_hit_at_misses_outside_the_coffee_segment() {
-        let (text, _range) = right_text();
+        let (text, _range) = right_text(true);
         let width = text.chars().count() as u16;
         let area = Rect::new(0, 5, width, 1);
         // The very first column is inside the leading "  " padding, before
         // the coffee segment starts.
-        assert!(!coffee_hit_at(area, area.x, 5));
+        assert!(!coffee_hit_at(area, area.x, 5, true));
         // Wrong row entirely.
-        assert!(!coffee_hit_at(area, area.x + 3, 6));
+        assert!(!coffee_hit_at(area, area.x + 3, 6, true));
     }
 
     #[test]
     fn coffee_hit_at_shifts_with_wider_area_since_alignment_is_right() {
-        let (text, range) = right_text();
+        let (text, range) = right_text(true);
         let width = text.chars().count() as u16;
         // Extra room on the left — right-aligned text starts further right.
         let area = Rect::new(0, 0, width + 10, 1);
         let text_start = area.x + area.width - width;
         let inside_col = text_start + range.start as u16;
-        assert!(coffee_hit_at(area, inside_col, 0));
+        assert!(coffee_hit_at(area, inside_col, 0, true));
         // The same column that hit when area matched `width` exactly now
         // falls in the extra left-hand gap, so it should miss.
-        assert!(!coffee_hit_at(area, range.start as u16, 0));
+        assert!(!coffee_hit_at(area, range.start as u16, 0, true));
+    }
+
+    #[test]
+    fn coffee_hit_at_always_misses_when_the_link_is_disabled() {
+        let area = Rect::new(0, 0, 40, 1);
+        for col in area.x..area.x + area.width {
+            assert!(!coffee_hit_at(area, col, 0, false));
+        }
     }
 
     #[test]
@@ -292,10 +325,18 @@ mod tests {
 
     #[test]
     fn reading_time_rounds_up_at_200_words_per_minute() {
-        assert_eq!(reading_time_minutes(0), 0);
-        assert_eq!(reading_time_minutes(1), 1);
-        assert_eq!(reading_time_minutes(200), 1);
-        assert_eq!(reading_time_minutes(201), 2);
-        assert_eq!(reading_time_minutes(500), 3);
+        assert_eq!(reading_time_minutes(0, 200), 0);
+        assert_eq!(reading_time_minutes(1, 200), 1);
+        assert_eq!(reading_time_minutes(200, 200), 1);
+        assert_eq!(reading_time_minutes(201, 200), 2);
+        assert_eq!(reading_time_minutes(500, 200), 3);
+    }
+
+    #[test]
+    fn reading_time_respects_a_configured_wpm() {
+        assert_eq!(reading_time_minutes(100, 100), 1);
+        assert_eq!(reading_time_minutes(101, 100), 2);
+        // A configured 0 doesn't divide by zero — treated as 1wpm instead.
+        assert_eq!(reading_time_minutes(3, 0), 3);
     }
 }

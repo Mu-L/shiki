@@ -97,8 +97,7 @@ shiki/
 │       ├── panel_tags.rs          # tag filter
 │       ├── editor.rs              # inline editor (tui-textarea)
 │       ├── status_bar.rs          # bottom status bar
-│       ├── command.rs             # command palette / global fuzzy finder
-│       ├── which.rs               # keybindings popup (like Yazi)
+│       ├── which.rs               # keybindings popup + command palette (like Yazi)
 │       ├── confirm.rs             # confirmation dialog
 │       ├── input.rs               # simple text input
 │       ├── keybindings.rs         # configurable key map
@@ -188,7 +187,7 @@ table: `[keybindings.global]` (needs the leader key first),
 | `l` / `→` / `enter` | Go one level deeper (Yazi-style): NOTEBOOKS → NOTES → PREVIEW |
 | `h` / `←` | Go back one level (Yazi-style) |
 | `tab` | Cycle focus between panels |
-| `?` | Which-key — near-full-screen list of every binding, doubling as a command palette: type to filter (by key, action, or scope), `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` move the selection, `enter` runs the highlighted action immediately, `Esc` just closes |
+| `?` | Which-key — near-full-screen list of every binding, doubling as a command palette: type to filter (by key, action, or scope) — once the query is non-empty, it also fuzzy-matches notes across every notebook (title/body/notebook name) and lists up to 8 under a "notes" section — `↑`/`↓`/`PageUp`/`PageDown`/`Home`/`End` move the selection, `enter` runs the highlighted action or jumps straight to the highlighted note, `Esc` just closes |
 | `q` | Quit |
 | `Esc` | Back to NORMAL / close popup / cancel leader |
 
@@ -207,7 +206,7 @@ search, tree view) using the same list/selection they already navigate with `j`/
 | `e` | Toggle `general.use_favorite_editor` on/off and persist it immediately — no need to hand-edit config.toml. The footer always shows which mode is active: the resolved editor name (e.g. `nvim`) when on, `native` (the built-in inline editor) when off |
 | `p` | Scratchpad — open an in-memory editor; `Ctrl+S` saves its contents through the new-note title/template flow, while `Esc` discards it |
 | `B` | Links — the same modal as PREVIEW's `L` (outgoing wikilinks / backlinks / unlinked mentions for the selected note), reachable from any panel without focusing PREVIEW first |
-| `t` | Tasks — every `- [ ]` checkbox task across every notebook in one flat list, pending-only by default, sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (`notebook/folders…/note title`) so where a task lives is always visible, even mid-scroll. `Enter`/`space` toggles the task directly in its source file (a normal note edit — flows through auto-sync like any other change) and updates the row in place so it can be immediately un-toggled; `l`/`o` jumps to the note; `a` also shows completed tasks. An optional `@due(YYYY-MM-DD)` tag anywhere in the task text renders the date next to it: overdue in the theme's error color, due today in warning, future in muted. Relative specs — `@due(tomorrow)`, `@due(+3d)`, `@due(+2w)`, `@due(fri)` — are pinned to the real date the moment the note is saved (inline or external editor), since they're relative to the day they were written. Also scriptable as `shiki tasks` (see CLI commands) |
+| `t` | Tasks — every `- [ ]` checkbox task across every notebook in one flat list, pending-only by default (persisted default: `general.tasks_show_done_default`), sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (`notebook/folders…/note title`) so where a task lives is always visible, even mid-scroll. `Enter`/`space` toggles the task directly in its source file (a normal note edit — flows through auto-sync like any other change) and updates the row in place so it can be immediately un-toggled; `l`/`o` jumps to the note; `a` also shows completed tasks. An optional `@due(YYYY-MM-DD)` tag anywhere in the task text renders the date next to it: overdue in the theme's error color, due today in warning, future in muted. Relative specs — `@due(tomorrow)`, `@due(+3d)`, `@due(+2w)`, `@due(fri)` — are pinned to the real date the moment the note is saved (inline or external editor), since they're relative to the day they were written. An optional `@every(<spec>)` tag (`day`/`daily`, `week`/`weekly`, `month`/`monthly`, `year`/`yearly`, or `Nd`/`Nw`/`Nm`) marks a task as recurring — completing it (not un-completing) inserts its next occurrence right below it, unchecked, with `@due` advanced by that interval from the existing due date (or from today if it had none); a repeat icon plus the raw spec shows next to the task text. Also scriptable as `shiki tasks` (see CLI commands) |
 | `P` | Publish the selected notebook to a themed PDF via `pretty-pdf` (external binary, auto-fetched on first use — see CLI commands), written to `{data_dir}/exports/{notebook}.pdf`, then opened. Same rendering `shiki publish` uses; the theme comes from `export.pdf_theme`, cyclable in Settings → EXPORT |
 | `U` | Check for updates — modal; checks GitHub Releases in the background (never blocks the UI), shows "update available" if there's a newer version, and `Enter` downloads, verifies (against GitHub's own per-asset checksum), installs, and automatically relaunches into it |
 | `u` | Undo the last delete — restores the most recently deleted note/folder (or whole batch, from a Visual-mode delete) from the trash (`~/.config/shiki/trash/`) back to exactly where it came from. A single level of undo, not a full history: only the *most recent* delete is restorable this way; an older one is still on disk in the trash, just no longer reachable from here. With nothing to undo, reports that instead of doing anything |
@@ -240,14 +239,14 @@ sync attempt (manual or automatic) just tries the push again.
 
 | Key | Action |
 |---|---|
-| `a` | New note (empty title stamps today's date). After the title, a template picker opens — every `.md` file in `~/.config/shiki/templates/` plus a "blank" option; `j`/`k` browse, `Enter` picks one and jumps straight to editing (`{{title}}`/`{{date}}` already substituted), `Esc`/`q` cancels the note entirely. Typing `@` anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — `today`/`yesterday`/`tomorrow` (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; `Enter` creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely |
+| `a` | New note (empty title stamps today's date). After the title, a template picker opens — every `.md` file in `~/.config/shiki/templates/` plus a "blank" option; `j`/`k` browse, `Enter` picks one and jumps straight to editing (`{{title}}`/`{{date}}`/`{{time}}`/`{{notebook}}` already substituted, and a `{{cursor}}` marker — never saved to disk — leaves the cursor exactly where it was in the template instead of at the top), `Esc`/`q` cancels the note entirely. Typing `@` anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — `today`/`yesterday`/`tomorrow` (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; `Enter` creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely |
 | `f` | New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first |
 | `r` | Rename note |
 | `d` | Delete the selected note *or* folder (with confirmation) — a folder deletes everything inside it too. In `v` select mode, deletes every selected item at once. Moved to the trash rather than permanently removed, so leader+`u` can undo it |
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
 | `/` | Fuzzy-jump to a note by title anywhere in the current notebook (any folder depth) |
-| `t` | New/open today's daily note. On first creation each day, a "## Due today" section is appended after the template with every pending task due today or overdue, across every notebook — plain bullets with a `[[wikilink]]` back to each task's source note (deliberately not checkbox copies, which would double-count in the tasks view). Reopening later never re-injects or duplicates it |
+| `t` | New/open today's daily note. On first creation each day (and only if `general.daily_agenda` is on, the default), a "## Due today" section is appended after the template with every pending task due today or overdue, across every notebook — plain bullets with a `[[wikilink]]` back to each task's source note (deliberately not checkbox copies, which would double-count in the tasks view). Reopening later never re-injects or duplicates it |
 | `m` | Move the selected note *or* folder — prompts for a `notebook/path/within/it` target, prefilled with the current one; edit the trailing segments to move within the same notebook (missing folders are created), or replace the first segment to move to a different (existing) notebook. In `v` select mode, moves every selected item at once |
 | `o` | Cycle sort order (filename / title A-Z / date newest-first) |
 | `T` | Tree view — every folder and note in the notebook, fully expanded, in one scrollable overview; `j`/`k` move, `enter`/`l` jumps straight to the selected note, `esc`/`q` closes |
@@ -261,7 +260,7 @@ sync attempt (manual or automatic) just tries the push again.
 |---|---|
 | `i` | Edit inline (or the OS favorite editor if `general.use_favorite_editor`) |
 | `E` | Edit externally ($EDITOR) |
-| `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `r` reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
+| `H` | Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` views a revision's full content (frontmatter included, since that's what's actually in the commit), `d` views a real unified diff of that revision against its parent instead (colored `-`/`+` lines, computed by libgit2 itself, not a hand-rolled line algorithm — the first commit in a note's history has no parent, so every line comes back as an addition) — `d` also works from inside the full-content view to switch straight to the diff of the same revision, `r` reverts to the highlighted (or currently-viewed, either view) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by `s`/`u`/`auto_sync` like any other edit. The footer shows the count while reading a note (`{n} changes`) |
 | `L` | Links — the selected note's outgoing `[[wikilinks]]` (resolved against every note in the notebook, any folder depth), every other note that links back to it, and notes that *mention* this note's title in plain text without linking to it ("Outgoing"/"Backlinks"/"Mentions (unlinked)" sections; a section with nothing in it is omitted). `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` jumps to the selected note (an unresolved outgoing link reports that instead of jumping), `c` on a mention row *repairs* the missed link — it wraps that note's plain-text mention into a real `[[wikilink]]` (preserving its casing) and the row visibly migrates to Backlinks — and `Esc`/`q` closes. Also reachable globally via leader+`B` |
 | `o` | Outline — every `#`..`######` heading in the selected note, indented by level. `j`/`k`/`PageUp`/`PageDown`/`Home`/`End` move, `Enter` scrolls PREVIEW to that heading, `Esc`/`q` closes. Also reachable as `Ctrl+O` from inside `Mode::Edit` itself — there, `Enter` moves the editor's own cursor to the heading instead of scrolling PREVIEW, and the headings come from the live, possibly-unsaved buffer rather than the note's last-saved body |
 
@@ -342,13 +341,20 @@ The rest of the editor's mouse/keyboard UX is opt-in via `[editor]` (Settings' E
   inserting a literal tab.
 - `typewriter_scroll` (off by default): keeps the cursor's line vertically centered in the editor
   viewport while typing, instead of only scrolling once the cursor reaches the edge.
+- `move_line` (on by default): `Alt+↑`/`Alt+↓` move the current line past its neighbor.
+- `duplicate_line` (on by default): `Alt+D` duplicates the current line directly below itself.
+- `block_indent_select` (on by default): `Tab`/`Shift+Tab` with an active selection indent/outdent
+  every line the selection spans — a plain block-indent, not list-specific. With this off, `Tab`
+  on a selection falls through to whatever else applies (snippet expansion, list nesting, or a
+  literal tab).
 
-`[[wikilink]]` autocomplete is always on too, not gated by `[editor]`: typing `[[` opens an
-Obsidian-style fuzzy note picker (same fuzzy matching as `/` and global search), showing each
-candidate's folder breadcrumb so notes with duplicate titles in different folders stay
-distinguishable; picking one inserts `[[Title]]`. In PREVIEW, `Ctrl`+click on a rendered
-`[[wikilink]]` jumps straight to the note it resolves to — a plain click still enters edit mode
-everywhere, including on top of a wikilink.
+`[[wikilink]]` autocomplete (gated by `[general].wikilink_autocomplete`, on by default, not by
+`[editor]`): typing `[[` opens an Obsidian-style fuzzy note picker (same fuzzy matching as `/` and
+global search), showing each candidate's folder breadcrumb so notes with duplicate titles in
+different folders stay distinguishable; picking one inserts `[[Title]]`. Off falls through to a
+literal `[[` with no menu. In PREVIEW, `Ctrl`+click on a rendered `[[wikilink]]` jumps straight to
+the note it resolves to — a plain click still enters edit mode everywhere, including on top of a
+wikilink.
 
 Navigation inside the editor is always on, not gated by `[editor]`: `PageUp`/`PageDown` move the
 cursor a page at a time, plain `Home` is "smart" — the first press goes to the line's first
@@ -357,9 +363,7 @@ column 0 — `End` goes to the end of the current line, `Ctrl+Home`/`Ctrl+End` j
 start/end of the note, and the mouse wheel scrolls too. `PageUp`/`PageDown`/mouse-wheel scrolling
 move the cursor itself (there's no independent scroll offset — the editor's word-wrap support
 means it bypasses `tui-textarea`'s own rendering, and with it, `tui-textarea`'s own viewport-based
-`PageUp`/`PageDown`, which otherwise does nothing here). `Tab`/`Shift+Tab` with an active selection
-indent/outdent every line the selection spans — a plain block-indent, not list-specific, also
-always on regardless of `auto_list_continue`.
+`PageUp`/`PageDown`, which otherwise does nothing here).
 
 ---
 
@@ -393,6 +397,10 @@ shiki notebook create <name>
 shiki notebook list --json
 shiki notebook rename <old> <new>
 shiki notebook delete <name> --yes  # permanently deletes the notebook and every note in it
+shiki notebook encrypt <name>       # enable encryption at rest (prompts for a passphrase, twice)
+shiki notebook decrypt <name>       # reverse it — decrypts every note back to plain text
+shiki query 'where status = pending sort due asc'   # Dataview-style filter/sort over frontmatter
+shiki query 'where due < today' --count             # for status bars, like `shiki tasks --count`
 shiki theme list          # list built-in themes, marking the active one
 shiki theme set <name>    # switch theme (persisted to config.toml)
 shiki theme create [--from <name>]  # scaffold all 19 color overrides from a real palette
@@ -412,6 +420,70 @@ given.
 matching an existing notebook; `data_dir` being a real directory, not just existing; two notebooks
 resolving to the same path on disk; `git.remote_template` containing its `{notebook}` placeholder;
 and `git.sign_commits` having an actual signing key configured (`git config user.signingkey`).
+
+---
+
+## Encryption at rest (per notebook, passphrase-based)
+
+Any notebook can be encrypted independently — `leader+s` → NOTEBOOKS → drill into a notebook →
+`encrypted` field, or `shiki notebook encrypt <name>` from the CLI. Every note's full content
+(frontmatter + body) is encrypted as one [age](https://age-encryption.org)-armored blob using a
+passphrase (`age::scrypt` — symmetric, no keypair), so the file on disk is still plain ASCII text
+(`git diff`/`git log -p` don't flip to "binary files differ"), just unreadable without the
+passphrase. Note filenames stay in the clear — the one accepted metadata leak, since opaque
+filenames would need a bigger redesign.
+
+**There is exactly one passphrase per notebook — not one per machine, not one per person.** It's
+the actual encryption key (well, the input `age::scrypt` derives the real key from), the same way a
+password-protected ZIP file or a KeePass database has one password that opens it anywhere, on any
+machine. Shiki **never** stores or syncs this passphrase anywhere — not in `config.toml`, not in
+the git repo, not in any file. You are the only distribution mechanism: write it down in a password
+manager, remember it, whatever — just don't lose it. There is no recovery path if you do; nothing in
+shiki can decrypt a notebook without the exact passphrase that encrypted it.
+
+Walking through it end to end, encrypting `vault` with passphrase `1234567` on one machine and then
+opening the same repo on a second machine:
+
+1. **Machine A** (has the plaintext notebook): `shiki notebook encrypt vault` prompts for the
+   passphrase twice (typo protection), writes a small canary file (`.shiki-encryption`, itself
+   encrypted with that passphrase — exists purely to verify a passphrase attempt without risking a
+   real note) at the notebook's root, re-encrypts every existing note, flips
+   `[notebooks.vault] encrypt = true` in **machine A's own** `config.toml`, and commits everything.
+   You push as usual — what lands on GitHub/GitLab/wherever is ciphertext notes plus the encrypted
+   canary. Nobody who can see the repo (including the hosting provider) can read the content
+   without the passphrase.
+2. **Machine B** `git clone`s or `git pull`s that repo. It gets the same ciphertext files and the
+   canary — but its *own* `config.toml` (which never travels with the git repo; it lives outside it
+   entirely, under `~/.config/shiki/`, precisely so the passphrase/flag can't leak through git) has
+   no idea this notebook is encrypted at all yet.
+3. Opening `vault` on machine B, shiki doesn't consult that config flag to decide whether to prompt
+   — it sniffs the *actual file content* for the age armor header, so it notices the encryption
+   regardless of what machine B's config says, and asks: `Passphrase — unlock 'vault'`.
+4. You type the **same** `1234567` you used on machine A — not a different one, not "machine B's
+   own" passphrase. Shiki decrypts the canary with it; if it matches, every note in the notebook now
+   shows up decrypted in the UI, and machine B's `config.toml` also gets `encrypt = true` written
+   into it (so a note you create or edit on machine B from now on encrypts too, instead of silently
+   falling back to plain text because that one machine's config didn't know yet).
+5. Typing the wrong passphrase at step 4 fails the canary check with a clear error and nothing is
+   shown or touched — no corruption, just a re-prompt.
+
+Practical consequences worth knowing:
+
+- **CLI read commands don't prompt for a passphrase** (`shiki list`/`tasks`/`graph`/`show`/`search`)
+  — they're built for non-interactive use (status bars, scripts), and blocking on a hidden-input
+  prompt mid-script isn't viable. Against an encrypted, locked notebook they fail with a clear error
+  instead of hanging or printing garbage; `shiki new`/`shiki daily` (the write paths) do prompt,
+  since writing plaintext into what should be an encrypted notebook would be a real correctness bug,
+  not just an inconvenience.
+- The note-history modal (`H`) degrades gracefully for an encrypted notebook: viewing an old
+  revision decrypts it the same way a live read does, but the unified *diff* view (`d`) can't work
+  at all — a tree diff of two ciphertext blobs is meaningless noise, so it falls back to showing the
+  decrypted full content instead, with a status message explaining why.
+- Changing the passphrase isn't a per-machine setting you can pick independently — it means
+  decrypting and re-encrypting with the new one, and every other machine still holding the old
+  ciphertext needs the new passphrase from that point on (there's no `shiki notebook rekey`
+  convenience command yet — do it by hand: `shiki notebook decrypt <name>` with the old passphrase,
+  then `shiki notebook encrypt <name>` with the new one, then push).
 
 ---
 
@@ -549,6 +621,47 @@ show_hints = true
 # root. A renamed/deleted notebook or moved note is silently ignored rather
 # than erroring; the app just falls back to the default startup state.
 remember_last_session = true
+# Shows the "Buy Me a Coffee" segment in the footer (mouse-clickable).
+show_coffee_link = true
+# When true, deleting a note/folder (including a Visual-mode batch delete)
+# skips the confirm dialog and deletes immediately — still restorable via
+# leader+`u`. Doesn't apply to notebook delete, which asks a real
+# delete-vs-untrack question, not a plain yes/no safety gate.
+skip_delete_confirm = false
+# Shows each note's date next to its title in the NOTES list (same as the
+# notes-scope `D` toggle — this is just its persisted default).
+show_dates = false
+# Typing `[[` in the inline editor opens the wikilink autocomplete menu.
+wikilink_autocomplete = true
+# Creating a new daily note appends a "## Due today" section listing
+# pending/overdue tasks across every notebook (only on creation).
+daily_agenda = true
+# Hides char/word count, reading time, and note-count detail from the
+# footer, leaving just the essentials — notebook, git status, editor mode.
+compact_footer = false
+# How long a footer status message stays visible before clearing itself.
+status_message_timeout_secs = 2
+# Width in columns of the notebook drawer (leader+`b`). Clamped against
+# the frame's actual width at render time regardless of this value.
+drawer_width = 30
+# Whether the tasks view (leader+`t`) starts showing every task, including
+# already-done ones, instead of just pending.
+tasks_show_done_default = false
+# "filename", "title", or "date" — which order the NOTES list sorts by on
+# a fresh launch. The notes-scope `o` cycle still changes it for the rest
+# of the session on top of whichever default this resolves to.
+default_note_sort = "filename"
+# Max entries kept in the logs modal (leader+`l`) and the persisted log
+# file. Lowering this doesn't retroactively trim an existing log file.
+log_history_limit = 500
+# Days a deleted note/folder stays in the trash before being permanently
+# purged at startup. 0 (the default) means never auto-purge.
+trash_retention_days = 0
+# Words-per-minute used for the footer's "N min read" estimate.
+reading_wpm = 200
+# How many rows PageUp/PageDown (and the mouse wheel) move at once, across
+# every scrollable list/modal in the TUI.
+page_step = 10
 
 [keybindings]
 leader = "space"
@@ -607,6 +720,7 @@ outline = "o"
 
 [theme]
 name = "gruvbox-dark"
+icons = true  # false falls back to plain text — no Nerd Font glyphs anywhere
 # Every one of a theme's 19 color slots can be overridden individually —
 # accent, bg, fg, selection, border, statusbar, highlight, error, warning,
 # success, inactive, scrollbar, tab_active, tab_inactive, panel_title,
@@ -656,6 +770,9 @@ auto_pair_brackets = true  # typing ( ` " wraps the selection or inserts an empt
 paste_url_as_link = true   # pasting a URL over a selection wraps it as a markdown link
 snippet_expand_tab = true  # Tab expands a matching snippet trigger
 typewriter_scroll = false  # keeps the cursor's line vertically centered while typing
+move_line = true          # Alt+Up/Alt+Down move the current line past its neighbor
+duplicate_line = true     # Alt+D duplicates the current line
+block_indent_select = true  # Tab/Shift+Tab with a selection indent/outdent every line it spans
 
 # PDF export (`shiki publish`, leader+`P`) — pdf_theme picks one of
 # go-pretty-pdf's 17 built-in themes: default, minimal, modern, classic,
@@ -681,14 +798,20 @@ auto_sync = true
 auto_sync = true
 auto_sync_every = 3
 auto_push = true
+# Encrypts every note at rest with a passphrase (prompted, never stored here
+# or anywhere else — see "Encryption at rest" above). No global default to
+# inherit from; this is opt-in per notebook, managed via `shiki notebook
+# encrypt/decrypt <name>` or Settings → NOTEBOOKS, not by hand-editing this.
+# encrypt = true
 
 # Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
 # default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
 # divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
 # details) aren't listed here at all, only your own additions/overrides.
 # `label` falls back to the trigger when omitted; `body` supports
-# {{title}}/{{date}} (substituted the same way note templates are) plus a
-# {{cursor}} marker for where the cursor lands after insertion.
+# {{title}}/{{date}}/{{time}}/{{notebook}} (substituted the same way note
+# templates are) plus a {{cursor}} marker for where the cursor lands after
+# insertion.
 [snippets.callout]
 label = "Info callout"
 body = "> **Info:** {{cursor}}"

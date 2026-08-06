@@ -5,7 +5,7 @@ use crate::app::{
 use crate::icons;
 use crate::render::{hex_to_color, panel_block};
 use crate::{
-    layout, panel_drawer, panel_notebooks, panel_notes, panel_outline, panel_preview,
+    layout, panel_drawer, panel_notebooks, panel_notes, panel_outline, panel_preview, panel_query,
     panel_settings, panel_tags, panel_tasks, status_bar, which,
 };
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -16,6 +16,7 @@ use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub fn draw(frame: &mut Frame, app: &App) {
+    icons::set_enabled(app.config.theme.icons);
     let background = ratatui::widgets::Block::default()
         .style(ratatui::style::Style::default().bg(hex_to_color(&app.theme.bg)));
     frame.render_widget(background, frame.area());
@@ -88,8 +89,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .iter()
                 .map(|cmd| ListItem::new(cmd.display()))
                 .collect();
-            let highlight_symbol = format!("{} ", icons::ARROW);
-            let list_title = format!(" {}  Quick template ", icons::CALENDAR);
+            let highlight_symbol = format!("{}", icons::ARROW);
+            let list_title = format!(" {}Quick template ", icons::CALENDAR);
             let list = List::new(items)
                 .block(panel_block(Line::from(list_title), true, &app.theme))
                 .highlight_style(
@@ -159,7 +160,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     if app.show_drawer {
-        let drawer_rect = drawer_area(frame.area());
+        let drawer_rect = drawer_area(frame.area(), app.config.general.drawer_width);
         frame.render_widget(Clear, drawer_rect);
         panel_drawer::render(frame, drawer_rect, app);
     }
@@ -192,8 +193,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
         panel_tasks::render(frame, frame.area(), app);
     }
 
+    if app.show_query {
+        panel_query::render(frame, frame.area(), app);
+    }
+
     if app.show_history {
         render_history(frame, frame.area(), app);
+    }
+
+    if app.show_conflicts {
+        render_conflicts(frame, frame.area(), app);
     }
 
     if app.show_update {
@@ -245,8 +254,8 @@ fn render_theme_picker(frame: &mut Frame, frame_area: Rect, app: &App) {
         .iter()
         .map(|t| ListItem::new(t.name.clone()))
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
-    let title = format!(" {}  Pick a theme ", icons::EYE);
+    let highlight_symbol = format!("{}", icons::ARROW);
+    let title = format!(" {}Pick a theme ", icons::EYE);
     let list = List::new(items)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
@@ -276,8 +285,8 @@ fn render_template_picker(frame: &mut Frame, frame_area: Rect, app: &App) {
             None => ListItem::new("(blank, no template)"),
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
-    let title = format!(" {}  Pick a template ", icons::NOTE);
+    let highlight_symbol = format!("{}", icons::ARROW);
+    let title = format!(" {}Pick a template ", icons::NOTE);
     let list = List::new(items)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
@@ -301,7 +310,7 @@ fn render_global_search(frame: &mut Frame, frame_area: Rect, app: &App) {
     app.global_search_input.render(
         frame,
         input_area,
-        &format!(" {}  Search all notes ", icons::SEARCH),
+        &format!(" {}Search all notes ", icons::SEARCH),
         hex_to_color(&app.theme.accent),
     );
 
@@ -311,14 +320,14 @@ fn render_global_search(frame: &mut Frame, frame_area: Rect, app: &App) {
         .filter_map(|hit| {
             let (nb, note) = app.global_search_pool.get(hit.index)?;
             Some(ListItem::new(format!(
-                "{}  {} \u{203A} {}",
+                "{}{} \u{203A} {}",
                 icons::NOTE,
                 nb.name,
                 note.frontmatter.title
             )))
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
+    let highlight_symbol = format!("{}", icons::ARROW);
     let count = app.global_search_results.len();
     let title = format!(" Results [{count}] ");
     let list = List::new(items)
@@ -349,7 +358,7 @@ fn render_update(frame: &mut Frame, frame_area: Rect, app: &App) {
             "Checking GitHub Releases\u{2026}".to_string(),
         ),
         Some(UpdateState::Available(version)) => (
-            format!(" {}  Update available ", icons::DOWNLOAD),
+            format!(" {} Update available ", icons::DOWNLOAD),
             format!("v{current} \u{2192} v{version}\n\n[enter] Download & install    [esc] Cancel"),
         ),
         Some(UpdateState::UpToDate) => (
@@ -393,9 +402,9 @@ fn render_logs(frame: &mut Frame, frame_area: Rect, app: &App) {
             ))
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
+    let highlight_symbol = format!("{}", icons::ARROW);
     let title = format!(
-        " {}  Logs [{}]  \u{2014}  y/c copy all \u{B7} esc/q close ",
+        " {}Logs [{}]  \u{2014}  y/c copy all \u{B7} esc/q close ",
         icons::LIST,
         app.log_history.len()
     );
@@ -429,13 +438,13 @@ fn render_tree(frame: &mut Frame, frame_area: Rect, app: &App) {
         .map(|row| match row {
             crate::tree::TreeRow::Folder { depth, name } => {
                 ListItem::new(Line::from(Span::styled(
-                    format!("{}{} {name}/", "  ".repeat(*depth), icons::NOTEBOOK),
+                    format!("{}{}{name}/", "  ".repeat(*depth), icons::NOTEBOOK),
                     Style::default().fg(muted).add_modifier(Modifier::BOLD),
                 )))
             }
             crate::tree::TreeRow::Note { depth, note } => ListItem::new(Line::from(Span::styled(
                 format!(
-                    "{}{} {}",
+                    "{}{}{}",
                     "  ".repeat(*depth),
                     icons::NOTE,
                     note.frontmatter.title
@@ -444,9 +453,9 @@ fn render_tree(frame: &mut Frame, frame_area: Rect, app: &App) {
             ))),
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
+    let highlight_symbol = format!("{}", icons::ARROW);
     let title = format!(
-        " {}  Tree [{} notes]  \u{2014}  enter open \u{B7} esc/q close ",
+        " {}Tree [{} notes]  \u{2014}  enter open \u{B7} esc/q close ",
         icons::TREE,
         app.tree_note_count()
     );
@@ -485,19 +494,19 @@ fn render_links(frame: &mut Frame, frame_area: Rect, app: &App) {
                 text,
                 resolved: Some(_),
             } => ListItem::new(Line::from(Span::styled(
-                format!("  {} {text}", icons::LINK),
+                format!("  {}{text}", icons::LINK),
                 Style::default().fg(fg),
             ))),
             crate::links_panel::LinkRow::Outgoing {
                 text,
                 resolved: None,
             } => ListItem::new(Line::from(Span::styled(
-                format!("  {} {text}  (no matching note)", icons::WARNING),
+                format!("  {}{text}  (no matching note)", icons::WARNING),
                 Style::default().fg(error),
             ))),
             crate::links_panel::LinkRow::Backlink { note } => {
                 ListItem::new(Line::from(Span::styled(
-                    format!("  {} {}", icons::NOTE, note.frontmatter.title),
+                    format!("  {}{}", icons::NOTE, note.frontmatter.title),
                     Style::default().fg(fg),
                 )))
             }
@@ -505,15 +514,15 @@ fn render_links(frame: &mut Frame, frame_area: Rect, app: &App) {
             // so it reads as weaker than a real backlink at a glance.
             crate::links_panel::LinkRow::Mention { note } => {
                 ListItem::new(Line::from(Span::styled(
-                    format!("  {} {}", icons::SEARCH, note.frontmatter.title),
+                    format!("  {}{}", icons::SEARCH, note.frontmatter.title),
                     Style::default().fg(muted),
                 )))
             }
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
+    let highlight_symbol = format!("{}", icons::ARROW);
     let title = format!(
-        " {}  Links  \u{2014}  enter jump \u{B7} c link mention \u{B7} esc/q close ",
+        " {}Links  \u{2014}  enter jump \u{B7} c link mention \u{B7} esc/q close ",
         icons::LINK
     );
     let list = List::new(items)
@@ -542,10 +551,36 @@ fn render_history(frame: &mut Frame, frame_area: Rect, app: &App) {
     let fg = hex_to_color(&app.theme.fg);
     let muted = hex_to_color(&app.theme.muted);
 
+    if let Some((commit_id, lines)) = &app.history_diff_viewing {
+        let short = commit_id.chars().take(7).collect::<String>();
+        let title = format!(
+            " {}Diff {short}  \u{2014}  r revert \u{B7} esc back ",
+            icons::HISTORY
+        );
+        let success = hex_to_color(&app.theme.success);
+        let error = hex_to_color(&app.theme.error);
+        let diff_lines: Vec<Line> = lines
+            .iter()
+            .map(|l| {
+                let color = match l.origin {
+                    '+' => success,
+                    '-' => error,
+                    _ => muted,
+                };
+                Line::from(Span::styled(format!("{} {}", l.origin, l.content), color))
+            })
+            .collect();
+        let paragraph = ratatui::widgets::Paragraph::new(diff_lines)
+            .block(panel_block(Line::from(title), true, &app.theme))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(paragraph, popup_area);
+        return;
+    }
+
     if let Some((commit_id, content)) = &app.history_viewing {
         let short = commit_id.chars().take(7).collect::<String>();
         let title = format!(
-            " {}  Revision {short}  \u{2014}  r revert \u{B7} esc back ",
+            " {}Revision {short}  \u{2014}  d diff \u{B7} r revert \u{B7} esc back ",
             icons::HISTORY
         );
         let paragraph = ratatui::widgets::Paragraph::new(content.as_str())
@@ -570,9 +605,9 @@ fn render_history(frame: &mut Frame, frame_area: Rect, app: &App) {
             ]))
         })
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
+    let highlight_symbol = format!("{}", icons::ARROW);
     let title = format!(
-        " {}  History [{} revisions]  \u{2014}  enter view \u{B7} r revert \u{B7} esc/q close ",
+        " {}History [{} revisions]  \u{2014}  enter view \u{B7} d diff \u{B7} r revert \u{B7} esc/q close ",
         icons::HISTORY,
         app.history_entries.len()
     );
@@ -589,6 +624,83 @@ fn render_history(frame: &mut Frame, frame_area: Rect, app: &App) {
     let mut state = ListState::default();
     if !app.history_entries.is_empty() {
         state.select(Some(app.history_selected));
+    }
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}
+
+/// The merge-conflict resolver. Unlike `render_history`'s single diff pane,
+/// a conflict genuinely has two sides worth comparing at once, so
+/// `conflict_viewing` splits the popup horizontally into OURS/THEIRS panes
+/// rather than showing one after the other.
+fn render_conflicts(frame: &mut Frame, frame_area: Rect, app: &App) {
+    let height = (frame_area.height * 3 / 4).max(8);
+    let popup_area = centered_rect(frame_area, (frame_area.width * 3 / 4).max(50), height);
+    frame.render_widget(Clear, popup_area);
+
+    let muted = hex_to_color(&app.theme.muted);
+    let success = hex_to_color(&app.theme.success);
+    let error = hex_to_color(&app.theme.error);
+
+    if let Some(view) = &app.conflict_viewing {
+        let [ours_area, theirs_area] =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .areas(popup_area);
+        let to_lines = |lines: &[shiki_core::git::DiffLine]| -> Vec<Line<'static>> {
+            lines
+                .iter()
+                .map(|l| {
+                    let color = match l.origin {
+                        '+' => success,
+                        '-' => error,
+                        _ => muted,
+                    };
+                    Line::from(Span::styled(format!("{} {}", l.origin, l.content), color))
+                })
+                .collect()
+        };
+        let hint =
+            "o keep ours \u{B7} t keep theirs \u{B7} e mark resolved (edited) \u{B7} esc back";
+        let ours_title = format!(" {}OURS  \u{2014}  {hint} ", icons::GIT);
+        let theirs_title = format!(" {}THEIRS  \u{2014}  {hint} ", icons::GIT);
+        let ours_paragraph = ratatui::widgets::Paragraph::new(to_lines(&view.ours))
+            .block(panel_block(Line::from(ours_title), true, &app.theme))
+            .scroll((view.scroll, 0))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        let theirs_paragraph = ratatui::widgets::Paragraph::new(to_lines(&view.theirs))
+            .block(panel_block(Line::from(theirs_title), true, &app.theme))
+            .scroll((view.scroll, 0))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        frame.render_widget(ours_paragraph, ours_area);
+        frame.render_widget(theirs_paragraph, theirs_area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .conflict_files
+        .iter()
+        .map(|f| ListItem::new(Line::from(Span::raw(f.display().to_string()))))
+        .collect();
+    let highlight_symbol = format!("{}", icons::ARROW);
+    let title = format!(
+        " {}Merge conflicts on '{}' [{} file{}]  \u{2014}  enter resolve \u{B7} o ours \u{B7} t theirs \u{B7} a abort \u{B7} esc close ",
+        icons::WARNING,
+        app.conflict_branch,
+        app.conflict_files.len(),
+        if app.conflict_files.len() == 1 { "" } else { "s" }
+    );
+    let list = List::new(items)
+        .block(panel_block(Line::from(title), true, &app.theme))
+        .highlight_style(
+            Style::default()
+                .bg(hex_to_color(&app.theme.selection))
+                .fg(hex_to_color(&app.theme.accent))
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(highlight_symbol.as_str());
+
+    let mut state = ListState::default();
+    if !app.conflict_files.is_empty() {
+        state.select(Some(app.conflict_selected));
     }
     frame.render_stateful_widget(list, popup_area, &mut state);
 }
@@ -633,8 +745,8 @@ fn render_slash_menu(
         .iter()
         .map(|cmd| ListItem::new(format!("/{}  {}", cmd.trigger, cmd.label)))
         .collect();
-    let highlight_symbol = format!("{} ", icons::ARROW);
-    let title = format!(" {}  Slash menu ", icons::PENCIL);
+    let highlight_symbol = format!("{}", icons::ARROW);
+    let title = format!(" {}Slash menu ", icons::PENCIL);
     let list = List::new(items)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
@@ -714,8 +826,8 @@ fn render_wikilink_menu(
             })
             .collect()
     };
-    let highlight_symbol = format!("{} ", icons::ARROW);
-    let title = format!(" {}  Link to note ", icons::LINK);
+    let highlight_symbol = format!("{}", icons::ARROW);
+    let title = format!(" {}Link to note ", icons::LINK);
     let list = List::new(items)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(

@@ -30,6 +30,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+  <link rel="alternate" type="application/rss+xml" title="shiki changelog" href="feed.xml" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -49,6 +50,7 @@
       <a href="index.html#install">Install</a>
       <a href="documentation.html" class="active">Docs</a>
       <a href="changelog.html">Changelog</a>
+      <a href="press.html">Press</a>
       <a href="https://github.com/sazardev/shiki">GitHub</a>
       <span class="version-chip-wrap" id="version-chip-wrap">
         <button type="button" class="pill pill-button" id="version-pill" hidden></button>
@@ -92,6 +94,7 @@
       <a href="#modes">Modes</a>
       <a href="#keybindings">Keybindings</a>
       <a href="#cli">CLI</a>
+      <a href="#encryption">Encryption</a>
       <a href="#filesystem">Filesystem</a>
       <a href="#note-format">Note format</a>
       <a href="#themes-ref">Themes</a>
@@ -275,7 +278,7 @@
           <tr><td><code>l</code> / <code>→</code> / <code>enter</code></td><td>Go one level deeper (Yazi-style): NOTEBOOKS → NOTES → PREVIEW</td></tr>
           <tr><td><code>h</code> / <code>←</code></td><td>Go back one level (Yazi-style)</td></tr>
           <tr><td><code>tab</code></td><td>Cycle focus between panels</td></tr>
-          <tr><td><code>?</code></td><td>Which-key — near-full-screen list of every binding, doubling as a command palette: type to filter (by key, action, or scope), <code>↑</code>/<code>↓</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move the selection, <code>enter</code> runs the highlighted action immediately, <code>Esc</code> just closes</td></tr>
+          <tr><td><code>?</code></td><td>Which-key — near-full-screen list of every binding, doubling as a unified command palette: type to filter (by key, action, or scope) — once the query is non-empty, it also fuzzy-matches notes across every notebook and lists them under a "notes" section, <code>↑</code>/<code>↓</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move the selection, <code>enter</code> runs the highlighted action or jumps straight to the highlighted note, <code>Esc</code> just closes</td></tr>
           <tr><td><code>q</code></td><td>Quit</td></tr>
           <tr><td><code>Esc</code></td><td>Back to NORMAL / close popup / cancel leader</td></tr>
         </tbody>
@@ -299,7 +302,7 @@
           <tr><td><code>s</code></td><td>Settings — near-full-screen, paged by tab. See <a href="#settings-deep-dive">the Settings deep dive</a> below</td></tr>
           <tr><td><code>p</code></td><td>Scratchpad — open an in-memory editor; <code>Ctrl+S</code> saves its contents through the new-note title/template flow, while <code>Esc</code> discards it</td></tr>
           <tr><td><code>B</code></td><td>Links — the same modal as PREVIEW's <code>L</code> (outgoing wikilinks / backlinks / unlinked mentions for the selected note), reachable from any panel without focusing PREVIEW first</td></tr>
-          <tr><td><code>t</code></td><td>Tasks — every <code>- [ ]</code> checkbox task across every notebook in one flat list, pending-only by default, sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (<code>notebook/folders…/note title</code>) so where a task lives is always visible, even mid-scroll. <code>Enter</code>/<code>space</code> toggles the task directly in its source file and updates the row in place; <code>l</code>/<code>o</code> jumps to the note; <code>a</code> also shows completed tasks. An optional <code>@due(YYYY-MM-DD)</code> tag renders the date next to the task: overdue in the theme's error color, due today in warning, future in muted. Relative specs — <code>@due(tomorrow)</code>, <code>@due(+3d)</code>, <code>@due(+2w)</code>, <code>@due(fri)</code> — are pinned to the real date the moment the note is saved. Also scriptable as <code>shiki tasks</code> (see CLI commands)</td></tr>
+          <tr><td><code>t</code></td><td>Tasks — every <code>- [ ]</code> checkbox task across every notebook in one flat list, pending-only by default, sorted by urgency (overdue → due today → future → undated); every row carries its own muted location (<code>notebook/folders…/note title</code>) so where a task lives is always visible, even mid-scroll. <code>Enter</code>/<code>space</code> toggles the task directly in its source file and updates the row in place; <code>l</code>/<code>o</code> jumps to the note; <code>a</code> also shows completed tasks. An optional <code>@due(YYYY-MM-DD)</code> tag renders the date next to the task: overdue in the theme's error color, due today in warning, future in muted. Relative specs — <code>@due(tomorrow)</code>, <code>@due(+3d)</code>, <code>@due(+2w)</code>, <code>@due(fri)</code> — are pinned to the real date the moment the note is saved. An optional <code>@every(&lt;spec&gt;)</code> tag (<code>day</code>/<code>daily</code>, <code>week</code>/<code>weekly</code>, <code>month</code>/<code>monthly</code>, <code>year</code>/<code>yearly</code>, or <code>Nd</code>/<code>Nw</code>/<code>Nm</code>) marks a task as recurring — completing it inserts its next occurrence right below it, unchecked, with <code>@due</code> advanced by that interval. Also scriptable as <code>shiki tasks</code> (see CLI commands)</td></tr>
           <tr><td><code>P</code></td><td>Publish the selected notebook to a themed PDF via <code>pretty-pdf</code> (external binary, auto-fetched on first use — see CLI commands), written to <code>{data_dir}/exports/{notebook}.pdf</code>, then opened. Theme comes from <code>export.pdf_theme</code>, cyclable in Settings → EXPORT</td></tr>
         </tbody>
       </table>
@@ -383,7 +386,7 @@
       <table class="ref-table">
         <thead><tr><th>Key</th><th>Action</th></tr></thead>
         <tbody>
-          <tr><td><code>a</code></td><td>New note (empty title stamps today's date). After the title, a template picker opens — every <code>.md</code> file in <code>~/.config/shiki/templates/</code> plus a "blank" option; <code>j</code>/<code>k</code> browse, <code>Enter</code> picks one and jumps straight to editing (<code>{{title}}</code>/<code>{{date}}</code> already substituted), <code>Esc</code>/<code>q</code> cancels the note entirely. Typing <code>@</code> anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — <code>today</code>/<code>yesterday</code>/<code>tomorrow</code> (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; <code>Enter</code> creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely</td></tr>
+          <tr><td><code>a</code></td><td>New note (empty title stamps today's date). After the title, a template picker opens — every <code>.md</code> file in <code>~/.config/shiki/templates/</code> plus a "blank" option; <code>j</code>/<code>k</code> browse, <code>Enter</code> picks one and jumps straight to editing (<code>{{title}}</code>/<code>{{date}}</code>/<code>{{time}}</code>/<code>{{notebook}}</code> already substituted, and a <code>{{cursor}}</code> marker — never saved to disk — leaves the cursor exactly where it was in the template instead of at the top), <code>Esc</code>/<code>q</code> cancels the note entirely. Typing <code>@</code> anywhere in the title prompt (with or without a title before it) opens a quick dropdown instead — <code>today</code>/<code>yesterday</code>/<code>tomorrow</code> (a computed date, no template) plus every available template, fuzzy-filtered as you keep typing; <code>Enter</code> creates the note and jumps straight to editing, skipping the title→Enter→pick-a-template two-step entirely</td></tr>
           <tr><td><code>f</code></td><td>New folder — empty name cancels rather than creating something unnamed. Created at the current breadcrumb depth, so it can be nested arbitrarily by descending first</td></tr>
           <tr><td><code>r</code></td><td>Rename note</td></tr>
           <tr><td><code>d</code></td><td>Delete the selected note <em>or</em> folder (with confirmation) — a folder deletes everything inside it too. In <code>v</code> select mode, deletes every selected item at once. Moved to the trash rather than permanently removed, so leader+<code>u</code> can undo it</td></tr>
@@ -410,7 +413,7 @@
         <tbody>
           <tr><td><code>i</code></td><td>Edit inline (or the OS favorite editor if <code>general.use_favorite_editor</code>)</td></tr>
           <tr><td><code>E</code></td><td>Edit externally ($EDITOR)</td></tr>
-          <tr><td><code>H</code></td><td>Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> views a revision's full content (frontmatter included, since that's what's actually in the commit), <code>r</code> reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by <code>s</code>/<code>u</code>/<code>auto_sync</code> like any other edit. The footer shows the count while reading a note (<code>{n} changes</code>)</td></tr>
+          <tr><td><code>H</code></td><td>Note history — every commit that changed this specific note, newest first, real git history (not a separate versioning system). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> views a revision's full content (frontmatter included, since that's what's actually in the commit), <code>d</code> views a real unified diff of that revision against its parent instead (colored <code>-</code>/<code>+</code> lines; also works from inside the full-content view to switch straight to the diff), <code>r</code> reverts to the highlighted (or currently-viewed) revision — behind a confirmation, since it overwrites the current content. The revert itself doesn't commit; it shows up as a normal pending change, picked up by <code>s</code>/<code>u</code>/<code>auto_sync</code> like any other edit. The footer shows the count while reading a note (<code>{n} changes</code>)</td></tr>
           <tr><td><code>L</code></td><td>Links — the selected note's outgoing <code>[[wikilinks]]</code> (resolved against every note in the notebook, any folder depth), every other note that links back to it, and notes that <em>mention</em> this note's title in plain text without linking to it ("Outgoing"/"Backlinks"/"Mentions (unlinked)" sections; a section with nothing in it is omitted). <code>j</code>/<code>k</code>/<code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> move, <code>Enter</code> jumps to the selected note (an unresolved outgoing link reports that instead of jumping), <code>c</code> on a mention row <em>repairs</em> the missed link — it wraps that note's plain-text mention into a real <code>[[wikilink]]</code> (preserving its casing) and the row visibly migrates to Backlinks — and <code>Esc</code>/<code>q</code> closes. Also reachable globally via leader+<code>B</code></td></tr>
           <tr><td><code>Ctrl</code>+click</td><td>Click a rendered <code>[[wikilink]]</code> to jump straight to the note it resolves to — a plain click still enters edit mode everywhere, including on top of a wikilink</td></tr>
         </tbody>
@@ -457,8 +460,8 @@ body = "&gt; **Info:** {{cursor}}"</pre>
         <p>
           Now typing <code>/callout</code> in the editor offers "Info callout," and inserting it
           drops in <code>&gt; **Info:** </code> with your cursor placed right where
-          <code>{{cursor}}</code> was. <code>{{title}}</code>/<code>{{date}}</code> work the same
-          way note templates already do. Using the exact trigger of a built-in (e.g.
+          <code>{{cursor}}</code> was. <code>{{title}}</code>/<code>{{date}}</code>/<code>{{time}}</code>/<code>{{notebook}}</code>
+          work the same way note templates already do. Using the exact trigger of a built-in (e.g.
           <code>[snippets.h1]</code>, case-insensitive) <em>replaces</em> that built-in instead of
           adding a duplicate — so if you don't like how <code>/h1</code> behaves by default,
           redefine it instead of avoiding it. See <a href="#config-snippets">the config
@@ -506,6 +509,10 @@ shiki notebook create &lt;name&gt;
 shiki notebook list --json
 shiki notebook rename &lt;old&gt; &lt;new&gt;
 shiki notebook delete &lt;name&gt; --yes  # permanently deletes the notebook and every note in it
+shiki notebook encrypt &lt;name&gt;       # enable encryption at rest (prompts for a passphrase, twice)
+shiki notebook decrypt &lt;name&gt;       # reverse it — decrypts every note back to plain text
+shiki query 'where status = pending sort due asc'   # Dataview-style filter/sort over frontmatter
+shiki query 'where due &lt; today' --count             # for status bars, like `shiki tasks --count`
 shiki theme list          # list built-in themes, marking the active one
 shiki theme set &lt;name&gt;    # switch theme (persisted to config.toml)
 shiki theme create [--from &lt;name&gt;]  # scaffold all 19 color overrides from a real palette
@@ -546,6 +553,77 @@ shiki doctor              # environment check: config, data dir, git, editor, te
           signing key configured.
         </p>
       </div>
+    </div>
+  </section>
+
+  <section id="encryption">
+    <div class="container">
+      <h2>Encryption at rest (per notebook, passphrase-based)</h2>
+      <p style="max-width:70ch;">
+        Any notebook can be encrypted independently — <code>leader+s</code> → NOTEBOOKS → drill
+        into a notebook → the <code>encrypted</code> field, or <code>shiki notebook encrypt
+        &lt;name&gt;</code> from the CLI. Every note's full content (frontmatter + body) is
+        encrypted as one <a href="https://age-encryption.org" target="_blank" rel="noopener">age</a>-armored
+        blob using a passphrase (<code>age::scrypt</code> — symmetric, no keypair), so the file on
+        disk stays plain ASCII text (<code>git diff</code>/<code>git log -p</code> don't flip to
+        "binary files differ"), just unreadable without the passphrase. Note filenames stay in the
+        clear — the one accepted metadata leak in this version.
+      </p>
+      <div class="doc-callout">
+        <strong>There is exactly one passphrase per notebook — not one per machine, not one per person.</strong>
+        <p>
+          It's the actual encryption key (well, the input <code>age::scrypt</code> derives the real
+          key from) — the same way a password-protected ZIP file or a KeePass database has one
+          password that opens it anywhere, on any machine. Shiki <strong>never</strong> stores or
+          syncs this passphrase anywhere — not in <code>config.toml</code>, not in the git repo, not
+          in any file. You are the only distribution mechanism: write it down in a password manager,
+          remember it, whatever — just don't lose it. There is no recovery path if you do.
+        </p>
+      </div>
+      <p style="max-width:70ch;">
+        Walking through it end to end — encrypting <code>vault</code> with passphrase
+        <code>1234567</code> on one machine, then opening the same repo on a second one:
+      </p>
+      <ol style="max-width:70ch;">
+        <li><strong>Machine A</strong> (has the plaintext notebook): <code>shiki notebook encrypt vault</code>
+          prompts for the passphrase twice (typo protection), writes a small canary file
+          (<code>.shiki-encryption</code>, itself encrypted with that passphrase — exists purely to
+          verify a passphrase attempt without risking a real note) at the notebook's root,
+          re-encrypts every existing note, flips <code>[notebooks.vault] encrypt = true</code> in
+          <em>machine A's own</em> <code>config.toml</code>, and commits everything. Pushing sends
+          ciphertext notes plus the encrypted canary — nobody who can see the repo (including the
+          hosting provider) can read the content without the passphrase.</li>
+        <li><strong>Machine B</strong> <code>git clone</code>s or <code>git pull</code>s that repo.
+          It gets the same ciphertext files and canary — but its own <code>config.toml</code>
+          (which never travels with the git repo; it lives outside it entirely, under
+          <code>~/.config/shiki/</code>, precisely so the passphrase/flag can't leak through git)
+          has no idea this notebook is encrypted at all yet.</li>
+        <li>Opening <code>vault</code> on machine B, shiki doesn't consult that config flag to
+          decide whether to prompt — it sniffs the actual file content for the age armor header, so
+          it notices the encryption regardless of what machine B's config says, and asks:
+          <code>Passphrase — unlock 'vault'</code>.</li>
+        <li>You type the <strong>same</strong> <code>1234567</code> used on machine A — not a
+          different one, not "machine B's own" passphrase. Shiki decrypts the canary with it; if it
+          matches, every note now shows up decrypted in the UI, and machine B's
+          <code>config.toml</code> also gets <code>encrypt = true</code> written into it (so a note
+          you create or edit on machine B from now on encrypts too, instead of silently falling back
+          to plain text because that one machine's config didn't know yet).</li>
+        <li>Typing the wrong passphrase fails the canary check with a clear error and nothing is
+          shown or touched — no corruption, just a re-prompt.</li>
+      </ol>
+      <p style="max-width:70ch;">
+        Practical consequences worth knowing: CLI <em>read</em> commands
+        (<code>list</code>/<code>tasks</code>/<code>graph</code>/<code>show</code>/<code>search</code>)
+        don't prompt for a passphrase at all — they're built for non-interactive/scripted use, so
+        against an encrypted, locked notebook they fail with a clear error instead of hanging;
+        <code>new</code>/<code>daily</code> (the write paths) do prompt, since silently writing
+        plaintext into an encrypted notebook would be a real bug. The note-history diff view can't
+        work on an encrypted notebook either (a diff of two ciphertext blobs is meaningless noise) —
+        it falls back to showing the decrypted full content instead. And changing the passphrase
+        isn't a per-machine setting: it means decrypting and re-encrypting with a new one
+        (<code>shiki notebook decrypt</code> then <code>encrypt</code> again), and every other
+        machine needs that new passphrase from that point on.
+      </p>
     </div>
   </section>
 
@@ -725,6 +803,20 @@ Content in **markdown**.
           <tr><td><code>data_dir</code></td><td>unset (platform default)</td><td>Point the <em>entire</em> notebooks root somewhere else — an absolute path to an existing folder of markdown notes (an Obsidian vault, for instance) instead of <code>~/.local/share/shiki/</code>. Every notebook without its own <code>path</code> (below) lives as a subdirectory of this</td></tr>
           <tr><td><code>show_hints</code></td><td><code>true</code></td><td>Shows a small muted hint line under the input box for text prompts whose behavior isn't obvious from the title alone — currently just new-notebook, explaining that a git URL clones and a filesystem path adopts an existing directory</td></tr>
           <tr><td><code>remember_last_session</code></td><td><code>true</code></td><td>Quitting saves exactly where you were — notebook, folder, selected note/folder, and which panel had focus — and the next launch restores it instead of always starting at the first notebook's root. A renamed/deleted notebook or moved note is ignored gracefully rather than erroring</td></tr>
+          <tr><td><code>show_coffee_link</code></td><td><code>true</code></td><td>Shows the Buy Me a Coffee segment in the footer (mouse-clickable)</td></tr>
+          <tr><td><code>skip_delete_confirm</code></td><td><code>false</code></td><td>When true, deleting a note/folder skips the confirm dialog and deletes immediately — still restorable via <code>leader</code> then <code>u</code>. Doesn't apply to notebook delete, which asks a real delete-vs-untrack question</td></tr>
+          <tr><td><code>show_dates</code></td><td><code>false</code></td><td>Shows each note's date next to its title in the NOTES list — the persisted default for the notes-scope <code>D</code> toggle</td></tr>
+          <tr><td><code>wikilink_autocomplete</code></td><td><code>true</code></td><td>Typing <code>[[</code> in the inline editor opens the wikilink autocomplete menu; off falls through to a literal <code>[[</code></td></tr>
+          <tr><td><code>daily_agenda</code></td><td><code>true</code></td><td>A new daily note gets a "## Due today" section listing pending tasks across every notebook</td></tr>
+          <tr><td><code>compact_footer</code></td><td><code>false</code></td><td>Hides char/word count, reading time, and note-count detail from the footer, leaving just the essentials</td></tr>
+          <tr><td><code>status_message_timeout_secs</code></td><td><code>2</code></td><td>How long a footer status message stays visible before clearing itself (the full message is always in the logs modal regardless)</td></tr>
+          <tr><td><code>drawer_width</code></td><td><code>30</code></td><td>Width in columns of the notebook drawer (<code>leader</code> then <code>b</code>); clamped against the frame's actual width at render time</td></tr>
+          <tr><td><code>tasks_show_done_default</code></td><td><code>false</code></td><td>Whether the tasks view starts showing every task, including done ones, instead of just pending</td></tr>
+          <tr><td><code>default_note_sort</code></td><td><code>"filename"</code></td><td>Which order the NOTES list sorts by on a fresh launch — <code>"filename"</code>, <code>"title"</code>, or <code>"date"</code>; the notes-scope <code>o</code> cycle still changes it for the rest of the session</td></tr>
+          <tr><td><code>log_history_limit</code></td><td><code>500</code></td><td>Max entries kept in the logs modal and the persisted log file</td></tr>
+          <tr><td><code>trash_retention_days</code></td><td><code>0</code></td><td>Days a deleted note/folder stays in the trash before being permanently purged at startup — <code>0</code> means never auto-purge</td></tr>
+          <tr><td><code>reading_wpm</code></td><td><code>200</code></td><td>Words-per-minute used for the footer's "N min read" estimate</td></tr>
+          <tr><td><code>page_step</code></td><td><code>10</code></td><td>How many rows <code>PageUp</code>/<code>PageDown</code> (and the mouse wheel) move at once, across every scrollable list/modal</td></tr>
         </tbody>
       </table>
       <div class="doc-callout">
@@ -771,11 +863,13 @@ Content in **markdown**.
         <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
         <tbody>
           <tr><td><code>name</code></td><td><code>"gruvbox-dark"</code></td><td>Which built-in theme to use as the base (<code>shiki theme list</code> shows every name)</td></tr>
+          <tr><td><code>icons</code></td><td><code>true</code></td><td>When false, every Nerd Font glyph (notebook/note icons, git status, the list-selection marker, …) falls back to plain text — for a terminal font that isn't Nerd-Fonts-patched</td></tr>
           <tr><td><code>[theme.overrides]</code></td><td>all unset</td><td>Override any of the 19 color slots (see <a href="#themes-ref">Included themes</a>) individually — anything left unset falls back to <code>name</code>'s own value for that slot</td></tr>
         </tbody>
       </table>
       <pre class="code">[theme]
 name = "gruvbox-dark"
+icons = true
 
 [theme.overrides]
 accent = "blue"
@@ -818,6 +912,15 @@ bg = "#1e1e2e"</pre>
           <tr><td><code>select_all_ctrl_a</code></td><td><code>false</code></td><td><code>Ctrl+A</code> selects the whole buffer instead of moving to the start of the line</td></tr>
           <tr><td><code>line_numbers</code></td><td><code>false</code></td><td>Shows a line-number gutter in the editor</td></tr>
           <tr><td><code>multi_cursor</code></td><td><code>false</code></td><td><code>Alt+Click</code> adds a cursor, <code>Ctrl+D</code> adds the next occurrence of the current word/selection — full multi-cursor editing</td></tr>
+          <tr><td><code>auto_list_continue</code></td><td><code>true</code></td><td><code>Enter</code> on a list/checkbox/ordered-list line continues the same prefix on the next line; an empty item exits the list instead; also gates <code>Tab</code>/<code>Shift+Tab</code> nesting a list line one level deeper/shallower</td></tr>
+          <tr><td><code>format_shortcuts</code></td><td><code>true</code></td><td><code>Ctrl+B</code> wraps the selection in <code>**bold**</code>, <code>Ctrl+Alt+I</code> in <code>_italic_</code></td></tr>
+          <tr><td><code>auto_pair_brackets</code></td><td><code>true</code></td><td>Typing <code>(</code>, <code>`</code>, or <code>"</code> wraps the current selection in the matching pair (deliberately excludes <code>[</code> so it doesn't interfere with <code>[[wikilink]]</code> autocomplete)</td></tr>
+          <tr><td><code>paste_url_as_link</code></td><td><code>true</code></td><td>Pasting a bare URL over a selection wraps it as <code>[selected text](url)</code></td></tr>
+          <tr><td><code>snippet_expand_tab</code></td><td><code>true</code></td><td><code>Tab</code> expands a matching snippet trigger into its body instead of inserting a literal tab</td></tr>
+          <tr><td><code>typewriter_scroll</code></td><td><code>false</code></td><td>Keeps the cursor's line vertically centered in the editor viewport while typing</td></tr>
+          <tr><td><code>move_line</code></td><td><code>true</code></td><td><code>Alt+↑</code>/<code>Alt+↓</code> move the current line past its neighbor</td></tr>
+          <tr><td><code>duplicate_line</code></td><td><code>true</code></td><td><code>Alt+D</code> duplicates the current line directly below itself</td></tr>
+          <tr><td><code>block_indent_select</code></td><td><code>true</code></td><td><code>Tab</code>/<code>Shift+Tab</code> with an active selection indent/outdent every line the selection spans</td></tr>
         </tbody>
       </table>
       <pre class="code">[editor]
@@ -826,7 +929,16 @@ find_replace = true
 os_clipboard = false
 select_all_ctrl_a = false
 line_numbers = false
-multi_cursor = false</pre>
+multi_cursor = false
+auto_list_continue = true
+format_shortcuts = true
+auto_pair_brackets = true
+paste_url_as_link = true
+snippet_expand_tab = true
+typewriter_scroll = false
+move_line = true
+duplicate_line = true
+block_indent_select = true</pre>
       <p style="max-width:70ch;">
         <code>[[wikilink]]</code> autocomplete is always on too, not gated by <code>[editor]</code>:
         typing <code>[[</code> opens an Obsidian-style fuzzy note picker (the same fuzzy matching
@@ -870,12 +982,14 @@ pdf_theme = "default"</pre>
           <tr><td><code>auto_sync</code></td><td>inherits <code>[git]</code></td><td>Override just for this notebook</td></tr>
           <tr><td><code>auto_sync_every</code></td><td>inherits <code>[git]</code></td><td>Override just for this notebook</td></tr>
           <tr><td><code>path</code></td><td>unset (lives under the data directory)</td><td>An absolute path to an existing directory on disk — this notebook lives there instead of under <code>data_dir</code>/the default data directory. Must be absolute; a relative value is ignored (<code>shiki doctor</code> warns if one is found) rather than silently resolved against whatever directory the process happened to be launched from</td></tr>
+          <tr><td><code>encrypt</code></td><td><code>false</code></td><td>Encrypts every note in this notebook at rest with a passphrase — no global default to inherit, opt-in per notebook. Managed via <code>shiki notebook encrypt/decrypt &lt;name&gt;</code> or Settings → NOTEBOOKS, not by hand-editing this value (the passphrase itself is never stored here or anywhere else — see <a href="#encryption">Encryption</a> above)</td></tr>
         </tbody>
       </table>
       <pre class="code">[notebooks.work]
 auto_sync = true
 auto_sync_every = 3
 auto_push = true
+# encrypt = true
 
 [notebooks.alcateia]
 path = "/Users/me/obsidian-vaults/alcateia"
@@ -898,7 +1012,7 @@ auto_sync = true</pre>
         <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
         <tbody>
           <tr><td><code>label</code></td><td>the trigger itself</td><td>The text shown in the <code>/</code>-menu list</td></tr>
-          <tr><td><code>body</code></td><td><em>(required)</em></td><td>What gets inserted. Supports <code>{{title}}</code>/<code>{{date}}</code> (same substitution as note templates) and a <code>{{cursor}}</code> marker for where the cursor should land after insertion</td></tr>
+          <tr><td><code>body</code></td><td><em>(required)</em></td><td>What gets inserted. Supports <code>{{title}}</code>/<code>{{date}}</code>/<code>{{time}}</code>/<code>{{notebook}}</code> (same substitution as note templates) and a <code>{{cursor}}</code> marker for where the cursor should land after insertion</td></tr>
         </tbody>
       </table>
       <pre class="code">[snippets.callout]
@@ -964,6 +1078,44 @@ show_hints = true
 # folder, selected note/folder, and focused panel — and the next launch
 # restores it instead of always starting at the first notebook's root.
 remember_last_session = true
+# Shows the "Buy Me a Coffee" segment in the footer (mouse-clickable).
+show_coffee_link = true
+# When true, deleting a note/folder skips the confirm dialog and deletes
+# immediately — still restorable via leader+`u`. Doesn't apply to notebook
+# delete, which asks a real delete-vs-untrack question.
+skip_delete_confirm = false
+# Shows each note's date next to its title in the NOTES list.
+show_dates = false
+# Typing `[[` in the inline editor opens the wikilink autocomplete menu.
+wikilink_autocomplete = true
+# A new daily note gets a "## Due today" section listing pending tasks
+# across every notebook.
+daily_agenda = true
+# Hides char/word count, reading time, and note-count detail from the
+# footer, leaving just the essentials.
+compact_footer = false
+# How long a footer status message stays visible before clearing itself.
+status_message_timeout_secs = 2
+# Width in columns of the notebook drawer (leader+`b`). Clamped against
+# the frame's actual width at render time regardless of this value.
+drawer_width = 30
+# Whether the tasks view (leader+`t`) starts showing every task, including
+# already-done ones, instead of just pending.
+tasks_show_done_default = false
+# "filename", "title", or "date" — which order the NOTES list sorts by on
+# a fresh launch.
+default_note_sort = "filename"
+# Max entries kept in the logs modal (leader+`l`) and the persisted log
+# file.
+log_history_limit = 500
+# Days a deleted note/folder stays in the trash before being permanently
+# purged at startup. 0 (the default) means never auto-purge.
+trash_retention_days = 0
+# Words-per-minute used for the footer's "N min read" estimate.
+reading_wpm = 200
+# How many rows PageUp/PageDown (and the mouse wheel) move at once, across
+# every scrollable list/modal in the TUI.
+page_step = 10
 
 [keybindings]
 leader = "space"
@@ -1019,6 +1171,7 @@ links = "L"
 
 [theme]
 name = "gruvbox-dark"
+icons = true  # false falls back to plain text — no Nerd Font glyphs anywhere
 # Every one of a theme's 19 color slots can be overridden individually —
 # accent, bg, fg, selection, border, statusbar, highlight, error, warning,
 # success, inactive, scrollbar, tab_active, tab_inactive, panel_title,
@@ -1061,6 +1214,15 @@ os_clipboard = false
 select_all_ctrl_a = false
 line_numbers = false
 multi_cursor = false
+auto_list_continue = true
+format_shortcuts = true
+auto_pair_brackets = true
+paste_url_as_link = true
+snippet_expand_tab = true
+typewriter_scroll = false
+move_line = true
+duplicate_line = true
+block_indent_select = true
 
 # PDF export (`shiki publish`, leader+`P`) — pdf_theme picks one of
 # go-pretty-pdf's 17 built-in themes: default, minimal, modern, classic,
@@ -1092,8 +1254,9 @@ auto_push = true
 # divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
 # details) aren't listed here at all, only your own additions/overrides.
 # `label` falls back to the trigger when omitted; `body` supports
-# {{title}}/{{date}} (substituted the same way note templates are) plus a
-# {{cursor}} marker for where the cursor lands after insertion.
+# {{title}}/{{date}}/{{time}}/{{notebook}} (substituted the same way note
+# templates are) plus a {{cursor}} marker for where the cursor lands after
+# insertion.
 [snippets.callout]
 label = "Info callout"
 body = "> **Info:** {{cursor}}"
