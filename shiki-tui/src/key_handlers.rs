@@ -794,6 +794,17 @@ impl App {
                     };
                     self.start_passphrase_prompt(name, purpose);
                 }
+                NotebookField::Hidden => {
+                    if let Some(over) = self.config.notebooks.get_mut(&name) {
+                        over.hidden = false;
+                    }
+                    self.prune_empty_notebook_override(&name);
+                    self.save_config();
+                    self.reload_notebooks();
+                    self.settings_notebook_drill = None;
+                    self.settings_field_selected = 0;
+                    self.set_status(format!("notebook '{name}' restored — it's listed again"));
+                }
             },
             _ => {}
         }
@@ -826,9 +837,10 @@ impl App {
                 };
                 ("auto_sync", over.auto_sync)
             }
-            NotebookField::Remote | NotebookField::AutoSyncEvery | NotebookField::Encryption => {
-                return
-            }
+            NotebookField::Remote
+            | NotebookField::AutoSyncEvery
+            | NotebookField::Encryption
+            | NotebookField::Hidden => return,
         };
         self.prune_empty_notebook_override(name);
         self.save_config();
@@ -2051,7 +2063,8 @@ impl App {
             return;
         };
         let all_notes = nb.all_notes_recursive().unwrap_or_default();
-        self.link_rows = crate::links_panel::build(&note, &all_notes);
+        let global = self.store.all_notes().unwrap_or_default();
+        self.link_rows = crate::links_panel::build(&note, &all_notes, &global);
         self.link_selected = 0;
         if self.link_rows.is_empty() {
             self.set_status("no links or backlinks for this note".into());
@@ -2166,10 +2179,26 @@ impl App {
     /// straight to a resolved note" flow (the links modal above, and
     /// Ctrl+Click on a rendered `[[wikilink]]` in PREVIEW below). Each
     /// caller still owns closing whatever modal/state got it here.
+    ///
+    /// Cross-notebook aware: if `path` lives in a *different* notebook than
+    /// the one currently selected (a link resolved through
+    /// `wikilinks::resolve_one_global`'s fallback, e.g. a daily-note agenda
+    /// bullet pointing at another notebook), it switches
+    /// `selected_notebook` first so the breadcrumb and NOTES reload are
+    /// computed against the right notebook root — the same shape as
+    /// `jump_to_global_hit`, just resolved by path-prefix instead of a pool
+    /// index.
     fn jump_to_note(&mut self, path: std::path::PathBuf, title: &str) {
-        let notebook_path = self.selected_notebook().map(|nb| nb.path.clone());
-        if let Some(notebook_path) = notebook_path {
-            self.notes_path = relative_folder(&path, &notebook_path);
+        if let Some((nb_idx, nb)) = self
+            .notebooks
+            .iter()
+            .enumerate()
+            .find(|(_, nb)| path.starts_with(&nb.path))
+        {
+            if self.selected_notebook != nb_idx {
+                self.selected_notebook = nb_idx;
+            }
+            self.notes_path = relative_folder(&path, &nb.path);
         }
         self.reload_notes();
         if let Some(idx) = self.notes.iter().position(|n| n.path == path) {
@@ -3303,7 +3332,13 @@ impl App {
         if !self.can_start_preview_selection() {
             return false;
         }
-        let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+        let preview = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .preview;
         let content_left = preview.x + 1;
         if column < content_left {
             return false;
@@ -3326,8 +3361,15 @@ impl App {
             return false;
         };
         let all_notes = nb.all_notes_recursive().unwrap_or_default();
-        match wikilinks::resolve_one(&text, &all_notes) {
-            Some(path) => self.jump_to_note(path, &text),
+        let global = self.store.all_notes().unwrap_or_default();
+        match wikilinks::resolve_one_global(&text, &all_notes, &global) {
+            Some((path, Some(other_notebook))) => {
+                self.jump_to_note(path, &text);
+                self.set_status(format!(
+                    "opened '{text}' (from notebook '{other_notebook}')"
+                ));
+            }
+            Some((path, None)) => self.jump_to_note(path, &text),
             None => self.set_status(format!("'{text}' doesn't match any note")),
         }
         true
@@ -3380,7 +3422,12 @@ impl App {
         // click reaching the layout underneath an open popup can't be
         // misread as a panel click.
         if self.mode == Mode::Normal && self.no_modal_open() {
-            let areas = layout::split(self.last_frame_area, self.focus, self.zen_mode);
+            let areas = layout::split(
+                self.last_frame_area,
+                self.focus,
+                self.zen_mode,
+                self.drawer_offset(),
+            );
             if let Some(index) = panel_notebooks::notebooks_hit_at(
                 self.notebooks.len(),
                 areas.notebooks,
@@ -3405,7 +3452,13 @@ impl App {
         }
 
         if self.can_start_preview_selection() {
-            let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+            let preview = layout::split(
+                self.last_frame_area,
+                self.focus,
+                self.zen_mode,
+                self.drawer_offset(),
+            )
+            .preview;
             let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
             if let Some(hit) =
                 panel_preview::preview_row_at(preview, self.preview_scroll, row_count, column, row)
@@ -3419,7 +3472,13 @@ impl App {
             }
         }
 
-        let footer = layout::split(self.last_frame_area, self.focus, self.zen_mode).status_bar;
+        let footer = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .status_bar;
         if status_bar::coffee_hit_at(footer, column, row, self.config.general.show_coffee_link) {
             self.open_coffee_link();
         }
@@ -3440,7 +3499,13 @@ impl App {
         // `PreviewSelection::dragged`'s own doc comment for why that
         // distinction is what `on_mouse_up` branches on.
         self.preview_selection.as_mut().unwrap().dragged = true;
-        let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+        let preview = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .preview;
         let row_count = self.note_preview_lines().map(|l| l.len()).unwrap_or(0);
         let scroll = self.preview_scroll;
         // Dragging outside the panel clamps to its nearest edge instead of
@@ -3472,6 +3537,14 @@ impl App {
             return;
         };
         if !selection.dragged {
+            // A click on a `<details>` `<summary>` row toggles that block's
+            // fold instead of starting to edit there — folding is what a
+            // click on a summary means, not "place the cursor in the raw
+            // source" (which the summary's one-line handle can't usefully
+            // do anyway).
+            if self.toggle_details_block(selection.anchor_row) {
+                return;
+            }
             self.enter_edit_at_preview_row(selection.anchor_row);
             return;
         }
@@ -3532,7 +3605,13 @@ impl App {
     /// an already-present cursor's exact cell is a harmless no-op rather
     /// than a duplicate.
     fn on_editor_alt_click(&mut self, column: u16, row: u16) {
-        let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+        let preview = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .preview;
         let line_numbers = self.config.editor.line_numbers;
         let Some(editor) = &self.editor else {
             return;
@@ -3555,7 +3634,13 @@ impl App {
     /// word/line just selected); `false` for a plain single click, which
     /// hasn't anchored anything yet.
     fn on_editor_mouse_down(&mut self, column: u16, row: u16) {
-        let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+        let preview = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .preview;
         let line_numbers = self.config.editor.line_numbers;
         let Some(editor) = &mut self.editor else {
             return;
@@ -3627,7 +3712,13 @@ impl App {
     /// skips re-anchoring since one already exists (see `editor_drag_active`'s
     /// own doc comment).
     fn on_editor_mouse_drag(&mut self, column: u16, row: u16) {
-        let preview = layout::split(self.last_frame_area, self.focus, self.zen_mode).preview;
+        let preview = layout::split(
+            self.last_frame_area,
+            self.focus,
+            self.zen_mode,
+            self.drawer_offset(),
+        )
+        .preview;
         let line_numbers = self.config.editor.line_numbers;
         let Some(editor) = &mut self.editor else {
             return;

@@ -188,7 +188,7 @@ pub fn render_scrollbar(
 /// style, so e.g. bold text inside a dim/italic blockquote still reads as
 /// dim+bold, not a jarring unrelated color — the same reason `inline_spans`
 /// takes `base` as a parameter instead of assuming plain body-text style.
-fn inline_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
+fn inline_spans(text: &str, base: Style, link: Style, math: Style) -> Vec<Span<'static>> {
     fn flush(plain: &mut String, spans: &mut Vec<Span<'static>>, style: Style) {
         if !plain.is_empty() {
             spans.push(Span::styled(std::mem::take(plain), style));
@@ -266,6 +266,23 @@ fn inline_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
                 continue;
             }
         }
+        if chars[i] == '~' && chars.get(i + 1) == Some(&'~') {
+            // `~~strikethrough~~` — the only inline marker inline_spans didn't
+            // handle; rendered crossed-out, distinct from a done task's own
+            // strikethrough but the same modifier.
+            if let Some(end) =
+                find_pair(&chars, i + 2, '~').filter(|&e| chars.get(e + 1) == Some(&'~'))
+            {
+                flush(&mut plain, &mut spans, base);
+                let inner: String = chars[i + 2..end].iter().collect();
+                spans.push(Span::styled(
+                    inner,
+                    base.add_modifier(Modifier::CROSSED_OUT),
+                ));
+                i = end + 2;
+                continue;
+            }
+        }
         if chars[i] == '`' {
             if let Some(end) = find_pair(&chars, i + 1, '`') {
                 flush(&mut plain, &mut spans, base);
@@ -274,6 +291,26 @@ fn inline_spans(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
                 // below, since both would otherwise render identically.
                 spans.push(Span::styled(inner, base.add_modifier(Modifier::DIM)));
                 i = end + 1;
+                continue;
+            }
+        }
+        if chars[i] == '$' && chars.get(i + 1) == Some(&'$') {
+            // Inline math: `$$...$$` mid-line (e.g. "so $$a^2 + b^2$$ and
+            // so on") renders as a math-styled span with the LaTeX content
+            // prettified, the same `mathfmt::latex_to_unicode` pass full
+            // `$$` blocks get. A stray single `$` (a price, a shell prompt)
+            // is left as literal text.
+            if let Some(end) = chars[i + 2..]
+                .iter()
+                .position(|&c| c == '$')
+                .filter(|&p| chars.get(i + 2 + p + 1) == Some(&'$'))
+                .map(|p| p + i + 2)
+            {
+                flush(&mut plain, &mut spans, base);
+                let inner: String = chars[i + 2..end].iter().collect();
+                let rendered = crate::mathfmt::latex_to_unicode(&inner);
+                spans.push(Span::styled(rendered, math));
+                i = end + 2;
                 continue;
             }
         }
@@ -333,6 +370,71 @@ fn ordered_list_prefix(line: &str) -> Option<(&str, &str)> {
     Some((&line[..=digits], &line[digits + 2..]))
 }
 
+/// Leading-whitespace count for a line — how many nesting levels deep a list
+/// item/quote sits. 2 spaces per level (CommonMark's 2-space nested-list
+/// convention), clamped so pathological indentation can't explode the count.
+fn indent_level(line: &str) -> usize {
+    (line.len() - line.trim_start().len()) / 2
+}
+
+/// A done checkbox task item at any nesting depth: leading spaces, then
+/// `- [x] ` / `- [X] `. Returns (level, rest).
+fn done_task_item_prefix(line: &str) -> Option<(usize, &str)> {
+    let t = line.trim_start();
+    let rest = t
+        .strip_prefix("- [x] ")
+        .or_else(|| t.strip_prefix("- [X] "))?;
+    Some((indent_level(line), rest))
+}
+
+/// An open checkbox task item at any nesting depth: leading spaces, then
+/// `- [ ] `. Returns (level, rest).
+fn open_task_item_prefix(line: &str) -> Option<(usize, &str)> {
+    let t = line.trim_start();
+    let rest = t.strip_prefix("- [ ] ")?;
+    Some((indent_level(line), rest))
+}
+
+/// An unordered bullet item at any nesting depth: leading spaces, then
+/// `- `/`* `/`+ `. The bullet glyph steps through `•` → `◦` → `▪` by depth
+/// so nesting is readable without relying on the raw indentation alone.
+/// Returns (level, marker, rest).
+fn bullet_item_prefix(line: &str) -> Option<(usize, &str, &str)> {
+    let t = line.trim_start();
+    let rest = t
+        .strip_prefix("- ")
+        .or_else(|| t.strip_prefix("* "))
+        .or_else(|| t.strip_prefix("+ "))?;
+    let level = indent_level(line);
+    let marker = match level % 3 {
+        0 => "•",
+        1 => "◦",
+        _ => "▪",
+    };
+    Some((level, marker, rest))
+}
+
+/// An ordered-list item at any nesting depth: leading spaces, then `1. ` etc.
+/// Returns (level, marker, rest) — the numeric marker is kept as written.
+fn ordered_item_prefix(line: &str) -> Option<(usize, &str, &str)> {
+    let t = line.trim_start();
+    let (marker, rest) = ordered_list_prefix(t)?;
+    Some((indent_level(line), marker, rest))
+}
+
+/// A blockquote at any nesting depth: one or more leading `> ` markers.
+/// `>> nested quote` returns depth 2, so the gutter repeats `▏ ` once per
+/// level. Returns (depth, rest).
+fn blockquote_prefix(line: &str) -> Option<(usize, &str)> {
+    let t = line.trim_start();
+    let depth = t.bytes().take_while(|&b| b == b'>').count();
+    if depth == 0 {
+        return None;
+    }
+    let rest = t[depth..].trim_start();
+    Some((depth, rest))
+}
+
 /// A horizontal rule: 3+ of the same `-`/`*`/`_` character (optionally
 /// surrounded by whitespace), nothing else on the line.
 fn is_horizontal_rule(line: &str) -> bool {
@@ -388,7 +490,8 @@ pub fn borrow_lines<'a>(lines: &'a [Line<'static>]) -> Vec<Line<'a>> {
 // something outside the crate might use them).
 #[cfg(test)]
 fn markdown_to_lines(body: &str, colors: &crate::syntax::SyntaxPalette) -> Vec<Line<'static>> {
-    markdown_to_lines_indexed(body, colors)
+    markdown_to_lines_indexed(body, colors, &Default::default())
+        .0
         .into_iter()
         .map(|(_, line)| line)
         .collect()
@@ -404,10 +507,21 @@ fn markdown_to_lines(body: &str, colors: &crate::syntax::SyntaxPalette) -> Vec<L
 /// consumed but produces no rendered row of its own — its index is reused
 /// by the header-divider row rendered in its place instead, so clicking the
 /// divider still lands on a real source line.
+///
+/// `folded` holds the document-order indices of `<details>` blocks that are
+/// currently collapsed: a folded block renders only its `<summary>` row
+/// (marked with `▸` and a hidden-line count), everything between it and the
+/// matching `</details>` is omitted. The second return value is the map of
+/// summary source-line -> block id, so a click on a summary row can toggle
+/// that block (`App::toggle_details_block`).
 pub(crate) fn markdown_to_lines_indexed(
     body: &str,
     colors: &crate::syntax::SyntaxPalette,
-) -> Vec<(usize, Line<'static>)> {
+    folded: &std::collections::HashSet<usize>,
+) -> (
+    Vec<(usize, Line<'static>)>,
+    std::collections::HashMap<usize, usize>,
+) {
     let fg = colors.fg;
     let accent = colors.accent;
     let muted = colors.muted;
@@ -424,77 +538,215 @@ pub(crate) fn markdown_to_lines_indexed(
 
     let mut in_code_block = false;
     let mut in_math_block = false;
-    let mut code_lang: Option<String> = None;
     let mut code_highlighter: Option<crate::syntax::CodeHighlighter> = None;
+    // Line-number gutter counter for the current code fence — resets each
+    // time a fence opens, incremented per source line inside it.
+    let mut code_line_no: u32 = 0;
+    // Mermaid fences are buffered whole: a diagram can't be laid out line by
+    // line, so all its source lines are accumulated while the fence is open
+    // and rendered once (as a tree/sequence) when the closing fence arrives.
+    let mut mermaid_buf: Option<Vec<String>> = None;
     let mut lines: Vec<(usize, Line<'static>)> = Vec::new();
+
+    // Per-`<details>`-block content line counts (document order), computed
+    // up front so a folded block's summary can state how many lines it's
+    // hiding before those lines have been walked. Content means every line
+    // between `<details>` and `</details>` except the `<summary>` row and
+    // the tags themselves; nested blocks' content counts toward every open
+    // ancestor, so a collapsed outer block reports its full hidden size.
+    let hidden_counts = details_content_counts(body);
+    // Stack of currently open `<details>` block ids.
+    let mut details_stack: Vec<usize> = Vec::new();
+    // Stack of ids whose content is currently suppressed (a folded block,
+    // possibly nested inside another folded block).
+    let mut suppressed: Vec<usize> = Vec::new();
+    let mut next_details_id = 0usize;
+    let mut summary_blocks: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
 
     let mut source = body.lines().enumerate().peekable();
     while let Some((idx, line)) = source.next() {
         if line.trim_start().starts_with("```") {
             in_code_block = !in_code_block;
             if in_code_block {
-                let lang = line
-                    .trim_start()
-                    .trim_start_matches("```")
-                    .trim()
-                    .to_ascii_lowercase();
+                // The fence line's own text after ``` — `<lang>` plus an
+                // optional `file:<path>` token (` ```rust file:main.rs `).
+                // The literal ` ``` ` markers are never rendered themselves:
+                // the opening fence becomes a header row carrying the
+                // language name (and file name when one was given), the
+                // closing fence produces no row at all. Only the language
+                // token is lowercased (syntax detection is case-insensitive)
+                // — the file name is shown exactly as written, so a real
+                // path like `App.tsx` isn't mangled to `app.tsx`.
+                let info = line.trim_start().trim_start_matches("```").trim();
+                let mut parts = info.split_whitespace();
+                let lang = parts.next().unwrap_or("").to_ascii_lowercase();
+                let file = parts.find_map(|p| p.strip_prefix("file:").map(str::to_string));
                 code_highlighter = if lang.is_empty() || lang == "mermaid" {
                     None
                 } else {
                     crate::syntax::CodeHighlighter::new(&lang, colors)
                 };
-                // The opening fence line itself gets a distinct style when
-                // the language is recognized (real highlighting follows) or
-                // is a mermaid diagram (styled like the math-block accent
-                // below, not the flat code dim — a terminal can't render an
-                // actual diagram, but at least the fence reads as "special"
-                // rather than indistinguishable from an unrecognized one).
-                let fence_style = if lang == "mermaid" {
+                let lang_label = if lang.is_empty() {
+                    "code".to_string()
+                } else {
+                    lang.clone()
+                };
+                // Mermaid diagrams get the math-block accent (a terminal
+                // can't render an actual diagram); a recognized language's
+                // header reads as an accent-bold tag (it's about to get real
+                // highlighting below), an unrecognized one as dim — the same
+                // "known = special, unknown = flat" split the old literal
+                // fence styling used. The file name, when one was given,
+                // is muted after the language label.
+                let label_style = if lang == "mermaid" {
                     math
                 } else if crate::syntax::is_known_language(&lang) {
                     heading
                 } else {
                     dim
                 };
-                code_lang = Some(lang);
-                lines.push((idx, Line::from(Span::styled(line.to_string(), fence_style))));
+                let mut spans = vec![Span::styled("▌ ", label_style)];
+                spans.push(Span::styled(lang_label, label_style));
+                if let Some(file) = file {
+                    spans.push(Span::styled(format!("  {file}"), dim));
+                }
+                lines.push((idx, Line::from(spans)));
+                mermaid_buf = if lang == "mermaid" {
+                    Some(Vec::new())
+                } else {
+                    None
+                };
+                code_line_no = 0;
             } else {
                 code_highlighter = None;
-                code_lang = None;
-                lines.push((idx, Line::from(Span::styled(line.to_string(), dim))));
+                // Closing fence. If this was a mermaid fence, flush the
+                // buffered source through the diagram renderer now — the
+                // whole diagram lands as its own rows (a rendered tree or
+                // sequence), falling back to the flat accent styling if the
+                // source couldn't be parsed as a diagram.
+                if let Some(buf) = mermaid_buf.take() {
+                    let src = buf.join("\n");
+                    match crate::mermaid::render(&src, fg, accent, muted) {
+                        Some((_, diagram)) => {
+                            for diagram_line in diagram {
+                                lines.push((idx, diagram_line));
+                            }
+                        }
+                        None => {
+                            for mermaid_line in &buf {
+                                lines.push((
+                                    idx,
+                                    Line::from(Span::styled(mermaid_line.clone(), math)),
+                                ));
+                            }
+                        }
+                    }
+                }
             }
             continue;
         }
         if in_code_block {
-            let rendered = if code_lang.as_deref() == Some("mermaid") {
-                Line::from(Span::styled(line.to_string(), math))
-            } else if let Some(hl) = code_highlighter.as_mut() {
-                Line::from(hl.highlight(line))
+            // Inside a mermaid fence, just accumulate the source — the whole
+            // diagram renders on the closing fence. Every other language
+            // renders its lines individually as before.
+            if let Some(buf) = &mut mermaid_buf {
+                buf.push(line.to_string());
+                continue;
+            }
+            code_line_no += 1;
+            let gutter = Style::default().fg(muted);
+            let num = format!("{code_line_no:>3} │ ");
+            let rendered = if let Some(hl) = code_highlighter.as_mut() {
+                let mut spans = vec![Span::styled(num, gutter)];
+                spans.extend(hl.highlight(line));
+                Line::from(spans)
             } else {
-                Line::from(Span::styled(line.to_string(), dim))
+                Line::from(vec![
+                    Span::styled(num, gutter),
+                    Span::styled(line.to_string(), dim),
+                ])
             };
             lines.push((idx, rendered));
             continue;
         }
         if line.trim_start().starts_with("$$") {
+            // A `$$...$$` formula. Could be a self-contained single-line
+            // block (`$$E = mc^2$$` — the delimiters are never rendered,
+            // only the content between them, the same "markers are syntax,
+            // not display" rule code fences now follow), or the opening or
+            // closing line of a multi-line block (`$$` alone), which toggles
+            // `in_math_block` and produces no row of its own. The content is
+            // run through `mathfmt::latex_to_unicode` so `\frac{\sqrt{\pi}}{2}`
+            // renders as `√π/2` rather than raw LaTeX source.
+            let rest = line.trim_start().trim_start_matches("$$");
+            if let Some(end) = rest.find("$$") {
+                let content = crate::mathfmt::latex_to_unicode(rest[..end].trim());
+                lines.push((idx, Line::from(Span::styled(content, math))));
+                continue;
+            }
             in_math_block = !in_math_block;
-            lines.push((idx, Line::from(Span::styled(line.to_string(), math))));
             continue;
         }
         if in_math_block {
-            lines.push((idx, Line::from(Span::styled(line.to_string(), math))));
+            let content = crate::mathfmt::latex_to_unicode(line);
+            lines.push((idx, Line::from(Span::styled(content, math))));
             continue;
         }
 
         let trimmed = line.trim();
-        if trimmed == "<details>" || trimmed == "</details>" {
+        if trimmed == "<details>" {
+            let id = next_details_id;
+            next_details_id += 1;
+            details_stack.push(id);
+            // Only the outermost folded block suppresses — a folded block
+            // nested inside an already-hidden region is invisible anyway, so
+            // tracking it here would make its `</details>` pop the wrong id.
+            if folded.contains(&id) && suppressed.is_empty() {
+                suppressed.push(id);
+            }
+            continue;
+        }
+        if trimmed == "</details>" {
+            if let Some(id) = details_stack.pop() {
+                if suppressed.last() == Some(&id) {
+                    suppressed.pop();
+                }
+            }
             continue;
         }
         if let Some(inner) = trimmed
             .strip_prefix("<summary>")
             .and_then(|s| s.strip_suffix("</summary>"))
         {
-            lines.push((idx, Line::from(Span::styled(format!("▸ {inner}"), heading))));
+            let id = details_stack.last().copied();
+            // A folded block's own summary is its handle — still rendered
+            // (with a `▸` plus the hidden-line count), even though `suppressed`
+            // already contains it. A summary inside a nested hidden region
+            // (suppressed.last() != this block) renders nothing — you can't
+            // unfold a block you can't see.
+            let is_handle = id.is_some_and(|id| suppressed.last() == Some(&id));
+            if suppressed.is_empty() || is_handle {
+                if let Some(id) = id {
+                    summary_blocks.insert(idx, id);
+                }
+                let folded_here = id.is_some_and(|id| folded.contains(&id));
+                let prefix = if folded_here { "▸" } else { "▾" };
+                let hidden = id.map(|id| hidden_counts[id]).unwrap_or(0);
+                let text = if folded_here && hidden > 0 {
+                    format!("{prefix} {inner}  ({hidden} hidden)")
+                } else {
+                    format!("{prefix} {inner}")
+                };
+                lines.push((idx, Line::from(Span::styled(text, heading))));
+            }
+            continue;
+        }
+
+        // Inside a folded block, everything after its summary (up to the
+        // matching `</details>`) is content to hide — skip it entirely,
+        // including nested `<details>`/`<summary>`/code/table rows.
+        if !suppressed.is_empty() {
             continue;
         }
 
@@ -552,54 +804,102 @@ pub(crate) fn markdown_to_lines_indexed(
         }
 
         let rendered = if let Some(rest) = line.strip_prefix("### ") {
-            Line::from(inline_spans(rest, heading, link_style))
+            Line::from(inline_spans(rest, heading, link_style, math))
         } else if let Some(rest) = line.strip_prefix("## ") {
-            Line::from(inline_spans(rest, heading, link_style))
+            Line::from(inline_spans(rest, heading, link_style, math))
         } else if let Some(rest) = line.strip_prefix("# ") {
             Line::from(inline_spans(
                 rest,
                 heading.add_modifier(Modifier::UNDERLINED),
                 link_style,
+                math,
             ))
-        } else if let Some(rest) = line.strip_prefix("- [x] ").or(line.strip_prefix("- [X] ")) {
-            Line::from(vec![
-                Span::styled(
-                    format!("{}", crate::icons::CHECK),
-                    Style::default().fg(accent),
-                ),
-                Span::styled(
-                    rest.to_string(),
-                    Style::default()
-                        .fg(muted)
-                        .add_modifier(Modifier::CROSSED_OUT),
-                ),
-            ])
-        } else if let Some(rest) = line.strip_prefix("- [ ] ") {
+        } else if let Some((level, rest)) = done_task_item_prefix(line) {
+            let mut spans = vec![Span::styled(
+                format!("{}", crate::icons::CHECK),
+                Style::default().fg(accent),
+            )];
+            spans.push(Span::styled(
+                rest.to_string(),
+                Style::default()
+                    .fg(muted)
+                    .add_modifier(Modifier::CROSSED_OUT),
+            ));
+            if level > 0 {
+                spans.insert(0, Span::styled(" ".repeat(level * 2), Style::default()));
+            }
+            Line::from(spans)
+        } else if let Some((level, rest)) = open_task_item_prefix(line) {
             let mut spans = vec![Span::styled("☐ ", Style::default().fg(muted))];
-            spans.extend(inline_spans(rest, text, link_style));
+            spans.extend(inline_spans(rest, text, link_style, math));
+            if level > 0 {
+                spans.insert(0, Span::styled(" ".repeat(level * 2), Style::default()));
+            }
             Line::from(spans)
-        } else if let Some(rest) = line.strip_prefix("- ") {
-            let mut spans = vec![Span::styled("• ", Style::default().fg(accent))];
-            spans.extend(inline_spans(rest, text, link_style));
-            Line::from(spans)
-        } else if let Some((marker, rest)) = ordered_list_prefix(line) {
+        } else if let Some((level, marker, rest)) = bullet_item_prefix(line) {
             let mut spans = vec![Span::styled(
                 format!("{marker} "),
                 Style::default().fg(accent),
             )];
-            spans.extend(inline_spans(rest, text, link_style));
+            spans.extend(inline_spans(rest, text, link_style, math));
+            if level > 0 {
+                spans.insert(0, Span::styled(" ".repeat(level * 2), Style::default()));
+            }
             Line::from(spans)
-        } else if let Some(rest) = line.strip_prefix("> ") {
-            let mut spans = vec![Span::styled("▏ ", dim)];
-            spans.extend(inline_spans(rest, dim, link_style));
+        } else if let Some((level, marker, rest)) = ordered_item_prefix(line) {
+            let mut spans = vec![Span::styled(
+                format!("{marker} "),
+                Style::default().fg(accent),
+            )];
+            spans.extend(inline_spans(rest, text, link_style, math));
+            if level > 0 {
+                spans.insert(0, Span::styled(" ".repeat(level * 2), Style::default()));
+            }
             Line::from(spans)
+        } else if let Some((depth, rest)) = blockquote_prefix(line) {
+            let gutter = "▏ ".repeat(depth);
+            let mut spans = vec![Span::styled(gutter, dim)];
+            spans.extend(inline_spans(rest, dim, link_style, math));
+            Line::from(spans)
+        } else if line.len() - line.trim_start().len() >= 4 {
+            // Indented code block: 4+ leading spaces and not a list/quote —
+            // render dim like fenced code (no language to highlight).
+            Line::from(Span::styled(line.trim_start().to_string(), dim))
         } else {
-            Line::from(inline_spans(line, text, link_style))
+            Line::from(inline_spans(line, text, link_style, math))
         };
         lines.push((idx, rendered));
     }
 
-    lines
+    (lines, summary_blocks)
+}
+
+/// Per-`<details>`-block content line count, in document order — index `i`
+/// is the number of non-tag content lines inside block `i` (nested blocks'
+/// lines count toward every open ancestor too, so a collapsed outer block
+/// reports its full hidden size including anything nested inside it).
+fn details_content_counts(body: &str) -> Vec<usize> {
+    let mut counts = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed == "<details>" {
+            stack.push(counts.len());
+            counts.push(0);
+        } else if trimmed == "</details>" {
+            stack.pop();
+        } else if trimmed.starts_with("<summary>") {
+            // summary rows aren't "hidden content" — they stay visible.
+        } else {
+            // A content line counts toward every open block, innermost
+            // first — so a collapsed outer block reports its full hidden
+            // size including anything nested inside it.
+            for &open in &stack {
+                counts[open] += 1;
+            }
+        }
+    }
+    counts
 }
 
 #[cfg(test)]
@@ -627,7 +927,12 @@ mod tests {
 
     #[test]
     fn bold_is_stripped_and_styled() {
-        let spans = inline_spans("hello **world** today", Style::default(), Style::default());
+        let spans = inline_spans(
+            "hello **world** today",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
         let bold = spans
             .iter()
             .find(|s| s.content.as_ref() == "world")
@@ -640,14 +945,24 @@ mod tests {
 
     #[test]
     fn italic_is_stripped_and_styled() {
-        let spans = inline_spans("a *b* c", Style::default(), Style::default());
+        let spans = inline_spans(
+            "a *b* c",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
         let italic = spans.iter().find(|s| s.content.as_ref() == "b").unwrap();
         assert!(italic.style.add_modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
     fn inline_code_is_stripped_and_styled() {
-        let spans = inline_spans("run `cargo test` now", Style::default(), Style::default());
+        let spans = inline_spans(
+            "run `cargo test` now",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
         let code = spans
             .iter()
             .find(|s| s.content.as_ref() == "cargo test")
@@ -659,7 +974,12 @@ mod tests {
     fn unterminated_marker_is_left_literal() {
         // No closing `*` anywhere — must not swallow the rest of the line
         // looking for one, and must not panic.
-        let spans = inline_spans("a * b c", Style::default(), Style::default());
+        let spans = inline_spans(
+            "a * b c",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
         let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(full, "a * b c");
     }
@@ -668,6 +988,7 @@ mod tests {
     fn markdown_link_shows_only_the_label() {
         let spans = inline_spans(
             "see [the docs](https://example.com) here",
+            Style::default(),
             Style::default(),
             Style::default(),
         );
@@ -681,16 +1002,44 @@ mod tests {
             "see [[Some Note]] please",
             Style::default(),
             Style::default(),
+            Style::default(),
         );
         assert!(spans.iter().any(|s| s.content.as_ref() == "[[Some Note]]"));
     }
 
     #[test]
     fn image_becomes_an_icon_plus_alt_text() {
-        let spans = inline_spans("![a photo](pic.png)", Style::default(), Style::default());
+        let spans = inline_spans(
+            "![a photo](pic.png)",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
         let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(full.contains("a photo"));
         assert!(!full.contains("pic.png"));
+    }
+
+    #[test]
+    fn inline_math_is_prettified_and_math_styled() {
+        let spans = inline_spans(
+            "so $$a^2 + b^2 = c^2$$ and more",
+            Style::default(),
+            Style::default(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::ITALIC),
+        );
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        // The $$ delimiters are gone and the LaTeX is prettified; the
+        // surrounding prose stays plain.
+        assert_eq!(full, "so a² + b² = c² and more");
+        let math_span = spans
+            .iter()
+            .find(|s| s.content.as_ref() == "a² + b² = c²")
+            .expect("math span present");
+        assert_eq!(math_span.style.fg, Some(Color::Cyan));
+        assert!(math_span.style.add_modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
@@ -764,27 +1113,107 @@ mod tests {
         let body = "<details>\n<summary>Click to expand</summary>\nhidden content\n</details>";
         let lines = markdown_to_lines(body, &PALETTE);
         // <details>/</details> themselves produce no line; summary becomes
-        // a styled header; the body content still renders normally.
+        // a styled header (expanded blocks get a `▾` handle); the body
+        // content still renders normally.
         assert_eq!(lines.len(), 2);
-        assert_eq!(line_text(&lines[0]), "▸ Click to expand");
+        assert_eq!(line_text(&lines[0]), "▾ Click to expand");
         assert_eq!(line_text(&lines[1]), "hidden content");
+    }
+
+    #[test]
+    fn folded_details_hide_content_and_report_count() {
+        let body =
+            "<details>\n<summary>Click to expand</summary>\nline one\nline two\n</details>\nafter";
+        let folded: std::collections::HashSet<usize> = std::collections::HashSet::from([0]);
+        let (indexed, summary_blocks) = markdown_to_lines_indexed(body, &PALETTE, &folded);
+        // Only the summary handle (with the hidden count) and the trailing
+        // content line survive — the two hidden lines are omitted entirely.
+        assert_eq!(indexed.len(), 2);
+        assert_eq!(line_text(&indexed[0].1), "▸ Click to expand  (2 hidden)");
+        assert_eq!(line_text(&indexed[1].1), "after");
+        // The summary row maps back to its source line and block id.
+        assert_eq!(summary_blocks.get(&1), Some(&0));
+    }
+
+    #[test]
+    fn unfolded_details_hide_nothing_and_map_summaries() {
+        let body = "<details>\n<summary>S</summary>\ncontent\n</details>";
+        let (indexed, summary_blocks) =
+            markdown_to_lines_indexed(body, &PALETTE, &std::collections::HashSet::new());
+        assert_eq!(indexed.len(), 2);
+        assert_eq!(line_text(&indexed[0].1), "▾ S");
+        assert_eq!(line_text(&indexed[1].1), "content");
+        assert_eq!(summary_blocks.get(&1), Some(&0));
+    }
+
+    #[test]
+    fn folded_details_with_no_hidden_lines_omits_count() {
+        let body = "<details>\n<summary>Empty</summary>\n</details>";
+        let folded: std::collections::HashSet<usize> = std::collections::HashSet::from([0]);
+        let (indexed, _) = markdown_to_lines_indexed(body, &PALETTE, &folded);
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(line_text(&indexed[0].1), "▸ Empty");
+    }
+
+    #[test]
+    fn nested_folded_details_outer_wins() {
+        let body = "<details>\n<summary>Outer</summary>\n<details>\n<summary>Inner</summary>\nx\n</details>\ny\n</details>";
+        let folded: std::collections::HashSet<usize> = std::collections::HashSet::from([0]);
+        let (indexed, summary_blocks) = markdown_to_lines_indexed(body, &PALETTE, &folded);
+        // Outer folded: only its summary survives; the inner summary and
+        // both content lines (x, y) are hidden — the count reflects the
+        // two real content lines, not the nested `<details>`/`<summary>`
+        // tag lines that are also skipped.
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(line_text(&indexed[0].1), "▸ Outer  (2 hidden)");
+        assert_eq!(summary_blocks.get(&1), Some(&0));
     }
 
     #[test]
     fn math_block_is_styled_distinctly_from_code_block() {
         let body = "$$\nx = y\n$$";
         let lines = markdown_to_lines(body, &PALETTE);
-        assert_eq!(lines.len(), 3);
+        // The bare `$$` delimiters produce no rows at all; only the content
+        // line in between survives.
+        assert_eq!(lines.len(), 1);
         // Content line inside the math block uses `accent`, not `muted`
         // (which code fences use) — the whole point of the distinction.
-        assert_eq!(lines[1].spans[0].style.fg, Some(ACCENT));
+        assert_eq!(lines[0].spans[0].style.fg, Some(ACCENT));
+    }
+
+    #[test]
+    fn single_line_math_block_strips_delimiters_and_does_not_leak_state() {
+        let body = "$$E = mc^2$$\n\nplain paragraph";
+        let lines = markdown_to_lines(body, &PALETTE);
+        // The `$$` markers are syntax, not display — only the formula text
+        // renders (math-styled), the `$$` are never shown. The LaTeX content
+        // is prettified (`^2` → `²`). The blank line between still produces
+        // its own (empty) row, like any other blank.
+        assert_eq!(lines.len(), 3);
+        assert_eq!(line_text(&lines[0]), "E = mc²");
+        assert_eq!(line_text(&lines[1]), "");
+        assert_eq!(line_text(&lines[2]), "plain paragraph");
+        // And the single-line block must NOT leave in_math_block on: the
+        // following paragraph is plain body text, not math-styled.
+        assert_eq!(lines[2].spans[0].style.fg, Some(FG));
+    }
+
+    #[test]
+    fn math_block_prettifies_latex_fractions_and_integrals() {
+        let body = "$$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$";
+        let lines = markdown_to_lines(body, &PALETTE);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(line_text(&lines[0]), "∫₀^∞ e⁻ˣ² dx = √π/2");
     }
 
     #[test]
     fn tsx_fence_gets_real_per_token_highlighting_not_flat_dim() {
         let body = "```tsx\nconst x = 1;\n```";
         let lines = markdown_to_lines(body, &PALETTE);
-        assert_eq!(lines.len(), 3);
+        // Opening fence -> header row, one code row, closing fence -> nothing.
+        assert_eq!(lines.len(), 2);
+        // The header row is `▌ tsx`, not a literal ```tsx fence line.
+        assert_eq!(line_text(&lines[0]), "▌ tsx");
         // Before real highlighting existed (and before `tsx` was a
         // recognized language at all — plain syntect's bundled defaults
         // don't include TypeScript/TSX), every span on this row shared the
@@ -802,5 +1231,102 @@ mod tests {
             distinct_colors.len() > 1,
             "expected multiple distinct token colors, got {distinct_colors:?}"
         );
+    }
+
+    #[test]
+    fn fence_header_shows_language_and_optional_file_name() {
+        let body = "```rust file:main.rs\nlet x = 1;\n```";
+        let lines = markdown_to_lines(body, &PALETTE);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(line_text(&lines[0]), "▌ rust  main.rs");
+        // Code lines carry a line-number gutter before the code itself.
+        assert_eq!(line_text(&lines[1]), "  1 │ let x = 1;");
+
+        let body = "```python\nprint(1)\n```";
+        let lines = markdown_to_lines(body, &PALETTE);
+        assert_eq!(line_text(&lines[0]), "▌ python");
+
+        // An untagged fence still gets a header, not a literal ``` row.
+        let body = "```\nplain\n```";
+        let lines = markdown_to_lines(body, &PALETTE);
+        assert_eq!(line_text(&lines[0]), "▌ code");
+
+        // The file name keeps its original casing — only the language tag
+        // is lowercased (real-world path `App.tsx` must not become `app.tsx`).
+        let body = "```tsx file:App.tsx\nconst x = 1;\n```";
+        let lines = markdown_to_lines(body, &PALETTE);
+        assert_eq!(line_text(&lines[0]), "▌ tsx  App.tsx");
+    }
+
+    #[test]
+    fn code_line_numbers_increment_across_the_fence() {
+        let body = "```rust\nlet a = 1;\nlet b = 2;\nlet c = 3;\n```";
+        let lines = markdown_to_lines(body, &PALETTE);
+        let t: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(t[0], "▌ rust");
+        assert_eq!(t[1], "  1 │ let a = 1;");
+        assert_eq!(t[2], "  2 │ let b = 2;");
+        assert_eq!(t[3], "  3 │ let c = 3;");
+        // The gutter span is muted (not the italic dim of plain code).
+        assert_eq!(lines[1].spans[0].content.as_ref(), "  1 │ ");
+        assert!(!lines[1].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn nested_lists_render_with_indent_and_varying_bullets() {
+        let body = "- top\n  - nested\n    - deeper\n1. one\n  2. two";
+        let lines = markdown_to_lines(body, &PALETTE);
+        let t: Vec<String> = lines.iter().map(line_text).collect();
+        // Top-level bullet keeps •; nested levels get ◦ / ▪ and leading space.
+        assert_eq!(t[0], "• top");
+        assert_eq!(t[1], "  ◦ nested");
+        assert_eq!(t[2], "    ▪ deeper");
+        // Ordered items keep their numeric marker, indented by depth.
+        assert_eq!(t[3], "1. one");
+        assert_eq!(t[4], "  2. two");
+    }
+
+    #[test]
+    fn nested_tasks_and_checkboxes_render_with_indent() {
+        let body = "- [ ] open\n  - [x] done\n    - [ ] deep";
+        let lines = markdown_to_lines(body, &PALETTE);
+        let t: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(t[0], "☐ open");
+        // Done tasks use the Nerd Font CHECK glyph (icons::CHECK), which
+        // renders as ✔ in a patched terminal; compare the prefix here.
+        assert!(t[1].starts_with("  "), "{t:?}");
+        assert!(t[1].contains("done"), "{t:?}");
+        assert_eq!(t[2], "    ☐ deep");
+    }
+
+    #[test]
+    fn strikethrough_is_crossed_out_not_literal() {
+        let spans = inline_spans(
+            "a ~~gone~~ b",
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
+        let full: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(full, "a gone b");
+        let struck = spans
+            .iter()
+            .find(|s| s.content.as_ref() == "gone")
+            .expect("strikethrough span present");
+        assert!(struck.style.add_modifier.contains(Modifier::CROSSED_OUT));
+    }
+
+    #[test]
+    fn nested_blockquotes_and_indented_code_render() {
+        let body = "> quote\n>> nested quote\n    indented code";
+        let lines = markdown_to_lines(body, &PALETTE);
+        let t: Vec<String> = lines.iter().map(line_text).collect();
+        assert_eq!(t[0], "▏ quote");
+        assert_eq!(t[1], "▏ ▏ nested quote");
+        // Indented code keeps its text (leading spaces stripped), dim-styled.
+        assert_eq!(t[2], "indented code");
     }
 }

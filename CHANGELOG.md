@@ -8,6 +8,60 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ### Added
 
+- `<details>`/`<summary>` blocks in a note's body are now truly collapsible in PREVIEW: a
+  collapsed block shows only its summary (`▸` plus a hidden-line count) and hides everything
+  inside it — a plain mouse click on the summary row toggles it (instead of entering edit mode
+  there), and the fold state is kept per note for the session (not persisted to `config.toml`).
+  Previously every `<details>` block rendered fully expanded with no way to fold it.
+- `shiki notebook rekey <name>`: changes an encrypted notebook's passphrase in one step —
+  verifies the old one against the canary, prompts for a new one twice, and re-encrypts every
+  note in place, never writing plaintext to disk mid-operation (the old `decrypt` then
+  `encrypt` two-step still works but leaves notes unencrypted in between).
+- Hidden notebooks can now be restored from Settings → NOTEBOOKS: the list includes notebooks
+  that were untracked via the notebook-delete dialog's "just remove the reference" answer
+  (marked `(hidden)`), and drilling into one has a `hidden` field whose `Enter` clears the flag
+  and brings the notebook back — previously the only way to un-hide was hand-editing
+  `config.toml`.
+- Cross-notebook `[[wikilink]]` resolution: a link that doesn't match any note in the current
+  notebook now falls back to every other notebook (local resolution always wins, so
+  same-titled notes in different notebooks still resolve to the current one). Both Ctrl+click in
+  PREVIEW and the links modal use it, and jumping to a cross-notebook result switches notebooks
+  automatically — this fixes the daily-note "Due today" agenda's links to tasks living in other
+  notebooks, which previously reported "doesn't match any note".
+- Code fences in PREVIEW now render as real code blocks instead of literal ` ``` ` markers: the
+  opening fence becomes a header row (`▌ rust  main.rs` — accent-colored `▌` + language tag, with
+  an optional `file:<path>` token from the fence line shown muted after it), the closing fence
+  renders nothing, and the code body keeps its per-token syntax highlighting. The `file:` token is
+  shown exactly as written (only the language tag is lowercased), so a real path like `App.tsx`
+  isn't mangled; an untagged fence gets a plain `▌ code` header.
+- `$$...$$` math blocks in PREVIEW no longer show the literal `$$` delimiters — a single-line
+  block like `$$E = mc^2$$` renders just the formula (accent/italic), and a multi-line block's
+  bare `$$` opener/closer lines produce no rows at all. This also fixes a real bug where a
+  single-line `$$...$$` block left the math state on, silently styling the following paragraphs
+  as math until the next `$$` line.
+- `$$...$$` math content is now prettified to readable Unicode instead of raw LaTeX source
+  (`shiki-tui/src/mathfmt.rs`): `\frac{a}{b}` → `a/b`, `\sqrt{x}` → `√x`, `^2` → `²`, `_0` → `₀`,
+  `\pi` → `π`, `\int` → `∫`, `\infty` → `∞`, `\times` → `×`, Greek letters and common operators —
+  so `$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$` renders as `∫₀^∞ e⁻ˣ² dx = √π/2`
+  instead of the markup verbatim. A lightweight hand-rolled converter, not a TeX engine: anything
+  it doesn't recognize passes through unchanged. Inline `$$...$$` mid-line (e.g. "Inline math
+  $$a^2 + b^2 = c^2$$ stays on its line.") gets the same prettification as full blocks.
+- ` ```mermaid ` fences now render as real diagrams in PREVIEW instead of flat accent-colored text
+  (`shiki-tui/src/mermaid.rs`, a small hand-rolled parser): flowcharts (`graph TD`/`flowchart LR`
+  …) are laid out as an indented tree with box-drawing connectors, node shapes
+  (`A[Label]`/`A(Label)`/`A{Label}`/`A((Label))`/`A[[Label]]`) and edge labels, and sequence
+  diagrams (`sequenceDiagram` with `participant` + `->>`/`-->>`/`->`/`--x` messages) render as
+  participant columns with arrows drawn between them. A diagram that can't be parsed falls back to
+  the previous flat styling rather than breaking.
+- PREVIEW's Markdown renderer now handles nested lists, nested blockquotes, strikethrough, and
+  indented code blocks, which previously rendered as literal text: list items at any nesting depth
+  (leading spaces then `- `/`* `/`+ ` or `N. `) indent and step the bullet glyph `•` → `◦` → `▪`;
+  `>> nested quote` repeats the `▏` gutter per level; `~~struck~~` renders crossed-out; a line
+  with 4+ leading spaces that isn't a list/quote renders dim like fenced code.
+- Code fences in PREVIEW now show a line-number gutter: each code row is prefixed with a right-
+  aligned `N │ ` (muted, not the italic dim of the code itself) that resets per fence — so reading
+  a highlighted block references "line 3" the same way a real editor would, and the header row
+  (`▌ rust  main.rs`) plus gutter make the block read as one unit.
 - `shiki capture "text"`: near-instant note capture with no `$EDITOR` and no TUI drawn — meant for
   scripts, launchers (rofi/waybar/Raycast/AutoHotkey), or an OS hotkey. Targets
   `general.default_notebook` by default (`-n <notebook>` overrides), auto-generates a timestamped
@@ -114,6 +168,11 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ### Fixed
 
+- The notebook drawer (`leader+b`) no longer hides the left edge of the panel underneath it:
+  while the drawer is open the panels are pushed right by `drawer_width` instead of being covered
+  by the overlay. Previously a pure left-anchored overlay sat on top of the panels, so the first
+  ~28 columns of every PREVIEW line — the first half of a long math formula, the start of a code
+  fence, the beginning of any wrapped line — disappeared behind the drawer the moment it opened.
 - The template picker's `{{cursor}}` marker (`a` → title → pick a template) was never actually
   handled — it saved the literal text `{{cursor}}` into the new note's file and always opened the
   editor at the top, unlike the identical marker in `/`-menu snippets, which already worked

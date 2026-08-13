@@ -21,7 +21,7 @@ cargo fmt --all                      # format (run after editing, before checkin
 cargo run -p shiki-cli -- <args>     # run the binary, e.g. `-- new "titulo"`, `-- daily`, no args launches the TUI
 ```
 
-There are ~256 `#[test]`s: 131 in `shiki-core`, 17 in `shiki-config`, 95 in `shiki-tui`, 13 in
+There are ~293 `#[test]`s: 134 in `shiki-core`, 17 in `shiki-config`, 129 in `shiki-tui`, 13 in
 `shiki-cli` — `cargo test --workspace` is green. They're all inline `#[cfg(test)]` modules inside
 the source files (no `tests/` dirs, no `#[ignore]`, no fixture setup), so the pattern set by
 `panel_drawer::tests` (`shiki-tui/src/panel_drawer.rs`) — covering `drawer_hit_at`'s mouse
@@ -91,8 +91,13 @@ key. It's also the first overlay in this codebase that's **left-anchored** rathe
 center-flexed: every other popup (`centered_rect`, used by the theme picker/logs/tree/history/
 tags/confirm) sits in the middle of the screen, but `App::drawer_area` builds a fixed-width
 (`DRAWER_WIDTH`) `Rect` pinned to `x: 0` instead, so it reads as a persistent sidebar rather than a
-dialog — deliberately not using `centered_rect` for this one. `App::drawer_statuses: Vec<(String,
-GitStatus)>` (every notebook, not just the selected one — contrast with `git_status`, which is
+dialog — deliberately not using `centered_rect` for this one. **While the drawer is open, the
+panels are *pushed* right by `drawer_width` rather than covered: `layout::split` takes the drawer's
+width as an extra argument (`App::drawer_offset`, 0 when closed) and shifts `main` right by it,
+because a pure overlay otherwise hid the left edge of whatever panel sat underneath — the first
+~28 columns of every PREVIEW line (e.g. the first half of a long math formula) disappeared behind
+the drawer.** `App::drawer_statuses: Vec<(String, GitStatus)>` (every notebook, not just the
+selected one — contrast with `git_status`, which is
 just the selected notebook) is only populated while `show_drawer` is true (`refresh_drawer_statuses`,
 called from `toggle_drawer` and again from `refresh_git_status`/`apply_git_op_result` whenever it's
 open), since computing it for every notebook on every draw tick would be pure waste when nothing's
@@ -400,8 +405,9 @@ is paged by tab, not one long scroll, and every tab is genuinely interactive —
 earlier version where only NOTEBOOKS was, and before that, a version where the whole screen was a
 read-only summary with `i`/`E` as the only way to change anything (hand-editing raw TOML).**
 `App.settings_section: panel_settings::SettingsSection` picks the active tab; `←`/`→`
-(`App::switch_settings_section`) cycles GENERAL → THEME → GIT → NOTEBOOKS → SNIPPETS → back to
-GENERAL, always resetting `settings_selected`/`settings_notebook_drill`/`settings_snippet_drill`/
+(`App::switch_settings_section`) cycles GENERAL → THEME → GIT → EDITOR → EXPORT → NOTEBOOKS →
+SNIPPETS → back to GENERAL, always resetting `settings_selected`/`settings_notebook_drill`/
+`settings_snippet_drill`/
 `settings_field_selected` back to the top — switching tabs mid-drill-down doesn't leave a stale
 drill state behind in whichever tab you land on. Each tab's field order is its own small `enum`
 with an `ALL` const (`GeneralField`/`ThemeField`/`GitField`/`NotebookField`/`SnippetField`) —
@@ -435,6 +441,13 @@ toggling everything back to "inherit" doesn't leave a pointless empty table in `
 `remote`/`auto_sync_every` open the same `PendingInput` prompt pattern GENERAL/GIT's text fields
 use, reusing `shiki_core::git::set_remote`/`remote_url` — the same primitives the notebooks-panel
 `R` binding (`start_set_remote`) already uses, rather than a second remote-editing code path.
+A sixth `NotebookField::Hidden` row exists only for restoring a notebook that was untracked
+(`hidden = true`, set by answering the notebook-delete dialog with "just remove the reference") —
+`Enter` on it clears the flag, `reload_notebooks`, and prunes the now-empty `[notebooks.<name>]`
+table, so a hidden notebook is never stranded: `sorted_notebook_names` deliberately includes
+config-hidden names (they're filtered out of `App.notebooks` itself) so Settings can always reach
+one. It's a one-way action, not a 3-state cycle like `auto_push`/`auto_sync` — a hidden notebook is
+already invisible to NOTEBOOKS, so there's no "hide from here" state to cycle into.
 
 SNIPPETS level 1 additionally supports `a` (new snippet: prompts for a trigger via
 `PendingInput::SettingsSnippetTrigger`, creates it with an empty label/body, and drills straight
@@ -681,7 +694,8 @@ the same thing in different folders are otherwise indistinguishable in this list
 inserts `[[Title]]`, replacing the just-typed `[[query` in place.
 
 **Ctrl+Click on a rendered `[[wikilink]]` in PREVIEW (`App::try_follow_preview_wikilink`) jumps
-straight to the note it resolves to via `shiki_core::wikilinks::resolve_one`; a plain click still
+straight to the note it resolves to via `shiki_core::wikilinks::resolve_one` (with a
+cross-notebook fallback through `wikilinks::resolve_one_global`, see below); a plain click still
 enters edit mode everywhere, including on top of a wikilink** — Ctrl is deliberately the opt-in
 gate here, the same way Alt+Click already gates adding a multi-cursor, so that clicking to edit a
 note that happens to contain links doesn't become impossible. `App::jump_to_note(path, title)` is
@@ -776,8 +790,13 @@ copy wouldn't complete the original). `daily::create_or_open` takes `agenda: Opt
 ignores it entirely when the daily already exists, so reopening later in the day can't duplicate
 the section or clobber edits. Both callers (TUI `create_daily_note`, CLI `commands/daily.rs`)
 build it from `store.all_notes()` — the agenda spans every notebook, not just the daily's own.
-Known accepted wart: a cross-notebook task's `[[link]]` won't resolve from the daily's notebook
-(resolution is notebook-scoped); the bullet still names the note.
+Those cross-notebook `[[links]]` now *resolve* when clicked or listed: `wikilinks::resolve_one_global`
+falls back from the current notebook's notes to every other notebook's (local always wins, so two
+notebooks with same-titled notes still resolve to the current one), and both Ctrl+Click
+(`try_follow_preview_wikilink`) and the links modal's outgoing rows use it; `jump_to_note` was
+made cross-notebook aware (it finds the owning notebook by path prefix and switches
+`selected_notebook` before reloading) so the deep-link tail needed no per-caller branch. The bullet
+itself is still plain text — only the jump path resolves.
 
 **`c` in the links modal (`link_selected_mention` → `wikilinks::link_mention`) repairs a mention
 into a real link, editing the *mentioning* note's file in place.** `link_mention` wraps the first
@@ -900,6 +919,80 @@ happened to change too. `refresh_notes_preserve_selection`/`reload_notes` clear 
 unconditionally (same as `history_count_cache` does after a revert) since either can cover a case
 where the *same* selected path's content changed underneath it (external edit, inline edit save,
 revert) without the path itself changing.
+
+**`<details>`/`<summary>` blocks are genuinely collapsible in PREVIEW, with session-only fold state
+keyed by note path (`App.details_folded: HashMap<PathBuf, HashSet<usize>>`).** `markdown_to_lines_indexed`
+takes a `folded: &HashSet<usize>` of block ids (document order) and a nested stack + `suppressed`
+stack of folded ids to decide which lines to omit; `details_content_counts` pre-computes each block's
+content line count (counting nested content toward every open ancestor) so a folded summary can say
+`▸ More (12 hidden)`. A click on a rendered summary row toggles its block via `App::toggle_details_block`
+— which needs `summary_blocks: HashMap<usize, usize>` (summary source-line -> block id) baked into
+the `NotePreviewCache` tuple — instead of entering edit mode there. The `folded` set rides in the
+cache key (like `[fg, accent, muted, link]` and `width`), so toggling a fold rebuilds the cache; it's
+deliberately NOT persisted to `config.toml` (same "view state, not config" rule as zen mode). The
+fold state is keyed by note path, not by the `App.notes` index, so switching notes and back keeps a
+note's folds.
+
+**`$$...$$` math renders its content through `mathfmt::latex_to_unicode`, a lightweight
+hand-rolled LaTeX→Unicode converter (`shiki-tui/src/mathfmt.rs`), applied in `render.rs` at three
+paths: the single-line block (`$$E = mc^2$$`), the multi-line block (`in_math_block`), and —
+via `inline_spans` taking a `math` style parameter — inline `$$...$$` mid-line (a line like
+"so $$a^2 + b^2 = c^2$$ and more" splits into plain prose + a math-styled span).** A terminal
+can't typeset LaTeX, but it can beat echoing the markup verbatim: `\frac{a}{b}` → `a/b`,
+`\sqrt{x}` → `√x`, `^2` → `²`, `_0` → `₀`, `\pi` → `π`, `\int` → `∫`, Greek letters and common
+operators — so the math-blocks note's formula reads as `∫₀^∞ e⁻ˣ² dx = √π/2` instead of
+`\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}`. Deliberately NOT a TeX engine: no dependency,
+and anything unrecognized passes through unchanged (a note with an exotic macro still shows
+*something*, just not prettified). It's implemented as a small recursive-descent scanner (commands,
+`{}`-grouping, `^`/`_` scripts with Unicode super/subscript maps, script-glyph pass-through so
+nested exponents like `e^{-x^2}` → `⁻ˣ²` work) rather than a parser-combinator dependency,
+consistent with `tasks.rs`/`query.rs`'s hand-rolled-parser convention. Pure function of a string —
+unit-testable without a TUI, same as `details_content_counts`. The inline case deliberately
+requires `$$` (not a single `$`), so a price or shell prompt isn't swallowed as math.
+
+**` ```mermaid ` fences are buffered whole and rendered as a real diagram through
+`mermaid::render` (`shiki-tui/src/mermaid.rs`), the same hand-rolled-parser convention as
+`mathfmt`, instead of the flat accent-colored text they used to get.** A diagram can't be laid out
+line by line, so `markdown_to_lines_indexed` accumulates the fence's source in `mermaid_buf`
+(`Vec<String>`) while open and, on the closing fence, hands it all to `mermaid::render` —
+which returns `None` for anything it can't parse, falling back to the old per-line flat styling
+(rather than failing). Flowcharts (`graph TD`/`flowchart LR`, …) parse node definitions
+(`A[Label]`/`A(Label)`/`A{Label}`/`A((Label))`/`A[[Label]]`/`A>Label]`), edge operators
+(`-->`, `---`, `-.->`, `==>`, `~~~`, `-- label -->`, `-->|label|`), and `subgraph` blocks, then
+lay the graph out as an indented tree — roots are nodes with no incoming edge, children recurse
+under `└─`/`├─` connectors, and a node reached twice (a cycle or a second parent) is drawn as a
+muted `… [Label]` reference line instead of recursing forever. Sequence diagrams parse
+`participant X`/`actor X` and messages (`->>`, `-->>`, `->`, `-->`, `--x`, `-)`, with
+`A->>B: text` syntax), rendering each participant as a fixed-width column with pipes under every
+participant and `─`/`·` fill + a `▶`/`◀` arrowhead between source and target. Diagram nodes are
+accent/bold for labels, muted for the shape brackets and connectors — same color vocabulary as
+`math`/`render`. `kind_of` only treats a fence as a diagram when its first content line is a real
+`graph`/`flowchart`/`sequenceDiagram` header, so arbitrary text under a ` ```mermaid ` fence
+falls back instead of being mangled.
+
+**Every non-mermaid code fence gets a right-aligned line-number gutter**: `code_line_no` (reset to
+0 when a fence opens, incremented per source line inside it) is rendered as a leading muted span
+`format!("{n:>3} │ ")` prepended to each code row — before the syntax-highlighted spans for a
+recognized language, before the plain `dim` span otherwise. The gutter is `muted` without the
+italic `dim` uses, so it reads as a separate axis from the code. It's part of the same `Line`, so
+the existing wrap/`note_preview_source_line` machinery treats it as ordinary text — no new
+offset arithmetic anywhere. Line numbers reference the *source* lines of the fence, matching how
+click-to-edit maps a PREVIEW row back to the raw Markdown line.
+
+**List items, blockquotes, and indented code all render at any nesting depth, via five small
+prefix helpers (`done_task_item_prefix`/`open_task_item_prefix`/`bullet_item_prefix`/
+`ordered_item_prefix`/`blockquote_prefix`) that `markdown_to_lines_indexed`'s render chain uses
+instead of the old flat `strip_prefix("- ")`/`strip_prefix("> ")` checks.** A line's nesting level
+is `indent_level` (leading spaces ÷ 2, CommonMark's 2-space rule); bullets step the glyph
+`•` → `◦` → `▪` by `level % 3` so depth is readable even if the leading spaces scroll past,
+ordered items keep their `N.` marker, tasks (`- [ ]`/`- [x]`) at any depth keep their checkbox,
+and blockquotes repeat the `▏ ` gutter once per `>` (`>> quote` → `▏ ▏ quote`). Lines with 4+
+leading spaces that aren't a list/quote fall through to a dim "indented code block" row (like a
+language-less fence). `inline_spans` gained `~~strikethrough~~` (crossed-out) alongside the
+existing bold/italic/code/link cases. The order in the render chain matters: done-task, then
+open-task, then bullet, then ordered, then blockquote, then indented-code — each prefix helper
+trims leading whitespace first so an indented list item is still recognized as a list, not
+mistaken for indented code.
 
 **Both caches store the already-*formatted* `Vec<Line<'static>>`, not just the raw listing/body —
 an earlier version of `folder_preview_cache` only cached `Notebook::list_dir`'s raw output and
