@@ -1,0 +1,185 @@
+<!--
+  Per-version release page template. `scripts/generate_release_pages.py`
+  fills in every {{PLACEHOLDER}} with plain string substitution and writes
+  the result to docs/changelog/0.9.1.html. Paths inside are written
+  relative to that output location (one level under docs/), i.e. `../css/`,
+  `../assets/`, `../index.html` etc. — not relative to this template file.
+
+  Unlike changelog.html (which fetches CHANGELOG.md live via JS so it can
+  never drift, see docs/js/main.js), this page's changelog body is baked in
+  statically at generation time — it has to be, since link-unfurlers (the
+  actual point of this page existing) read the raw HTML and never execute
+  JS, so the og:title/og:description/og:image and the visible content must
+  already be correct in the file as committed.
+-->
+<!DOCTYPE html>
+<html lang="en" data-theme="gruvbox-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shiki v0.9.1 — Release notes</title>
+  <meta name="description" content="&lt;details&gt;/&lt;summary&gt; blocks in a note&#x27;s body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (▸ plus a hidden-line count) and h…" />
+  <meta name="keywords" content="shiki changelog, shiki v0.9.1, shiki release notes" />
+  <meta name="author" content="sazardev" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://sazardev.github.io/shiki/changelog/0.9.1.html" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://sazardev.github.io/shiki/changelog/0.9.1.html" />
+  <meta property="og:site_name" content="shiki" />
+  <meta property="og:title" content="shiki v0.9.1 — Release notes" />
+  <meta property="og:description" content="&lt;details&gt;/&lt;summary&gt; blocks in a note&#x27;s body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (▸ plus a hidden-line count) and h…" />
+  <meta property="og:image" content="https://sazardev.github.io/shiki/assets/og/0.9.1.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="shiki v0.9.1 — release card" />
+  <meta property="og:locale" content="en_US" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="shiki v0.9.1 — Release notes" />
+  <meta name="twitter:description" content="&lt;details&gt;/&lt;summary&gt; blocks in a note&#x27;s body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (▸ plus a hidden-line count) and h…" />
+  <meta name="twitter:image" content="https://sazardev.github.io/shiki/assets/og/0.9.1.png" />
+  <meta name="twitter:image:alt" content="shiki v0.9.1 — release card" />
+
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/apple-touch-icon.png" />
+  <link rel="alternate" type="application/rss+xml" title="shiki changelog" href="../feed.xml" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/documentation.css" />
+
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "shiki v0.9.1 — Release notes", "description": "<details>/<summary> blocks in a note's body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (▸ plus a hidden-line count) and h…", "image": "https://sazardev.github.io/shiki/assets/og/0.9.1.png", "url": "https://sazardev.github.io/shiki/changelog/0.9.1.html", "mainEntityOfPage": {"@type": "WebPage", "@id": "https://sazardev.github.io/shiki/changelog/0.9.1.html"}, "author": {"@type": "Person", "name": "sazardev", "url": "https://github.com/sazardev"}, "publisher": {"@type": "Organization", "name": "shiki", "logo": {"@type": "ImageObject", "url": "https://sazardev.github.io/shiki/assets/favicon-512.png"}}, "datePublished": "2026-08-13", "dateModified": "2026-08-13"}</script>
+</head>
+<body class="doc-page">
+
+  <header class="topbar">
+    <div class="brand"><a href="../index.html" style="color:inherit;text-decoration:none;">shiki (私記)</a><span class="cursor"></span></div>
+    <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="site-nav">☰</button>
+    <nav id="site-nav">
+      <a href="../index.html#themes">Themes</a>
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#install">Install</a>
+      <a href="../documentation.html">Docs</a>
+      <a href="../changelog.html" class="active">Changelog</a>
+      <a href="../press.html">Press</a>
+      <a href="https://github.com/sazardev/shiki">GitHub</a>
+      <span class="version-chip-wrap" id="version-chip-wrap">
+        <button type="button" class="pill pill-button" id="version-pill" hidden></button>
+        <div class="version-popover" id="version-popover" role="dialog" aria-label="What's new" hidden>
+          <div class="version-popover-header">
+            <strong>What's new</strong>
+            <a href="../changelog.html">Full changelog →</a>
+          </div>
+          <div class="version-popover-body changelog-body" id="version-popover-content">
+            <p class="changelog-loading">Loading changelog…</p>
+          </div>
+        </div>
+      </span>
+    </nav>
+  </header>
+
+  <section class="doc-hero">
+    <div class="container">
+      <span class="eyebrow"><a href="../changelog.html">← Full changelog</a></span>
+      <h1>shiki v0.9.1</h1>
+      <p class="muted" style="max-width: 66ch;">Released 2026-08-13.</p>
+      <div class="release-share-row">
+        <span class="release-share-label">Share:</span>
+        <a class="release-share-link" href="https://twitter.com/intent/tweet?text=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6&amp;url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html" target="_blank" rel="noopener">X</a>
+        <a class="release-share-link" href="https://bsky.app/intent/compose?text=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6%20https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html" target="_blank" rel="noopener">Bluesky</a>
+        <a class="release-share-link" href="https://www.reddit.com/submit?url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html&amp;title=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6" target="_blank" rel="noopener">Reddit</a>
+        <a class="release-share-link" href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html&amp;t=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6" target="_blank" rel="noopener">Hacker News</a>
+        <a class="release-share-link" href="https://wa.me/?text=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6%20https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html" target="_blank" rel="noopener">WhatsApp</a>
+        <a class="release-share-link" href="https://t.me/share/url?url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html&amp;text=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6" target="_blank" rel="noopener">Telegram</a>
+        <a class="release-share-link" href="mailto:?subject=shiki%20v0.9.1%20released&amp;body=shiki%20v0.9.1%3A%20%3Cdetails%3E%2F%3Csummary%3E%20blocks%20in%20a%20note%27s%20body%20are%20now%20truly%20collapsible%20in%20PREVIEW%3A%20a%20collapsed%20block%20shows%20only%20its%20summary%20%28%E2%96%B8%20plus%20a%20hidden-line%20count%29%20and%20h%E2%80%A6%0A%0Ahttps%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.1.html">Email</a>
+        <button type="button" class="copy-btn copy-btn-inline" data-copy-text="🚀 shiki v0.9.1 is out — &lt;details&gt;/&lt;summary&gt; blocks in a note&#x27;s body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (▸ plus a hidden-line count) and h…
+
+https://sazardev.github.io/shiki/changelog/0.9.1.html
+
+#rustlang #TUI #opensource">Copy announcement</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container release-layout">
+      <div class="release-shot">
+        <div class="release-shot-frame">
+          <img src="../assets/screenshots/gruvbox-dark.png" alt="shiki v0.9.1, running in a terminal" loading="lazy" />
+        </div>
+      </div>
+      <div class="changelog-body release-notes">
+<h4>Added</h4>
+<ul>
+<li><code>&lt;details&gt;</code>/<code>&lt;summary&gt;</code> blocks in a note&#x27;s body are now truly collapsible in PREVIEW: a collapsed block shows only its summary (<code>▸</code> plus a hidden-line count) and hides everything inside it — a plain mouse click on the summary row toggles it (instead of entering edit mode there), and the fold state is kept per note for the session (not persisted to <code>config.toml</code>). Previously every <code>&lt;details&gt;</code> block rendered fully expanded with no way to fold it.</li>
+<li><code>shiki notebook rekey &lt;name&gt;</code>: changes an encrypted notebook&#x27;s passphrase in one step — verifies the old one against the canary, prompts for a new one twice, and re-encrypts every note in place, never writing plaintext to disk mid-operation (the old <code>decrypt</code> then <code>encrypt</code> two-step still works but leaves notes unencrypted in between).</li>
+<li>Hidden notebooks can now be restored from Settings → NOTEBOOKS: the list includes notebooks that were untracked via the notebook-delete dialog&#x27;s &quot;just remove the reference&quot; answer (marked <code>(hidden)</code>), and drilling into one has a <code>hidden</code> field whose <code>Enter</code> clears the flag and brings the notebook back — previously the only way to un-hide was hand-editing <code>config.toml</code>.</li>
+<li>Cross-notebook <code>[[wikilink]]</code> resolution: a link that doesn&#x27;t match any note in the current notebook now falls back to every other notebook (local resolution always wins, so same-titled notes in different notebooks still resolve to the current one). Both Ctrl+click in PREVIEW and the links modal use it, and jumping to a cross-notebook result switches notebooks automatically — this fixes the daily-note &quot;Due today&quot; agenda&#x27;s links to tasks living in other notebooks, which previously reported &quot;doesn&#x27;t match any note&quot;.</li>
+<li>Code fences in PREVIEW now render as real code blocks instead of literal <code> </code>`<code> </code> markers: the opening fence becomes a header row (<code>▌ rust  main.rs</code> — accent-colored <code>▌</code> + language tag, with an optional <code>file:&lt;path&gt;</code> token from the fence line shown muted after it), the closing fence renders nothing, and the code body keeps its per-token syntax highlighting. The <code>file:</code> token is shown exactly as written (only the language tag is lowercased), so a real path like <code>App.tsx</code> isn&#x27;t mangled; an untagged fence gets a plain <code>▌ code</code> header.</li>
+<li>Code-fence colors now adapt to the active shiki theme instead of two fixed bundled syntect palettes: a <code>Theme</code> is built in memory from the active theme&#x27;s own color slots (<code>accent</code>/<code>success</code>/<code>warning</code>/<code>link</code>/<code>tag</code>/<code>muted</code>/<code>fg</code>), so switching themes changes code-block colors too — gruvbox&#x27;s code now looks gruvbox. Language coverage also comes from <code>two-face</code>&#x27;s extra syntax bundle on top of syntect&#x27;s defaults, which adds ~150 more languages including TypeScript/TSX — a ```tsx fence previously rendered as flat dimmed text because plain syntect doesn&#x27;t bundle it at all.</li>
+<li><code>$$...$$</code> math blocks in PREVIEW no longer show the literal <code>$$</code> delimiters — a single-line block like <code>$$E = mc^2$$</code> renders just the formula (accent/italic), and a multi-line block&#x27;s bare <code>$$</code> opener/closer lines produce no rows at all. This also fixes a real bug where a single-line <code>$$...$$</code> block left the math state on, silently styling the following paragraphs as math until the next <code>$$</code> line.</li>
+<li><code>$$...$$</code> math content is now prettified to readable Unicode instead of raw LaTeX source (<code>shiki-tui/src/mathfmt.rs</code>): <code>\frac{a}{b}</code> → <code>a/b</code>, <code>\sqrt{x}</code> → <code>√x</code>, <code>^2</code> → <code>²</code>, <code>_0</code> → <code>₀</code>, <code>\pi</code> → <code>π</code>, <code>\int</code> → <code>∫</code>, <code>\infty</code> → <code>∞</code>, <code>\times</code> → <code>×</code>, Greek letters and common operators — so <code>$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$</code> renders as <code>∫₀^∞ e⁻ˣ² dx = √π/2</code> instead of the markup verbatim. A lightweight hand-rolled converter, not a TeX engine: anything it doesn&#x27;t recognize passes through unchanged. Inline <code>$$...$$</code> mid-line (e.g. &quot;Inline math $$a^2 + b^2 = c^2$$ stays on its line.&quot;) gets the same prettification as full blocks.</li>
+<li><code> </code>`<code>mermaid </code> fences now render as real diagrams in PREVIEW instead of flat accent-colored text (<code>shiki-tui/src/mermaid.rs</code>, a small hand-rolled parser): flowcharts (<code>graph TD</code>/<code>flowchart LR</code> …) are laid out as an indented tree with box-drawing connectors, node shapes (<code>A[Label]</code>/<code>A(Label)</code>/<code>A{Label}</code>/<code>A((Label))</code>/<code>A[[Label]]</code>) and edge labels, and sequence diagrams (<code>sequenceDiagram</code> with <code>participant</code> + <code>-&gt;&gt;</code>/<code>--&gt;&gt;</code>/<code>-&gt;</code>/<code>--x</code> messages) render as participant columns with arrows drawn between them. A diagram that can&#x27;t be parsed falls back to the previous flat styling rather than breaking.</li>
+<li>PREVIEW&#x27;s Markdown renderer now handles nested lists, nested blockquotes, strikethrough, and indented code blocks, which previously rendered as literal text: list items at any nesting depth (leading spaces then <code>- </code>/<code>* </code>/<code>+ </code> or <code>N. </code>) indent and step the bullet glyph <code>•</code> → <code>◦</code> → <code>▪</code>; <code>&gt;&gt; nested quote</code> repeats the <code>▏</code> gutter per level; <code>~~struck~~</code> renders crossed-out; a line with 4+ leading spaces that isn&#x27;t a list/quote renders dim like fenced code.</li>
+<li>Code fences in PREVIEW now show a line-number gutter: each code row is prefixed with a right- aligned <code>N │ </code> (muted, not the italic dim of the code itself) that resets per fence — so reading a highlighted block references &quot;line 3&quot; the same way a real editor would, and the header row (<code>▌ rust  main.rs</code>) plus gutter make the block read as one unit.</li>
+<li><code>shiki capture &quot;text&quot;</code>: near-instant note capture with no <code>$EDITOR</code> and no TUI drawn — meant for scripts, launchers (rofi/waybar/Raycast/AutoHotkey), or an OS hotkey. Targets <code>general.default_notebook</code> by default (<code>-n &lt;notebook&gt;</code> overrides), auto-generates a timestamped title. <code>general.enable_capture_daemon</code> (off by default, toggle from Settings → GENERAL) lets a running TUI pick up captures live over a local loopback socket instead of only writing to disk; <code>shiki capture</code> always works with or without it. Also supports: reading the text from stdin when no argument is given; <code>--tags</code> (same format as <code>shiki new --tags</code>); <code>--daily</code> (append as a bullet to today&#x27;s daily note instead of creating a new one); <code>--json</code> (machine-readable output); and <code>--check</code> (reports whether a daemon is reachable, for status-bar modules, exits non-zero if not); <code>--folder</code> (create the note inside a subfolder instead of the notebook root); content-prefix routing (<code>shiki capture &quot;work: call Ana&quot;</code> routes into the <code>work</code> notebook automatically when no <code>-n</code> is given); and <code>--undo</code> (reverses the single most recent capture — trash for a plain note, strips the bullet back off for a <code>--daily</code> append). Every daemon-handled capture is also recorded in the TUI&#x27;s log history (<code>leader</code> then <code>l</code>).</li>
+<li>Writing-comfort improvements to the native note editor (<code>Mode::Edit</code>), each independently toggleable from the EDITOR tab in Settings (<code>leader</code> then <code>s</code>): list/checkbox auto-continuation on <code>Enter</code> (with ordered-list auto-increment, empty-item exit, and <code>Backspace</code> cleanup), bold/italic wrap shortcuts (<code>Ctrl+B</code>/<code>Ctrl+Alt+I</code>), bracket/quote auto-pairing (<code>(</code>, `<code> </code> `<code>, </code>&quot;<code>), pasting a bare URL over a selection as a markdown link, move line (</code>Alt+↑<code>/</code>Alt+↓<code>), duplicate line (</code>Alt+D<code>), block indent/outdent on a selection (</code>Tab<code>/</code>Shift+Tab<code>), snippet expansion via trigger + </code>Tab`, and opt-in typewriter scrolling.</li>
+<li>Zen mode (<code>leader</code> then <code>z</code>): forces the full-screen single-panel layout for distraction-free writing.</li>
+<li>Outline modal (PREVIEW <code>o</code>, or <code>Ctrl+O</code> while editing): jump to any heading in the note.</li>
+<li><code>[editor]</code> config gained <code>move_line</code>, <code>duplicate_line</code>, and <code>block_indent_select</code> toggles (all on by default) so the move/duplicate/block-indent behaviors above can be turned off the same way every other editor convenience already can.</li>
+<li><code>[export]</code> gained <code>export_dir</code> (where PDFs are saved — empty means the app&#x27;s own data dir) and <code>ask_export_path</code> (prompt for the exact save path on every publish instead of using it silently), both editable from the EXPORT tab in Settings.</li>
+<li><code>[theme].icons</code> (Settings, THEME tab): turn off to fall back to plain text everywhere instead of Nerd Font glyphs, for a terminal font that isn&#x27;t Nerd-Fonts-patched.</li>
+<li>Six new <code>[general]</code> toggles, all editable from the GENERAL tab in Settings: <code>show_coffee_link</code> (hide the footer&#x27;s Buy Me a Coffee segment), <code>skip_delete_confirm</code> (delete a note/folder immediately, still restorable via <code>leader</code>+<code>u</code>), <code>show_dates</code> (persists the notes-scope <code>D</code> toggle instead of resetting every launch), <code>wikilink_autocomplete</code> (disable the <code>[[</code> menu), <code>daily_agenda</code> (skip the &quot;Due today&quot; section on new daily notes), and <code>compact_footer</code> (hide char/word count and reading time, leaving just the essentials).</li>
+<li>Eight more <code>[general]</code> tuning knobs, all editable from the GENERAL tab in Settings: <code>status_message_timeout_secs</code> (how long a footer message stays visible), <code>drawer_width</code> (the notebook drawer&#x27;s width in columns), <code>tasks_show_done_default</code> (whether the tasks view starts showing done tasks too), <code>default_note_sort</code> (which order NOTES sorts by on launch — <code>&quot;filename&quot;</code>/<code>&quot;title&quot;</code>/<code>&quot;date&quot;</code>), <code>log_history_limit</code> (max entries kept in the logs modal/file), <code>trash_retention_days</code> (auto-purge trash older than N days at startup — <code>0</code> means never), <code>reading_wpm</code> (words-per-minute for the &quot;N min read&quot; estimate), and <code>page_step</code> (how many rows <code>PageUp</code>/<code>PageDown</code> move at once, everywhere).</li>
+<li>The which-key modal (<code>?</code>) now doubles as a unified command palette: once the filter query is non-empty, it also fuzzy-matches notes across every notebook (title/body/notebook name, same scoring the standalone global search modal uses) and lists up to 8 under a &quot;notes&quot; section — <code>Enter</code> on one jumps straight to it, same as it already runs the highlighted action on a keybinding row. Replaces <code>shiki-tui/src/command.rs</code>&#x27;s <code>CommandPalette</code>, which was unused dead code that only duplicated the existing title-only note search (<code>/</code>, <code>leader</code>+<code>g</code>) without ever being wired up to anything — removed rather than kept alongside the real thing.</li>
+<li>The <code>/</code>-menu gained two more ready-to-insert blocks, <code>bold</code> and <code>italic</code> — type <code>/bold</code> (or <code>/italic</code>), and the wrapped <code><strong>text</strong></code>/<code>*text*</code> around wherever the cursor sits is inserted, same as every other block command. Contributed by @elsieej (#63).</li>
+<li>Note templates and snippets gained two more substitution variables, <code>{{time}}</code> and <code>{{notebook}}</code>, alongside the existing <code>{{title}}</code>/<code>{{date}}</code>/<code>{{cursor}}</code> — available in note templates (<code>a</code>, the <code>@</code>-dropdown), the daily note, and <code>/</code>-menu snippets alike.</li>
+<li>Note history (PREVIEW <code>H</code>) gained a real diff view: <code>d</code> on a revision shows a unified diff against its parent (colored <code>-</code>/<code>+</code> lines, computed by libgit2 itself) instead of the full file content — &quot;what did this commit actually change here,&quot; the same thing <code>git log -p</code> shows for one commit. Works from either the revision list or the existing full-content view; <code>r</code> (revert) still acts on whichever revision is currently being looked at, in either view.</li>
+<li>Recurring tasks: an <code>@every(&lt;spec&gt;)</code> tag (<code>day</code>/<code>daily</code>, <code>week</code>/<code>weekly</code>, <code>month</code>/<code>monthly</code>, <code>year</code>/<code>yearly</code>, or <code>Nd</code>/<code>Nw</code>/<code>Nm</code>) marks a checkbox task as recurring. Completing one (never un-completing) inserts its next occurrence right below it, unchecked, with <code>@due</code> advanced by that interval from the task&#x27;s existing due date (or from today if it had none) — a repeat icon plus the raw spec shows next to the task text in the tasks view.</li>
+<li>Dataview-style queries over note frontmatter: <code>shiki query &#x27;where status = pending sort due asc&#x27;</code> filters/sorts notes across every notebook from the CLI, and leader+<code>q</code> opens the same live-editable query modal in the TUI (type the DSL at the top, matching notes render as a table below). Both share one parser/evaluator (<code>shiki_core::query</code>), so a query means the same thing in either place. <code>--count</code>/<code>--json</code>/<code>--notebook</code> are there for status bars and scripting, and DSL strings can be saved by name under <code>[queries]</code> and run with <code>shiki query --saved &lt;name&gt;</code>.</li>
+<li>Per-notebook encryption at rest (<code>age::scrypt</code>, passphrase-based): <code>shiki notebook encrypt &lt;name&gt;</code> re-encrypts every note as an age-armored blob (still plain ASCII text, so <code>git diff</code> doesn&#x27;t flip to &quot;binary files differ&quot;) and writes an encrypted <code>.shiki-encryption</code> canary used to verify a passphrase attempt without risking a real note; <code>shiki notebook decrypt &lt;name&gt;</code> reverses it. The TUI unlocks a locked notebook by sniffing the age armor header and prompting for the passphrase, regardless of what any machine&#x27;s config says. The passphrase itself is never stored anywhere — not in <code>config.toml</code>, not in the repo. Write paths (<code>shiki new</code>/<code>shiki daily</code>) prompt for it; non-interactive read commands (<code>list</code>/<code>tasks</code>/<code>graph</code>/<code>show</code>/<code>search</code>) fail with a clear error against a locked notebook instead of printing garbage.</li>
+<li>Metadata editor (notes-scope/preview-scope <code>M</code>): view and edit a note&#x27;s tags and custom frontmatter fields (<code>status</code>, <code>priority</code>, <code>due</code>, or anything else) without leaving the TUI — <code>a</code> adds a field, <code>Enter</code> edits the selected one, <code>d</code> deletes it. PREVIEW also gained a read-only header showing the same tags/fields above the note body, so they&#x27;re visible without opening the editor. Field-value prompts show a suggestions dropdown: built-in defaults for <code>status</code>/<code>priority</code>/<code>due</code>, plus every value already used for that field anywhere in the vault; the <code>Tags</code> prompt suggests every tag already in use — <code>Tab</code> accepts one and keeps typing, <code>Enter</code> still saves the full comma-separated list as typed.</li>
+<li>Query mode (leader+<code>q</code>, or leader+<code>g</code> then <code>!</code>) now opens straight into a &quot;here&#x27;s what you can ask&quot; suggestions list generated from your own notes — every distinct value per field, both sort directions, and relative-date variants (<code>today</code>, overdue, upcoming, this week, this month) — instead of a blank box, and narrows live as you type. Queries can now be saved from the TUI itself: <code>Ctrl+S</code> on a valid query prompts for a name and writes it to <code>config.toml</code>&#x27;s <code>[queries]</code> table (already supported by <code>shiki query --saved</code>, but previously CLI-only to manage); saved queries show up first in the suggestions list with a <code>★</code>, and <code>Ctrl+D</code> on one deletes it.</li>
+<li>Tag rename/merge (<code>r</code> in the tags modal, leader+<code>T</code>, level 1): renames a tag across every note in every notebook, not just the current directory being browsed — typing an existing tag&#x27;s name merges into it instead of creating a duplicate.</li>
+<li><code>scripts/query-demo.sh</code>: seeds an isolated &quot;demo&quot; notebook with example notes carrying varied frontmatter, for trying out query mode without touching real data.</li>
+</ul>
+<h4>Fixed</h4>
+<ul>
+<li>The notebook drawer (<code>leader+b</code>) no longer hides the left edge of the panel underneath it: while the drawer is open the panels are pushed right by <code>drawer_width</code> instead of being covered by the overlay. Previously a pure left-anchored overlay sat on top of the panels, so the first ~28 columns of every PREVIEW line — the first half of a long math formula, the start of a code fence, the beginning of any wrapped line — disappeared behind the drawer the moment it opened.</li>
+<li>The template picker&#x27;s <code>{{cursor}}</code> marker (<code>a</code> → title → pick a template) was never actually handled — it saved the literal text <code>{{cursor}}</code> into the new note&#x27;s file and always opened the editor at the top, unlike the identical marker in <code>/</code>-menu snippets, which already worked correctly. Fixed to split it out before saving (so it&#x27;s never written to disk) and jump the cursor to exactly where it was in the template, same as snippets already do.</li>
+<li>Pressing <code>i</code> in PREVIEW used to open the editor at line 1 no matter where you were reading — the scroll offset that was the only positional context in the read-only view was thrown away. It now jumps the cursor to whichever line was at the top of the preview viewport, reusing the same source-line mapping click-to-edit already uses.</li>
+<li>shiki-managed git repos now force <code>core.autocrlf</code> off (per-repo config, not a global setting). Git for Windows commonly defaults it to <code>true</code> globally, which made libgit2 rewrite committed <code>\n</code> into <code>\r\n</code> on disk — silently corrupting real notebooks on Windows, where every note is parsed and written assuming plain <code>\n</code> line endings.</li>
+</ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="release-nav">
+    <div class="container release-nav-row">
+      <a href="0.9.0.html" class="release-nav-link">← v0.9.0</a>
+      <a href="../changelog.html" class="release-nav-link">All releases</a>
+      <a href="../changelog.html" class="release-nav-link release-nav-link--disabled">No newer release →</a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/sazardev/shiki">GitHub</a>
+        <a href="https://github.com/sazardev/shiki/releases/tag/v0.9.1">GitHub Release</a>
+        <a href="https://github.com/sazardev/shiki/issues">Issues</a>
+        <a href="https://github.com/sazardev/shiki/blob/main/LICENSE">MIT License</a>
+        <a class="coffee-link" href="https://buymeacoffee.com/sazarcode">☕ Buy me a coffee</a>
+      </div>
+      <small>shiki (私記) — built by <a href="https://github.com/sazardev">sazardev</a>. Free and open source, forever.</small>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+</body>
+</html>
