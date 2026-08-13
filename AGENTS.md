@@ -43,6 +43,7 @@ XDG_CONFIG_HOME=/tmp/shiki-test-config XDG_DATA_HOME=/tmp/shiki-test-data cargo 
 
 - Single version in `[workspace.package]` (root `Cargo.toml`); all crates inherit via `version.workspace = true`. Bump there + add a `CHANGELOG.md` entry (Keep a Changelog) + update `docs/index.html`'s hardcoded JSON-LD `softwareVersion`.
 - **Never `git tag`/push tags by hand.** Include `[PUBLISH]` in the commit message that lands on `main`; `.github/workflows/auto-tag.yml` reads the version from `Cargo.toml`, tags, and triggers `release.yml` (builds → GitHub Release → crates.io → AUR/Scoop manifests). `release.yml` pushes need `secrets.RELEASE_TAG_PAT` (admin PAT) — don't revert those jobs to `GITHUB_TOKEN`; branch protection requires admin.
+- **Cut a release with `/deploy`** (command `.opencode/command/deploy.md` → skill `.opencode/skill/deploy/SKILL.md`, verified on v0.9.1): it runs the full runbook — preflight, CHANGELOG, version bump, docs-site sync, image/video scripts, `cargo check/clippy/test/fmt`, commit `[PUBLISH]`, push, CI monitoring, and store-by-store verification — including the three manual fallbacks (workflow_dispatch when release.yml doesn't auto-trigger, manual Homebrew-tap push on the 403, local screenshots/release-pages runs when those jobs get skipped).
 
 ## `/docs` (marketing site) sync
 

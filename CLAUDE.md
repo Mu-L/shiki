@@ -59,13 +59,38 @@ Pushing the tag with the default `GITHUB_TOKEN` would silently not work either: 
 workflow triggers caused by a token a workflow already used, specifically to prevent infinite
 trigger loops, so a tag pushed that way would never fire `release.yml`. `auto-tag.yml` instead
 pushes using a `RELEASE_TAG_PAT` secret (a personal access token with repo write access) so the tag
-push looks like it came from a real user. **That secret doesn't exist yet** — same
-not-yet-provisioned-secret situation as `AUR_SSH_PRIVATE_KEY` below; until Omar adds it,
-`auto-tag.yml` still runs and fails loudly with a clear `::error::` annotation rather than silently
+push looks like it came from a real user. **Both `RELEASE_TAG_PAT` and `AUR_SSH_PRIVATE_KEY` are
+configured as of v0.9.1** (verified live: auto-tag pushed the tag, AUR got both packages) — the
+"doesn't exist yet" note below predates that provisioning. If a future run still fails on a missing
+secret, `auto-tag.yml` fails loudly with a clear `::error::` annotation rather than silently
 no-op'ing, so a missing secret can't reproduce the exact "nobody noticed" failure mode it exists to
 prevent. To cut a release: bump the version, add the changelog entry, and include `[PUBLISH]`
 anywhere in the commit message that lands on `main` — everything downstream (tag → build → GitHub
 Release → crates.io → packaging manifests) follows automatically.
+
+**The full, verified runbook for cutting a release — including the manual fallbacks that are part
+of the real flow — lives in the `deploy` skill (`.opencode/skill/deploy/SKILL.md`), exposed as the
+`/deploy` command.** Read that before cutting a release; the three non-obvious gotchas it encodes,
+all confirmed during the v0.9.1 cut:
+
+- **`release.yml` sometimes never fires on the tag push.** auto-tag pushes the tag via
+  `RELEASE_TAG_PAT` (which is the point — a real-user push bypasses the GITHUB_TOKEN trigger
+  suppression), but the tag push *itself* has been observed not to start the workflow (v0.8.4 and
+  v0.9.1 both). The documented manual fallback is `gh workflow run release.yml --ref main --field
+  tag=v0.9.1` — dispatch it if no Release run appears ~1–2 min after auto-tag finishes. The
+  `resolve-tag` job exists precisely to make this dispatch path equivalent to a real tag push.
+- **`update-packaging-manifests` fails at "Push Homebrew tap" if `RELEASE_TAG_PAT` can't write to
+  `sazardev/homebrew-shiki`** (a 403 on the clone — confirmed on v0.9.1). Everything else in that
+  job (Scoop manifests, both PKGBUILDs, the main-repo commit) already succeeded by then; only the
+  tap formula push needs doing manually: copy `packaging/homebrew/shiki.rb` into the tap repo's
+  `Formula/`, commit "Update to vX.Y.Z", push.
+- **`update-screenshots` and `update-release-pages` are `needs:`-gated on
+  `update-packaging-manifests`** — when that job fails at the Homebrew step, both get *skipped*,
+  leaving the site's screenshots/demo-gif/release-page/OG-card/feed stale. Run them locally instead
+  (they need the local toolchain — xterm/ImageMagick/xdotool/Xvfb/vhs/ttyd/ffmpeg/chromium): execute
+  `scripts/screenshots.sh` + `scripts/demo-gif.sh`, copy into `docs/assets/` exactly as
+  `release.yml` does, run `scripts/generate_release_pages.py --version X.Y.Z --chromium …`, then
+  commit. The deploy skill spells out these exact steps.
 
 **The status bar paints no background** (`status_bar.rs` — no `.bg(...)` anywhere, spans just use
 themed fg colors on the terminal's own background) and only shows what's contextually useful: the
