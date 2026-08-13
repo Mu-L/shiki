@@ -740,6 +740,44 @@ lists, immediate-mode's simplicity (state lives in one place, rendering is
 a pure function of it) outweighs any performance argument for retained
 widgets."
 
+# The 0.9.1 PREVIEW-rendering showcase — a note carrying every construct the
+# renderer gained recently, so Phase 20 can show them all at once: a code
+# fence with a `file:` header token + line-number gutter, a collapsible
+# <details>/<summary> block, a prettified $$math$$ block, and a mermaid
+# flowchart. Deliberately in research/ (flat, never touched by index-
+# dependent navigation anywhere in this recording) — same rule as the
+# errands-this-week.md note above — so adding it can't shift any earlier
+# phase's hardcoded indices in personal/. `\$`/backticks stay literal inside
+# the heredoc.
+write_note research "release-day-notes.md" "Release day notes" "2026-07-22" "[rust, meta]" \
+"## Feature rollup
+
+\`\`\`tsx file:App.tsx
+const App = () => {
+  return <h1>{title}</h1>;
+};
+\`\`\`
+
+<details>
+<summary>Why TypeScript now highlights</summary>
+
+\`two-face\` bundles TSX (plus ~150 more languages) on top of syntect's
+defaults, so this fence is colored instead of flat dimmed text.
+</details>
+
+## Math
+
+\$\$\int_0^\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}\$\$
+
+## Diagram
+
+\`\`\`mermaid
+graph TD
+    A[Ideas] --> B{Enough?}
+    B -->|yes| C[Write note]
+    B -->|no| D[Keep reading]
+\`\`\`"
+
 echo "Sample data written under $DATA"
 
 # --- Config: a real theme active, matching the version currently being
@@ -1437,6 +1475,29 @@ Type "retry helper"
 Sleep 700ms
 Enter
 Sleep 900ms
+
+# --- Phase 20: the 0.9.1 PREVIEW-rendering showcase -- global search to
+# research/'s "Release day notes" (see setup_sample_data), landing straight
+# in PREVIEW the same way Phase 19 does, so the code-fence header row (▌ tsx
+# App.tsx) with line-number gutter, the collapsible <details>/<summary>
+# block, the prettified $$∫₀^∞ e⁻ˣ² dx = √π/2$$ math, and the mermaid
+# flowchart all appear on one note. "rollup" is the deliberate query, NOT
+# "release day" — Phase 10 of this very recording creates a note titled
+# "Release day retrospective" in personal/, which fuzzy-matches "release
+# day" at least as well as this note does, making the top hit non-
+# deterministic. "rollup" (from the note's "## Feature rollup" heading)
+# only ever matches this one note in the whole dataset, so it's a
+# deterministic first hit. Clicking the summary row to fold/unfold is mouse-
+# driven and deliberately not scripted here (VHS mouse coordinates would
+# need per-terminal calibration) — the collapsed state is what the note
+# opens in anyway.
+Space
+Type "g"
+Sleep 400ms
+Type "rollup"
+Sleep 700ms
+Enter
+Sleep 1200ms
 
 # Quit off-screen — ending on the app itself, not a bare shell prompt with
 # the XDG_CONFIG_HOME/XDG_DATA_HOME launch command sitting there.

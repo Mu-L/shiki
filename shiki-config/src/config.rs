@@ -1519,6 +1519,10 @@ fn section_comment(line: &str) -> Option<&'static str> {
 #   PREVIEW jumps straight into edit mode with the cursor on the clicked
 #   line (a mouse-only alternative to `i`/vim motions); click-and-drag
 #   instead selects text and copies it to the clipboard on release.
+# - enable_capture_daemon: when true, an already-running TUI listens on a
+#   local loopback port so external `shiki capture \"text\"` invocations land
+#   in it live instead of only writing to disk unnoticed. Off by default;
+#   `shiki capture` itself always works regardless.
 # - data_dir: optional path override for the notebooks directory. Point this
 #   at an existing Obsidian vault or any markdown folder to use it as the
 #   notebooks root. Unset defaults to the platform data directory.
@@ -1659,8 +1663,8 @@ fn section_comment(line: &str) -> Option<&'static str> {
 # [snippets.callout]
 # label = \"Info callout\"
 # body = \"> **Info:** {{cursor}}\"
-# A trigger matching a built-in (h1/h2/h3/code/math/table/check/quote/
-# divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
+# A trigger matching a built-in (h1/h2/h3/bold/italic/code/math/table/check/
+# quote/divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
 # details) replaces it instead of adding a duplicate."
         }
         "[queries]" => {

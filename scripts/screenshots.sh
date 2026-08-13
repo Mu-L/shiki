@@ -259,6 +259,41 @@ pub fn retry<T, E>(attempts: u32, mut f: impl FnMut() -> Result<T, E>) -> Result
 
 Linear backoff is fine for now — exponential would be better under real load."
 
+  # The 0.9.1 PREVIEW-rendering showcase: a note carrying every construct the
+  # renderer gained recently, so shot 25 shows them all at once — a code fence
+  # with a `file:` header token + line-number gutter, a collapsible
+  # <details>/<summary> block, a prettified $$math$$ block, and a mermaid
+  # flowchart. Escaping: `\$` and backticks stay literal inside the heredoc
+  # (same as the retry note above).
+  write_note personal "release-day-notes.md" "Release day notes" "2026-07-22" "[rust, meta]" \
+"## Feature rollup
+
+\`\`\`tsx file:App.tsx
+const App = () => {
+  return <h1>{title}</h1>;
+};
+\`\`\`
+
+<details>
+<summary>Why TypeScript now highlights</summary>
+
+\`two-face\` bundles TSX (plus ~150 more languages) on top of syntect's defaults,
+so this fence is colored instead of flat dimmed text.
+</details>
+
+## Math
+
+\$\$\int_0^\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}\$\$
+
+## Diagram
+
+\`\`\`mermaid
+graph TD
+    A[Ideas] --> B{Enough?}
+    B -->|yes| C[Write note]
+    B -->|no| D[Keep reading]
+\`\`\`"
+
   for nb in personal work; do
     git -C "$DATA/$nb" add -A
     git -C "$DATA/$nb" commit -q -m "shiki: initial notes"
@@ -477,6 +512,17 @@ capture() {
     send_key "Return"
     send_text "l"
     shot "24-syntax-highlighting"
+    # The 0.9.1 PREVIEW-rendering showcase — release-day-notes.md (see
+    # setup_sample_data) carries every construct the renderer gained recently:
+    # a code fence with a `file:` header token + line-number gutter, a
+    # collapsible <details>/<summary> block, prettified $$math$$, and a
+    # mermaid flowchart, all on one note. Same title-jump pattern as shot 24.
+    send_text "hhhl"
+    send_text "/"
+    send_text "release"
+    send_key "Return"
+    send_text "l"
+    shot "25-preview-rendering"
   else
     shot "overview"
   fi

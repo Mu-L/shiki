@@ -6,6 +6,8 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-13
+
 ### Added
 
 - `<details>`/`<summary>` blocks in a note's body are now truly collapsible in PREVIEW: a
@@ -34,6 +36,13 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   renders nothing, and the code body keeps its per-token syntax highlighting. The `file:` token is
   shown exactly as written (only the language tag is lowercased), so a real path like `App.tsx`
   isn't mangled; an untagged fence gets a plain `▌ code` header.
+- Code-fence colors now adapt to the active shiki theme instead of two fixed bundled syntect
+  palettes: a `Theme` is built in memory from the active theme's own color slots
+  (`accent`/`success`/`warning`/`link`/`tag`/`muted`/`fg`), so switching themes changes code-block
+  colors too — gruvbox's code now looks gruvbox. Language coverage also comes from `two-face`'s
+  extra syntax bundle on top of syntect's defaults, which adds ~150 more languages including
+  TypeScript/TSX — a ```tsx fence previously rendered as flat dimmed text because plain syntect
+  doesn't bundle it at all.
 - `$$...$$` math blocks in PREVIEW no longer show the literal `$$` delimiters — a single-line
   block like `$$E = mc^2$$` renders just the formula (accent/italic), and a multi-line block's
   bare `$$` opener/closer lines produce no rows at all. This also fixes a real bug where a
@@ -115,6 +124,9 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   keybinding row. Replaces `shiki-tui/src/command.rs`'s `CommandPalette`, which was unused dead
   code that only duplicated the existing title-only note search (`/`, `leader`+`g`) without ever
   being wired up to anything — removed rather than kept alongside the real thing.
+- The `/`-menu gained two more ready-to-insert blocks, `bold` and `italic` — type `/bold` (or
+  `/italic`), and the wrapped `**text**`/`*text*` around wherever the cursor sits is inserted, same
+  as every other block command. Contributed by @elsieej (#63).
 - Note templates and snippets gained two more substitution variables, `{{time}}` and
   `{{notebook}}`, alongside the existing `{{title}}`/`{{date}}`/`{{cursor}}` — available in note
   templates (`a`, the `@`-dropdown), the daily note, and `/`-menu snippets alike.
@@ -178,6 +190,14 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   editor at the top, unlike the identical marker in `/`-menu snippets, which already worked
   correctly. Fixed to split it out before saving (so it's never written to disk) and jump the
   cursor to exactly where it was in the template, same as snippets already do.
+- Pressing `i` in PREVIEW used to open the editor at line 1 no matter where you were reading —
+  the scroll offset that was the only positional context in the read-only view was thrown away.
+  It now jumps the cursor to whichever line was at the top of the preview viewport, reusing the
+  same source-line mapping click-to-edit already uses.
+- shiki-managed git repos now force `core.autocrlf` off (per-repo config, not a global setting).
+  Git for Windows commonly defaults it to `true` globally, which made libgit2 rewrite committed
+  `\n` into `\r\n` on disk — silently corrupting real notebooks on Windows, where every note is
+  parsed and written assuming plain `\n` line endings.
 
 ## [0.9.0] - 2026-08-04
 

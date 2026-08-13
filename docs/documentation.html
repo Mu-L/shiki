@@ -450,10 +450,10 @@
       </figure>
       <p>
         Built-in blocks: <code>h1</code>/<code>h2</code>/<code>h3</code>,
-        a code fence, a math (<code>$$…$$</code>) block, a table skeleton, a checklist item, a
-        quote, a divider, today's date, a <code>Tags:</code> line, a YAML frontmatter skeleton, a
-        bullet/numbered list item, a link, an image, a note/warning callout, and a collapsible
-        (<code>&lt;details&gt;</code>) section.
+        bold/italic text, a code fence, a math (<code>$$…$$</code>) block, a table skeleton, a
+        checklist item, a quote, a divider, today's date, a <code>Tags:</code> line, a YAML
+        frontmatter skeleton, a bullet/numbered list item, a link, an image, a note/warning
+        callout, and a collapsible (<code>&lt;details&gt;</code>) section.
       </p>
       <div class="doc-callout">
         <strong>How to: add your own <code>/</code>-command</strong>
@@ -1235,8 +1235,8 @@ auto_sync = true</pre>
 
       <h3 id="config-snippets"><code>[snippets.&lt;trigger&gt;]</code> — custom <code>/</code>-menu commands</h3>
       <p style="max-width:70ch;">
-        Empty by default — the 19 built-in commands (<code>h1</code>/<code>h2</code>/<code>h3</code>/
-        <code>code</code>/<code>math</code>/<code>table</code>/<code>check</code>/<code>quote</code>/
+        Empty by default — the 21 built-in commands (<code>h1</code>/<code>h2</code>/<code>h3</code>/
+        <code>bold</code>/<code>italic</code>/<code>code</code>/<code>math</code>/<code>table</code>/<code>check</code>/<code>quote</code>/
         <code>divider</code>/<code>date</code>/<code>tags</code>/<code>frontmatter</code>/<code>bullet</code>/
         <code>numbered</code>/<code>link</code>/<code>image</code>/<code>note</code>/<code>warning</code>/
         <code>details</code>) aren't listed in your config at all unless you're overriding one; only
@@ -1527,8 +1527,8 @@ auto_push = true
 # hidden = true  # set by "just remove the reference" on delete; un-hide from Settings → NOTEBOOKS
 
 # Custom entries for the inline editor's `/`-menu, keyed by trigger. Empty by
-# default — the built-in commands (h1/h2/h3/code/math/table/check/quote/
-# divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
+# default — the built-in commands (h1/h2/h3/bold/italic/code/math/table/check/
+# quote/divider/date/tags/frontmatter/bullet/numbered/link/image/note/warning/
 # details) aren't listed here at all, only your own additions/overrides.
 # `label` falls back to the trigger when omitted; `body` supports
 # {{title}}/{{date}}/{{time}}/{{notebook}} (substituted the same way note
