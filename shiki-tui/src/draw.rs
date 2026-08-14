@@ -40,6 +40,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     secondary_cursor_style,
                     secondary_cursors: &app.editor_secondary_cursors,
                     typewriter_scroll: app.config.editor.typewriter_scroll,
+                    spell: app.spell_report.as_ref(),
+                    spell_flash: app.spell_flash.map(|f| (f.row, f.col_start, f.col_len)),
+                    spell_flash_style: app.spell_flash.map(|_| {
+                        Style::default()
+                            .bg(hex_to_color(&app.theme.success))
+                            .fg(hex_to_color(&app.theme.bg))
+                            .add_modifier(Modifier::BOLD)
+                    }),
                 },
             );
             if app.show_slash_menu {
@@ -82,8 +90,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
             let [input_area, list_area] =
                 Layout::vertical([Constraint::Length(3), Constraint::Length(list_height)])
                     .areas(popup_area);
-            app.input
-                .render(frame, input_area, title, hex_to_color(&app.theme.accent));
+            app.input.render(
+                frame,
+                input_area,
+                title,
+                hex_to_color(&app.theme.accent),
+                hex_to_color(&app.theme.bg),
+            );
 
             let items: Vec<ListItem> = quick_matches
                 .iter()
@@ -119,8 +132,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
             let [input_area, list_area] =
                 Layout::vertical([Constraint::Length(3), Constraint::Length(list_height)])
                     .areas(popup_area);
-            app.input
-                .render(frame, input_area, title, hex_to_color(&app.theme.accent));
+            app.input.render(
+                frame,
+                input_area,
+                title,
+                hex_to_color(&app.theme.accent),
+                hex_to_color(&app.theme.bg),
+            );
 
             let items: Vec<ListItem> = filtered.iter().map(|s| ListItem::new(s.clone())).collect();
             let highlight_symbol = format!("{}", icons::ARROW);
@@ -156,8 +174,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 Constraint::Length(hint_height),
             ])
             .areas(popup_area);
-            app.input
-                .render(frame, input_area, title, hex_to_color(&app.theme.accent));
+            app.input.render(
+                frame,
+                input_area,
+                title,
+                hex_to_color(&app.theme.accent),
+                hex_to_color(&app.theme.bg),
+            );
             let hint_paragraph = Paragraph::new(hint)
                 .style(
                     Style::default()
@@ -170,8 +193,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         } else {
             let popup_area = centered_rect(frame.area(), width, 3);
             frame.render_widget(Clear, popup_area);
-            app.input
-                .render(frame, popup_area, title, hex_to_color(&app.theme.accent));
+            app.input.render(
+                frame,
+                popup_area,
+                title,
+                hex_to_color(&app.theme.accent),
+                hex_to_color(&app.theme.bg),
+            );
         }
     }
 
@@ -209,10 +237,46 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     if app.show_outline {
-        let rows = app.outline_headings.len().max(1);
-        let popup_area = centered_rect(frame.area(), 50, (rows as u16 + 2).max(3));
+        let rows =
+            crate::panel_outline::filtered_headings(&app.outline_query, &app.outline_headings)
+                .len()
+                .max(1);
+        // The popup holds the 3-row filter box plus the list's own two
+        // borders, so the height budget is rows + 5, not rows + 2.
+        let popup_area = centered_rect(frame.area(), 50, (rows as u16 + 5).max(6));
         frame.render_widget(Clear, popup_area);
         panel_outline::render(frame, popup_area, app);
+    }
+
+    if app.show_spell {
+        let rows = app
+            .spell_report
+            .as_ref()
+            .map_or(1, |r| r.misses.len())
+            .max(1);
+        let popup_area = centered_rect(
+            frame.area(),
+            70,
+            (rows as u16 + 2).min(frame.area().height.saturating_sub(2)),
+        );
+        frame.render_widget(Clear, popup_area);
+        crate::panel_spell::render(frame, popup_area, app);
+
+        if app.show_spell_suggestions {
+            let sug = app
+                .spell_report
+                .as_ref()
+                .and_then(|r| r.misses.get(app.spell_selected))
+                .map_or(1, |m| m.suggestions.len())
+                .max(1);
+            let sub_area = centered_rect(
+                frame.area(),
+                45,
+                (sug as u16 + 2).min(frame.area().height.saturating_sub(2)),
+            );
+            frame.render_widget(Clear, sub_area);
+            crate::panel_spell::render_suggestions(frame, sub_area, app);
+        }
     }
 
     if app.show_drawer {
@@ -301,17 +365,47 @@ fn hint_line_count(text: &str, width: u16) -> u16 {
 }
 
 fn render_theme_picker(frame: &mut Frame, frame_area: Rect, app: &App) {
-    let height = (app.available_themes.len() as u16 + 2).min(frame_area.height.saturating_sub(2));
+    let filtered = app.theme_picker_filtered();
+    let list_height = (filtered.len() as u16 + 2).min(frame_area.height.saturating_sub(6));
+    let height = list_height.saturating_add(3);
     let popup_area = centered_rect(frame_area, 40, height);
     frame.render_widget(Clear, popup_area);
 
-    let items: Vec<ListItem> = app
-        .available_themes
-        .iter()
-        .map(|t| ListItem::new(t.name.clone()))
-        .collect();
+    let [input_area, list_area] = ratatui::layout::Layout::vertical([
+        ratatui::layout::Constraint::Length(3),
+        ratatui::layout::Constraint::Min(1),
+    ])
+    .areas(popup_area);
+
+    let count = filtered.len();
+    app.theme_search.render(
+        frame,
+        input_area,
+        &format!(
+            " {}Pick a theme — type to filter · enter select · esc close ",
+            icons::EYE
+        ),
+        hex_to_color(&app.theme.accent),
+        hex_to_color(&app.theme.bg),
+    );
+
+    let items: Vec<ListItem> = if filtered.is_empty() {
+        vec![ListItem::new(format!(
+            "no theme matches \"{}\"",
+            app.theme_search.value
+        ))]
+    } else {
+        filtered
+            .iter()
+            .map(|t| ListItem::new(t.name.clone()))
+            .collect()
+    };
     let highlight_symbol = format!("{}", icons::ARROW);
-    let title = format!(" {}Pick a theme ", icons::EYE);
+    let title = format!(
+        " {} {count} of {} themes ",
+        icons::EYE,
+        app.available_themes.len()
+    );
     let list = List::new(items)
         .block(panel_block(Line::from(title), true, &app.theme))
         .highlight_style(
@@ -323,8 +417,10 @@ fn render_theme_picker(frame: &mut Frame, frame_area: Rect, app: &App) {
         .highlight_symbol(highlight_symbol.as_str());
 
     let mut state = ListState::default();
-    state.select(Some(app.theme_picker_index));
-    frame.render_stateful_widget(list, popup_area, &mut state);
+    if !filtered.is_empty() {
+        state.select(Some(app.theme_picker_index));
+    }
+    frame.render_stateful_widget(list, list_area, &mut state);
 }
 
 fn render_template_picker(frame: &mut Frame, frame_area: Rect, app: &App) {
@@ -378,6 +474,7 @@ fn render_global_search(frame: &mut Frame, frame_area: Rect, app: &App) {
         input_area,
         &format!(" {}Search all notes  ·  ! for query mode ", icons::SEARCH),
         hex_to_color(&app.theme.accent),
+        hex_to_color(&app.theme.bg),
     );
 
     let items: Vec<ListItem> = app
@@ -429,6 +526,7 @@ fn render_global_search_query(frame: &mut Frame, input_area: Rect, list_area: Re
             icons::FILTER
         ),
         warning,
+        hex_to_color(&app.theme.bg),
     );
     panel_query::render_result_table(
         frame,
@@ -998,13 +1096,18 @@ fn render_editor_find(
     } else {
         muted
     };
-    state
-        .query
-        .render(frame, query_area, " Find (enter/shift+enter) ", query_color);
+    state.query.render(
+        frame,
+        query_area,
+        " Find (enter/shift+enter) ",
+        query_color,
+        hex_to_color(&app.theme.bg),
+    );
     state.replace.render(
         frame,
         replace_area,
         " Replace (ctrl+enter/ctrl+alt+enter) ",
         replace_color,
+        hex_to_color(&app.theme.bg),
     );
 }

@@ -75,12 +75,33 @@ sleep 1
 export DISPLAY="$XVFB_DISPLAY"
 
 THEMES=(
-  catppuccin-mocha catppuccin-macchiato catppuccin-frappe catppuccin-latte
-  tokyo-night-storm tokyo-night tokyo-night-moon
-  gruvbox-dark gruvbox-light
+  Arasaka
+  "Blade Runner"
+  catppuccin-frappe catppuccin-latte catppuccin-macchiato catppuccin-mocha
+  "Cyberpunk 2077"
+  Doom
+  dracula
+  "Fallout Terminal"
+  "Ghost in the Shell"
+  gruvbox-dark gruvbox-dark-hard gruvbox-dark-soft
+  gruvbox-light gruvbox-light-hard gruvbox-light-soft
+  Halo
+  "LoL (Ahri)" "LoL (Jinx)" "LoL (Teemo)"
+  Matrix
+  monokai
+  "Mr. Robot"
   nord
+  one-dark
+  Overwatch
+  "Pokémon (Charizard)" "Pokémon (Gengar)" "Pokémon (Pikachu)"
+  Portal
   solarized-dark solarized-light
-  dracula one-dark monokai
+  "Stardew Valley"
+  "Super Mario" "Super Mario (Luigi)"
+  Synthwave
+  tokyo-night tokyo-night-moon tokyo-night-storm
+  Tron
+  Zelda
   default
 )
 
@@ -95,8 +116,12 @@ THEMES=(
 # a reasonable generic terminal background for that one capture.
 theme_bg() {
   local theme="$1" hex
+  # `index()` is a literal substring search rather than a regex match: theme
+  # names like "LoL (Jinx)" contain regex-special characters (parens) that a
+  # `~` pattern would mangle, and this file's capture loop already uses the
+  # same space/paren-bearing names for directory names and xterm titles.
   hex="$(awk -v name="\"$theme\"" '
-    $0 ~ ("name: " name) { found=1; next }
+    index($0, "name: " name) { found=1; next }
     found { if (match($0, /#[0-9a-fA-F]{6}/)) print substr($0, RSTART, RLENGTH); exit }
   ' "$ROOT"/shiki-config/src/themes/*.rs 2>/dev/null)"
   echo "${hex:-#000000}"
