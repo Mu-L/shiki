@@ -253,13 +253,14 @@ commit for that one, it's live by construction, same as the changelog fetch abov
 `.github/workflows/release.yml`'s `update-screenshots` job (`needs: release`, so it only runs
 after a tag actually produces a real GitHub Release) installs `xterm`/`imagemagick`/`xdotool`/
 `xvfb` plus a JetBrainsMono Nerd Font on a fresh `ubuntu-latest` runner, runs
-`scripts/screenshots.sh` against that release's own code, copies all 12 themes'
-`wide-01-notebooks.png` into `docs/assets/screenshots/`, and commits straight to `main` if
+`scripts/screenshots.sh` against that release's own code, copies every theme's
+`wide-01-notebooks.png` into `docs/assets/screenshots/` (globbed over whatever the script
+produced, so the catalog tracks automatically), and commits straight to `main` if
 anything changed.
 
 **`README.md`'s own "Screenshots" section reuses these exact same files — it doesn't have its own
 screenshot-refresh step, deliberately.** It references `docs/assets/screenshots/{gruvbox-dark,
-catppuccin-mocha,tokyo-night-storm,catppuccin-latte}.png` by relative path (renders fine on
+catppuccin-mocha,Cyberpunk%202077,LoL%20(Jinx)}.png` by relative path (renders fine on
 GitHub, which resolves image paths relative to the file), so whatever `update-screenshots` already
 keeps current for the website is automatically current in the README too, with zero additional
 automation. Don't rename or move any of those four files without checking `README.md`'s
@@ -1701,6 +1702,13 @@ daily note in between capture and undo means undo refuses with a clear error rat
 destroying content the user actually meant to keep, since a `--daily` capture is an append into a
 file that could easily have other, unrelated edits after it). The record is cleared
 (`LastCapture::clear`) immediately after a successful undo, so a second `--undo` reports "nothing
+to undo" instead of either silently no-op'ing (`Note`, file already gone) or re-attempting a body
+suffix strip that would now legitimately fail (`DailyAppend`) with a confusing error instead of a
+clean one.
+
+**`shiki capture --undo` tries the daemon first, for the same live-refresh reason `CAPTURE` does,
+but falls back to reversing it directly through the identical `LastCapture` file if nothing
+answers** (`shiki-cli/src/commands/capture.rs`) immediately after a successful undo, so a second `--undo` reports "nothing
 to undo" instead of either silently no-op'ing (`Note`, file already gone) or re-attempting a body
 suffix strip that would now legitimately fail (`DailyAppend`) with a confusing error instead of a
 clean one.

@@ -969,18 +969,28 @@ Content in **markdown**.
         there, including every screenshot above.
       </p>
       <ul>
-        <li><strong>Catppuccin</strong> — Mocha, Macchiato, Frappé, Latte</li>
-        <li><strong>Tokyo Night</strong> — Storm, Night, Moon</li>
-        <li><strong>Gruvbox</strong> — Dark, Light</li>
-        <li><strong>Solarized</strong> — Dark, Light</li>
+        <li><strong>Catppuccin</strong> — Mocha</li>
+        <li><strong>Tokyo Night</strong> — Night</li>
+        <li><strong>Gruvbox</strong> — Dark, Light, each with Hard/Soft contrast variants</li>
+        <li><strong>Solarized</strong> — Dark</li>
         <li><strong>Nord</strong></li>
         <li><strong>Dracula</strong></li>
         <li><strong>One Dark</strong></li>
         <li><strong>Monokai</strong></li>
+        <li><strong>League of Legends</strong> — LoL (Jinx), LoL (Teemo), LoL (Ahri)</li>
+        <li><strong>Video games</strong> — Pokémon (Pikachu/Charizard/Gengar), Zelda, Portal,
+          Super Mario (+ Luigi), Overwatch, Halo, Stardew Valley</li>
+        <li><strong>Hacker / cyberpunk</strong> — Matrix, Cyberpunk 2077, Arasaka, Synthwave,
+          Tron, Fallout Terminal, Blade Runner, Doom, Ghost in the Shell, Mr. Robot</li>
         <li><strong>Default</strong> — inherits the terminal's own colors (fallback;
           <code>bg</code>/<code>fg</code>/<code>border</code> are <code>"reset"</code>, accents use
           the terminal's native ANSI colors) instead of imposing a fixed palette</li>
       </ul>
+      <p class="muted" style="max-width:70ch;">
+        The list is grouped by family in the picker (Classic / LoL / Games / Hacker / System
+        headers, with <code>default</code> last); the theme picker (leader+<code>c</code>) has a
+        live filter box that matches both the name and the family — with 37 themes you just type
+        <code>hack</code>/<code>pok</code>/<code>lol</code> or a name to narrow it.</p>
       <p class="muted" style="max-width:70ch;">
         Each theme defines 19 configurable color slots: <code>bg</code>, <code>fg</code>,
         <code>accent</code>, <code>selection</code>, <code>border</code>, <code>statusbar</code>,
@@ -1095,6 +1105,7 @@ Content in **markdown**.
         <tbody>
           <tr><td><code>name</code></td><td><code>"gruvbox-dark"</code></td><td>Which built-in theme to use as the base (<code>shiki theme list</code> shows every name)</td></tr>
           <tr><td><code>icons</code></td><td><code>true</code></td><td>When false, every Nerd Font glyph (notebook/note icons, git status, the list-selection marker, …) falls back to plain text — for a terminal font that isn't Nerd-Fonts-patched</td></tr>
+          <tr><td><code>notebooks</code></td><td>unset</td><td>Per-notebook theme overrides (<code>{ personal = "LoL (Jinx)", work = "Cyberpunk 2077" }</code>): a notebook's entry wins over <code>name</code> while it's focused. The theme picker writes here when a notebook is selected; the CLI sets it with <code>shiki theme set &lt;theme&gt; --notebook &lt;name&gt;</code></td></tr>
           <tr><td><code>[theme.overrides]</code></td><td>all unset</td><td>Override any of the 19 color slots (see <a href="#themes-ref">Included themes</a>) individually — anything left unset falls back to <code>name</code>'s own value for that slot</td></tr>
         </tbody>
       </table>
