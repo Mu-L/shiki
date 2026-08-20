@@ -6,6 +6,8 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-08-20
+
 ### Added
 
 - The theme picker (leader+`c`) grew a live filter box: type to narrow the list
