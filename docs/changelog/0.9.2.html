@@ -1,0 +1,160 @@
+<!--
+  Per-version release page template. `scripts/generate_release_pages.py`
+  fills in every {{PLACEHOLDER}} with plain string substitution and writes
+  the result to docs/changelog/0.9.2.html. Paths inside are written
+  relative to that output location (one level under docs/), i.e. `../css/`,
+  `../assets/`, `../index.html` etc. — not relative to this template file.
+
+  Unlike changelog.html (which fetches CHANGELOG.md live via JS so it can
+  never drift, see docs/js/main.js), this page's changelog body is baked in
+  statically at generation time — it has to be, since link-unfurlers (the
+  actual point of this page existing) read the raw HTML and never execute
+  JS, so the og:title/og:description/og:image and the visible content must
+  already be correct in the file as committed.
+-->
+<!DOCTYPE html>
+<html lang="en" data-theme="gruvbox-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shiki v0.9.2 — Release notes</title>
+  <meta name="description" content="The theme picker (leader+c) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), Esc clears the query b…" />
+  <meta name="keywords" content="shiki changelog, shiki v0.9.2, shiki release notes" />
+  <meta name="author" content="sazardev" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://sazardev.github.io/shiki/changelog/0.9.2.html" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://sazardev.github.io/shiki/changelog/0.9.2.html" />
+  <meta property="og:site_name" content="shiki" />
+  <meta property="og:title" content="shiki v0.9.2 — Release notes" />
+  <meta property="og:description" content="The theme picker (leader+c) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), Esc clears the query b…" />
+  <meta property="og:image" content="https://sazardev.github.io/shiki/assets/og/0.9.2.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="shiki v0.9.2 — release card" />
+  <meta property="og:locale" content="en_US" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="shiki v0.9.2 — Release notes" />
+  <meta name="twitter:description" content="The theme picker (leader+c) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), Esc clears the query b…" />
+  <meta name="twitter:image" content="https://sazardev.github.io/shiki/assets/og/0.9.2.png" />
+  <meta name="twitter:image:alt" content="shiki v0.9.2 — release card" />
+
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/apple-touch-icon.png" />
+  <link rel="alternate" type="application/rss+xml" title="shiki changelog" href="../feed.xml" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/documentation.css" />
+
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "shiki v0.9.2 — Release notes", "description": "The theme picker (leader+c) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), Esc clears the query b…", "image": "https://sazardev.github.io/shiki/assets/og/0.9.2.png", "url": "https://sazardev.github.io/shiki/changelog/0.9.2.html", "mainEntityOfPage": {"@type": "WebPage", "@id": "https://sazardev.github.io/shiki/changelog/0.9.2.html"}, "author": {"@type": "Person", "name": "sazardev", "url": "https://github.com/sazardev"}, "publisher": {"@type": "Organization", "name": "shiki", "logo": {"@type": "ImageObject", "url": "https://sazardev.github.io/shiki/assets/favicon-512.png"}}, "datePublished": "2026-08-20", "dateModified": "2026-08-20"}</script>
+</head>
+<body class="doc-page">
+
+  <header class="topbar">
+    <div class="brand"><a href="../index.html" style="color:inherit;text-decoration:none;">shiki (私記)</a><span class="cursor"></span></div>
+    <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="site-nav">☰</button>
+    <nav id="site-nav">
+      <a href="../index.html#themes">Themes</a>
+      <a href="../index.html#features">Features</a>
+      <a href="../index.html#install">Install</a>
+      <a href="../documentation.html">Docs</a>
+      <a href="../changelog.html" class="active">Changelog</a>
+      <a href="../press.html">Press</a>
+      <a href="https://github.com/sazardev/shiki">GitHub</a>
+      <span class="version-chip-wrap" id="version-chip-wrap">
+        <button type="button" class="pill pill-button" id="version-pill" hidden></button>
+        <div class="version-popover" id="version-popover" role="dialog" aria-label="What's new" hidden>
+          <div class="version-popover-header">
+            <strong>What's new</strong>
+            <a href="../changelog.html">Full changelog →</a>
+          </div>
+          <div class="version-popover-body changelog-body" id="version-popover-content">
+            <p class="changelog-loading">Loading changelog…</p>
+          </div>
+        </div>
+      </span>
+    </nav>
+  </header>
+
+  <section class="doc-hero">
+    <div class="container">
+      <span class="eyebrow"><a href="../changelog.html">← Full changelog</a></span>
+      <h1>shiki v0.9.2</h1>
+      <p class="muted" style="max-width: 66ch;">Released 2026-08-20.</p>
+      <div class="release-share-row">
+        <span class="release-share-label">Share:</span>
+        <a class="release-share-link" href="https://twitter.com/intent/tweet?text=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6&amp;url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html" target="_blank" rel="noopener">X</a>
+        <a class="release-share-link" href="https://bsky.app/intent/compose?text=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6%20https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html" target="_blank" rel="noopener">Bluesky</a>
+        <a class="release-share-link" href="https://www.reddit.com/submit?url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html&amp;title=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6" target="_blank" rel="noopener">Reddit</a>
+        <a class="release-share-link" href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html&amp;t=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6" target="_blank" rel="noopener">Hacker News</a>
+        <a class="release-share-link" href="https://wa.me/?text=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6%20https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html" target="_blank" rel="noopener">WhatsApp</a>
+        <a class="release-share-link" href="https://t.me/share/url?url=https%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html&amp;text=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6" target="_blank" rel="noopener">Telegram</a>
+        <a class="release-share-link" href="mailto:?subject=shiki%20v0.9.2%20released&amp;body=shiki%20v0.9.2%3A%20The%20theme%20picker%20%28leader%2Bc%29%20grew%20a%20live%20filter%20box%3A%20type%20to%20narrow%20the%20list%20case-insensitively%20%28same%20behavior%20as%20the%20which-key%20modal%29%2C%20Esc%20clears%20the%20query%20b%E2%80%A6%0A%0Ahttps%3A%2F%2Fsazardev.github.io%2Fshiki%2Fchangelog%2F0.9.2.html">Email</a>
+        <button type="button" class="copy-btn copy-btn-inline" data-copy-text="🚀 shiki v0.9.2 is out — The theme picker (leader+c) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), Esc clears the query b…
+
+https://sazardev.github.io/shiki/changelog/0.9.2.html
+
+#rustlang #TUI #opensource">Copy announcement</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container release-layout">
+      <div class="release-shot">
+        <div class="release-shot-frame">
+          <img src="../assets/screenshots/gruvbox-dark.png" alt="shiki v0.9.2, running in a terminal" loading="lazy" />
+        </div>
+      </div>
+      <div class="changelog-body release-notes">
+<h4>Added</h4>
+<ul>
+<li>The theme picker (leader+<code>c</code>) grew a live filter box: type to narrow the list case-insensitively (same behavior as the which-key modal), <code>Esc</code> clears the query before cancelling, <code>Enter</code> is a no-op on zero matches, and <code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> join <code>j</code>/<code>k</code> — handy now that the catalog is 37 themes. Input boxes across modals also render the active theme&#x27;s background instead of the terminal default.</li>
+<li>23 new palettes in the theme catalog, in three groups: - <strong>League of Legends champions</strong> (<code>LoL (Jinx)</code>, <code>LoL (Teemo)</code>, <code>LoL (Ahri)</code>) — neon pink/ electric-blue, scout-green/mushroom-yellow, and magenta/purple fox-tail palettes. - <strong>Video games</strong> — Pokémon (Pikachu/Charizard/Gengar), Zelda, Portal (the one light &quot;Aperture laboratory&quot; palette), Super Mario and Luigi, Overwatch, Halo, Stardew Valley. - <strong>Hacker / cyberpunk</strong> — Matrix, Cyberpunk 2077, Arasaka, Synthwave, Tron, Fallout Terminal, Blade Runner, Doom, Ghost in the Shell, Mr. Robot. Plus Gruvbox&#x27;s official <strong>hard/soft contrast variants</strong> (dark and light).</li>
+<li>The catalog was trimmed to 37 themes to stay browsable: one Catppuccin (Mocha), one Tokyo Night (Night), one Solarized (Dark), and the list is alphabetical in the picker (<code>default</code> stays last).</li>
+<li>The homepage&#x27;s hero demo is now an mp4 <code>&lt;video&gt;</code> (autoplays reliably, ~3x smaller than the GIF it replaced), and it&#x27;s <strong>theme-aware</strong>: each theme with a committed recording (<code>docs/assets/demo/{id}.mp4</code>) swaps the hero video to match, falling back to the default gruvbox-dark recording otherwise — the site probes for the file at runtime, so the whole 37-theme catalog is covered as recordings get committed. <code>scripts/demo-gif.sh</code> gained a <code>THEME</code> env var so the same recording can be shot per theme, and reduced-motion users still get a static screenshot.</li>
+<li>The theme picker now <strong>groups by family</strong> (<code>── Classic ──</code>/<code>── LoL ──</code>/<code>── Games ──</code>/ <code>── Hacker ──</code> headers) and its filter matches family too (type <code>hack</code>/<code>pok</code>/<code>lol</code>); <code>shiki theme list</code> shows the same grouped order, and the site&#x27;s &quot;Make it yours&quot; section got family filter tabs. Themes carry a <code>family</code> field backed by validation tests.</li>
+<li><strong>Per-notebook themes</strong>: <code>[theme.notebooks]</code> maps a notebook name to a theme that takes effect while that notebook is focused — the picker writes there when a notebook is selected, the CLI sets it with <code>shiki theme set &lt;theme&gt; --notebook &lt;name&gt;</code>, and Settings shows the effective theme.</li>
+<li>Theme validation tests now guard the whole catalog (every color slot parses, names unique, alphabetical order with <code>default</code> last, <code>by_name</code> resolves all 37), and the 12 palette files were rewritten over a <code>theme!</code> macro to cut the per-palette boilerplate.</li>
+<li>The release workflow&#x27;s screenshot/demo job was split into parallel matrix jobs so it fits under the timeout with the 37-theme catalog.</li>
+<li><code>Ctrl+D</code> in the inline editor inserts today&#x27;s date (<code>YYYY-MM-DD</code>) at the cursor, anywhere in the buffer, as a single undo step — the <code>/date</code> slash-menu snippet only works at line start. <code>[editor] timestamp_with_time</code> (off by default) appends the current time (<code>YYYY-MM-DD HH:MM</code>); <code>[editor] insert_timestamp</code> (on by default) gates the whole feature.</li>
+<li>The outline modal (<code>o</code> in PREVIEW, <code>Ctrl+O</code> while editing) now has a live filter box: typing narrows the heading list case-insensitively (the same filter behavior as the which-key modal), <code>Enter</code> jumps to the filtered heading, <code>Esc</code> closes and resets. Navigation is arrow keys/ <code>PageUp</code>/<code>PageDown</code>/<code>Home</code>/<code>End</code> — every letter is typeable into the filter.</li>
+<li>Spell-check for the inline editor (<code>[editor] spellcheck</code>, off by default): <code>Ctrl+E</code> runs a pass by shelling out to <code>hunspell</code> (the same external-binary pattern as <code>pretty-pdf</code>), underlines misspelled words in the editor and lists them in a popup with a <code>▸</code> cursor on the selected word (<code>j</code>/<code>k</code> move it) — <code>Enter</code> opens a suggestions submenu to pick which correction to apply, the replaced word flashes in the theme&#x27;s success color for a moment (a visible confirmation alongside the footer&#x27;s <code>&#x27;old&#x27; → &#x27;new&#x27;</code> message), <code>r</code> re-runs the pass. <code>[editor] spellcheck_lang</code> selects the dictionary (<code>-d</code>, e.g. <code>es_ES</code>); rows edited after a pass stop being underlined instead of repainting stale ranges. <code>shiki doctor</code> reports whether <code>hunspell</code> is installed.</li>
+<li><code>!<a href="path" target="_blank" rel="noopener">alt</a></code> images that stand alone on their own line render as real terminal art in PREVIEW via <code>chafa</code> (external binary, ANSI-colored half-block output parsed into styled rows that scroll with the panel). <code>[general] preview_images</code> (on by default), <code>chafa_path</code> (absolute path when it isn&#x27;t on <code>$PATH</code>), and <code>preview_image_scale</code> (fraction of the panel width) control it; paths resolve against the note&#x27;s folder, the notebook root, then <code>data_dir</code>. When <code>chafa</code> is missing or the file doesn&#x27;t exist, the previous icon+alt rendering is kept, and an image embedded mid-line always stays that way. <code>shiki doctor</code> reports whether <code>chafa</code> is available.</li>
+<li>Three new built-in themes from League of Legends champion palettes (<code>shiki theme list</code> shows them, the theme picker live-previews them): <strong>LoL (Jinx)</strong> (neon-pink/electric-blue with a Zaun-night background), <strong>LoL (Teemo)</strong> (scout green with yellow scarf accents, Bandle-forest background), and <strong>LoL (Ahri)</strong> (magenta fox tails with purple essence-orb accents, Ionia- twilight background). The marketing site&#x27;s theme swatches cover all three (CSS-only mockups until screenshots are captured).</li>
+</ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="release-nav">
+    <div class="container release-nav-row">
+      <a href="0.9.1.html" class="release-nav-link">← v0.9.1</a>
+      <a href="../changelog.html" class="release-nav-link">All releases</a>
+      <a href="../changelog.html" class="release-nav-link release-nav-link--disabled">No newer release →</a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/sazardev/shiki">GitHub</a>
+        <a href="https://github.com/sazardev/shiki/releases/tag/v0.9.2">GitHub Release</a>
+        <a href="https://github.com/sazardev/shiki/issues">Issues</a>
+        <a href="https://github.com/sazardev/shiki/blob/main/LICENSE">MIT License</a>
+        <a class="coffee-link" href="https://buymeacoffee.com/sazarcode">☕ Buy me a coffee</a>
+      </div>
+      <small>shiki (私記) — built by <a href="https://github.com/sazardev">sazardev</a>. Free and open source, forever.</small>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+</body>
+</html>
