@@ -39,11 +39,11 @@ pub struct General {
     /// When true, the TUI listens on a local TCP loopback port
     /// (`Config::default_capture_port_path` records which one) so external
     /// `shiki capture "text"` invocations land in this running instance
-    /// live instead of only writing to disk unnoticed. Off by default —
+    /// live instead of only writing to disk unnoticed. On by default —
     /// `shiki capture` itself always works regardless of this setting; it
     /// only controls whether an already-open TUI finds out about it
     /// immediately.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enable_capture_daemon: bool,
     /// When true, click-and-drag over a note's body in PREVIEW selects text
     /// and copies it to the clipboard (OSC 52) on release. Defaults to
@@ -199,7 +199,7 @@ impl Default for General {
             editor: default_editor(),
             daily_template: default_daily_template(),
             use_favorite_editor: false,
-            enable_capture_daemon: false,
+            enable_capture_daemon: true,
             mouse_drag_selection: true,
             data_dir: None,
             show_hints: true,
@@ -524,6 +524,14 @@ pub struct NotebookKeybindings {
     /// written before this key existed still deserializes.
     #[serde(default = "default_push_key")]
     pub push: String,
+    /// Opens the git dashboard — every notebook's sync state in plain
+    /// language (what's uncommitted, what's on the remote, what needs a
+    /// push) plus each notebook's latest commits, with the key that fixes
+    /// each state. Field-level default so an existing
+    /// `[keybindings.notebooks]` table written before this key existed
+    /// still deserializes.
+    #[serde(default = "default_git_dash_key")]
+    pub git_dash: String,
 }
 
 impl Default for NotebookKeybindings {
@@ -537,6 +545,7 @@ impl Default for NotebookKeybindings {
             pull_all: default_pull_all_key(),
             set_remote: default_set_remote_key(),
             push: default_push_key(),
+            git_dash: default_git_dash_key(),
         }
     }
 }
@@ -571,6 +580,10 @@ fn default_set_remote_key() -> String {
 
 fn default_push_key() -> String {
     "u".into()
+}
+
+fn default_git_dash_key() -> String {
+    "G".into()
 }
 
 /// Active only while the NOTES panel has focus.
@@ -730,6 +743,13 @@ pub struct PreviewKeybindings {
     /// deserializes.
     #[serde(default = "default_history_key")]
     pub history: String,
+    /// Shows the selected note's pending changes (working tree vs last
+    /// commit) when the note is dirty; opens the version history when it
+    /// isn't — `d` always answers "what changed here," one way or the
+    /// other. Field-level default so an existing `[keybindings.preview]`
+    /// table written before this key existed still deserializes.
+    #[serde(default = "default_diff_key")]
+    pub diff: String,
     /// Opens the links modal — the selected note's outgoing `[[wikilinks]]`
     /// plus every other note that links back to it. Same field-level-default
     /// backward-compatibility reasoning as `history`.
@@ -753,6 +773,7 @@ impl Default for PreviewKeybindings {
             edit_inline: default_preview_edit_inline_key(),
             edit_external: default_preview_edit_external_key(),
             history: default_history_key(),
+            diff: default_diff_key(),
             links: default_links_key(),
             outline: default_outline_key(),
             metadata: default_metadata_key(),
@@ -774,6 +795,10 @@ fn default_preview_edit_external_key() -> String {
 
 fn default_history_key() -> String {
     "H".into()
+}
+
+fn default_diff_key() -> String {
+    "d".into()
 }
 
 fn default_links_key() -> String {
@@ -1615,7 +1640,7 @@ fn section_comment(line: &str) -> Option<&'static str> {
 #   instead selects text and copies it to the clipboard on release.
 # - enable_capture_daemon: when true, an already-running TUI listens on a
 #   local loopback port so external `shiki capture \"text\"` invocations land
-#   in it live instead of only writing to disk unnoticed. Off by default;
+#   in it live instead of only writing to disk unnoticed. On by default;
 #   `shiki capture` itself always works regardless.
 # - data_dir: optional path override for the notebooks directory. Point this
 #   at an existing Obsidian vault or any markdown folder to use it as the

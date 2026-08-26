@@ -46,7 +46,8 @@ enum Commands {
     /// interactive use.
     Capture {
         /// Text to capture. Omit it to read from stdin instead, e.g.
-        /// `echo "idea" | shiki capture`. Ignored (and not read) when
+        /// `echo "idea" | shiki capture`. With `--clip` reads from the
+        /// OS clipboard instead. Ignored (and not read) when
         /// `--check`/`--undo` is given. If it starts with `"<notebook>:
         /// "` and no `-n` was given, and `<notebook>` names a real
         /// notebook, that notebook is used automatically (the prefix is
@@ -67,6 +68,39 @@ enum Commands {
         /// `--daily` is given — a daily note's path is always fixed.
         #[arg(long)]
         folder: Option<String>,
+        /// Renders the capture through a template (`default`, `meeting`,
+        /// `standup`, ...) before saving — same engine as `shiki new`
+        /// templates. Ignored when `--daily` is given.
+        #[arg(long)]
+        template: Option<String>,
+        /// Source URL to append as `Source: [title](url)` — for browser
+        /// clips, rofi pipes, etc. Appended only if the text doesn't
+        /// already contain the URL.
+        #[arg(long)]
+        url: Option<String>,
+        /// Page title for `--url` — used as the link text in the appended
+        /// source line.
+        #[arg(long)]
+        title: Option<String>,
+        /// Reads the capture text from the OS clipboard instead of the
+        /// positional argument or stdin — for global hotkeys, rofi, etc.
+        #[arg(long, conflicts_with = "text")]
+        clip: bool,
+        /// Records the microphone (arecord/ffmpeg/sox) and transcribes it
+        /// locally with whisper.cpp (`whisper-cli`, auto-fetched on first
+        /// use), then captures the transcript — nothing leaves the machine.
+        #[arg(long, conflicts_with_all = ["text", "clip"])]
+        voice: bool,
+        /// Recording length in seconds for `--voice`. Defaults to 5.
+        #[arg(long, default_value_t = 5)]
+        seconds: u32,
+        /// whisper.cpp model for `--voice` (downloaded on first use, e.g.
+        /// `ggml-base.en.bin`, `ggml-tiny.en.bin`, `ggml-small.en.bin`).
+        #[arg(long, default_value = "ggml-base.en.bin")]
+        model: String,
+        /// Origin marker for logging (`browser|clip|voice|pipe|rofi`).
+        #[arg(long, hide = true)]
+        source: Option<String>,
         /// Appends the text as a bullet to today's daily note instead of
         /// creating a new note — for using the daily note as a running
         /// inbox rather than one note per capture.
@@ -127,6 +161,23 @@ enum Commands {
     },
     /// Git commit (+ push if enabled) for a notebook
     Sync {
+        #[arg(short = 'n', long)]
+        notebook: Option<String>,
+    },
+    /// Shows pending changes (working tree vs last commit) — what the next
+    /// sync would commit. Without a note: every pending change in the
+    /// notebook.
+    Diff {
+        /// A specific note; omit to show all pending changes.
+        note: Option<String>,
+        #[arg(short = 'n', long)]
+        notebook: Option<String>,
+    },
+    /// Lists recent commits in a notebook, or every commit that touched one
+    /// note (the TUI history modal's list, scriptable)
+    Log {
+        /// A specific note; omit for the notebook-wide log.
+        note: Option<String>,
         #[arg(short = 'n', long)]
         notebook: Option<String>,
     },
@@ -224,6 +275,12 @@ enum Commands {
     Config,
     /// Checks the environment (config, data dir, git, editor, terminal, notebooks)
     Doctor,
+    /// Runs the capture daemon headless (no TUI) so `shiki capture` from
+    /// scripts/launchers stays live even with no TUI open. Same loopback
+    /// port + protocol as the in-TUI daemon; every capture is logged to
+    /// the shared `shiki.log`. Meant to be managed by a service manager:
+    /// `systemctl --user enable shiki-daemon` (see `contrib/`).
+    Daemon,
     /// Manages notebooks
     Notebook {
         #[command(subcommand)]
@@ -287,6 +344,12 @@ enum ImportAction {
 enum NotebookAction {
     Create {
         name: String,
+        /// Optional git remote URL (or local bare-repo path) to configure as
+        /// the new notebook's `origin` right away — the CLI counterpart of
+        /// the TUI's "sync with Git?" follow-up prompt. Credentials in the
+        /// URL are redacted in all output.
+        #[arg(long)]
+        remote: Option<String>,
     },
     List {
         /// Emits a JSON array instead of plain text — for scripting.
@@ -394,6 +457,17 @@ impl Context {
 }
 
 fn main() -> Result<()> {
+    // Piping output into `head`/`less` closes our stdout mid-write. Rust
+    // starts with SIGPIPE ignored, so that shows up as a `failed printing
+    // to stdout: Broken pipe` panic instead of the silent exit every other
+    // Unix tool (`git`, `cat`) produces. Restoring the default disposition
+    // makes the process die by SIGPIPE like they do — Windows has no
+    // SIGPIPE and doesn't need this.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -423,6 +497,14 @@ fn main() -> Result<()> {
             notebook,
             tags,
             folder,
+            template,
+            url,
+            title,
+            clip,
+            source,
+            voice,
+            seconds,
+            model,
             daily,
             json,
             check,
@@ -446,6 +528,14 @@ fn main() -> Result<()> {
                 check,
                 undo,
                 folder,
+                template,
+                url,
+                title,
+                clip,
+                source,
+                voice,
+                seconds,
+                &model,
             )
         }
         Some(Commands::New {
@@ -520,6 +610,14 @@ fn main() -> Result<()> {
             let notebook = ctx.notebook_name(notebook);
             commands::sync::run(&ctx.store, &notebook, &ctx.config)
         }
+        Some(Commands::Diff { note, notebook }) => {
+            let notebook = ctx.notebook_name(notebook);
+            commands::diff::run(&ctx.store, &notebook, note.as_deref())
+        }
+        Some(Commands::Log { note, notebook }) => {
+            let notebook = ctx.notebook_name(notebook);
+            commands::log::run(&ctx.store, &notebook, note.as_deref())
+        }
         Some(Commands::Export {
             notebook,
             out,
@@ -590,8 +688,11 @@ fn main() -> Result<()> {
         }
         Some(Commands::Config) => commands::config::run(),
         Some(Commands::Doctor) => unreachable!("handled before Context::load() above"),
+        Some(Commands::Daemon) => commands::daemon::run(&ctx.store, &ctx.config),
         Some(Commands::Notebook { action }) => match action {
-            NotebookAction::Create { name } => commands::notebook::create(&ctx.store, &name),
+            NotebookAction::Create { name, remote } => {
+                commands::notebook::create(&ctx.store, &name, remote.as_deref())
+            }
             NotebookAction::List { json, all } => {
                 commands::notebook::list(&ctx.store, &ctx.config, json, all)
             }
