@@ -5368,7 +5368,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiki-cli"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5395,7 +5395,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-config"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "directories",
@@ -5407,7 +5407,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "age",
  "chrono",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-desktop"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "comrak",
@@ -5442,7 +5442,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-native-host"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5454,7 +5454,7 @@ dependencies = [
 
 [[package]]
 name = "shiki-tui"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "arboard",
