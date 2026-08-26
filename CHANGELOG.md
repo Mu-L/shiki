@@ -6,6 +6,8 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-08-26
+
 ### Added
 
 - **Git onboarding**: creating a plain notebook in the TUI (when
@@ -119,6 +121,16 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
   downloaded once from Hugging Face into `{data_dir}/bin/models/`. Nothing leaves the machine.
   `--seconds N` sets the recording length; works with every other capture flag (`--daily`,
   `--tags`, `--folder`, `-n`). `shiki doctor` reports recorder + whisper availability.
+- **shiki Desktop — a native GUI app** (`shiki-desktop`, new workspace member):
+  the same notebooks, config and themes as the TUI, in a Tauri 2 + Svelte 5
+  window (Windows/MSI + NSIS installers, Linux/macOS builds follow the same
+  pipeline). Reads the real `config.toml` and data dir, lists notebooks with
+  their encryption state, and paints the active theme via the same hex
+  palettes the TUI uses. Ships a signed installer in every release
+  (`.msi` + `-setup.exe` + minisign `.sig`), plus an in-app auto-update:
+  the UI checks GitHub Releases on startup and offers a one-click "Update"
+  button that downloads, verifies and installs the new version (passive
+  mode on Windows, app relaunches itself).
 
 ### Fixed
 
