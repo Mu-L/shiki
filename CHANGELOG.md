@@ -6,6 +6,34 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-08-27
+
+### Added
+
+- **shiki Desktop reaches full keyboard-driven feature parity with the TUI**: which-key, global
+  search, outline, tags, tree view, query, git dashboard, tasks, links, history, logs, settings,
+  theme picker, and the notebook drawer are all now reachable by keyboard in the desktop app, plus
+  every previously-missing action — scratchpad, visual-mode batch operations, external editor,
+  working-diff view, export/publish, and notebook rename/delete/pull. A mock backend lets the
+  whole desktop UI be driven in a plain browser tab without the native Tauri shell.
+- **shiki Desktop: new-notebook flow improvements** — pasting a git URL now auto-detects and
+  clones (mirrors the TUI's URL-paste behavior, reusing already-configured git credentials), and a
+  new "Import an existing folder…" action opens the real native OS folder picker and adopts it as
+  a notebook, confirming before initializing git if it isn't already a repo.
+
+### Fixed
+
+- **shiki Desktop: theme selection didn't persist across a webview reload that didn't restart the
+  whole process** — the in-memory config was loaded once at startup and never mutated, so
+  `set_theme`/`save_full_config`/`toggle_favorite_editor` wrote `config.toml` correctly but a
+  reload kept showing the stale in-memory theme. Config/store are now mutex-wrapped so a change
+  touches memory and disk together.
+- **Capture daemon: the port file is now PID-aware and detects stale entries** — a crashed TUI
+  process used to leave a `capture.port` pointing at a port nobody was listening on, requiring the
+  client to time out before falling back; the file now also records the writer's PID, and both
+  `shiki capture` and `shiki doctor` check the PID's liveness first, cleaning up and falling back
+  immediately when it's stale instead of hanging.
+
 ## [0.9.4] - 2026-08-26
 
 ### Added
