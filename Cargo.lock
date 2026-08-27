@@ -5385,7 +5385,6 @@ dependencies = [
  "shiki-core",
  "shiki-tui",
  "tempfile",
- "tokio",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -5438,6 +5437,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
+ "tokio",
 ]
 
 [[package]]
@@ -5463,6 +5463,7 @@ dependencies = [
  "comrak",
  "crossterm",
  "directories",
+ "libc",
  "png 0.18.1",
  "ratatui",
  "ratatui-textarea",
@@ -5472,7 +5473,6 @@ dependencies = [
  "syntect",
  "tempfile",
  "thiserror 2.0.20",
- "tokio",
  "tracing",
  "two-face",
  "unicode-width",
