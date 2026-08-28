@@ -12,6 +12,24 @@
       <link>https://sazardev.github.io/shiki/changelog.html</link>
     </image>
     <item>
+      <title>shiki v0.9.5</title>
+      <link>https://sazardev.github.io/shiki/changelog/0.9.5.html</link>
+      <guid isPermaLink="true">https://sazardev.github.io/shiki/changelog/0.9.5.html</guid>
+      <pubDate>Thu, 27 Aug 2026 00:00:00 +0000</pubDate>
+      <description>shiki Desktop reaches full keyboard-driven feature parity with the TUI: which-key, global search, outline, tags, tree view, query, git dashboard, tasks, link…</description>
+      <content:encoded><![CDATA[<h4>Added</h4>
+<ul>
+<li><strong>shiki Desktop reaches full keyboard-driven feature parity with the TUI</strong>: which-key, global search, outline, tags, tree view, query, git dashboard, tasks, links, history, logs, settings, theme picker, and the notebook drawer are all now reachable by keyboard in the desktop app, plus every previously-missing action — scratchpad, visual-mode batch operations, external editor, working-diff view, export/publish, and notebook rename/delete/pull. A mock backend lets the whole desktop UI be driven in a plain browser tab without the native Tauri shell.</li>
+<li><strong>shiki Desktop: new-notebook flow improvements</strong> — pasting a git URL now auto-detects and clones (mirrors the TUI&#x27;s URL-paste behavior, reusing already-configured git credentials), and a new &quot;Import an existing folder…&quot; action opens the real native OS folder picker and adopts it as a notebook, confirming before initializing git if it isn&#x27;t already a repo.</li>
+</ul>
+<h4>Fixed</h4>
+<ul>
+<li><strong>shiki Desktop: theme selection didn&#x27;t persist across a webview reload that didn&#x27;t restart the whole process</strong> — the in-memory config was loaded once at startup and never mutated, so <code>set_theme</code>/<code>save_full_config</code>/<code>toggle_favorite_editor</code> wrote <code>config.toml</code> correctly but a reload kept showing the stale in-memory theme. Config/store are now mutex-wrapped so a change touches memory and disk together.</li>
+<li><strong>Capture daemon: the port file is now PID-aware and detects stale entries</strong> — a crashed TUI process used to leave a <code>capture.port</code> pointing at a port nobody was listening on, requiring the client to time out before falling back; the file now also records the writer&#x27;s PID, and both <code>shiki capture</code> and <code>shiki doctor</code> check the PID&#x27;s liveness first, cleaning up and falling back immediately when it&#x27;s stale instead of hanging.</li>
+</ul>]]></content:encoded>
+      <enclosure url="https://sazardev.github.io/shiki/assets/og/0.9.5.png" type="image/png" />
+    </item>
+    <item>
       <title>shiki v0.9.4</title>
       <link>https://sazardev.github.io/shiki/changelog/0.9.4.html</link>
       <guid isPermaLink="true">https://sazardev.github.io/shiki/changelog/0.9.4.html</guid>
