@@ -91,15 +91,36 @@ fn is_same_or_nested(source: &Path, dest: &Path) -> bool {
 }
 
 /// File extensions shiki treats as a note when listing a notebook's
-/// contents — `.md` (what shiki itself always creates), plus `.mdx` and
-/// `.txt` so a notebook pointed at an existing Obsidian vault (which
-/// commonly has both) shows those files too instead of silently hiding
-/// them. This only affects *reading/listing* — new notes are always
-/// created as `.md` (`create_note_in`); an existing `.mdx`/`.txt` file kept
-/// its own extension through rename/move/copy (see `rename_note_at`),
-/// rather than being silently converted to `.md` the first time it's
-/// touched from inside shiki.
-const NOTE_EXTENSIONS: [&str; 3] = ["md", "mdx", "txt"];
+/// contents — `.md` (what shiki itself always creates), plus every other
+/// extension that's really just "Markdown with optional YAML frontmatter"
+/// under a different name, so a notebook pointed at an existing
+/// non-shiki directory shows those files too instead of silently hiding
+/// them: `.mdx` and `.txt` (an Obsidian vault commonly has both), `.qmd`
+/// (Quarto, the scientific-publishing notebook format), `.rmd` (R
+/// Markdown, Quarto's direct predecessor — same community, same shape),
+/// and `.markdown` (the verbose spelling some static-site generators,
+/// e.g. Jekyll, default to). None of these get any special
+/// treatment beyond being recognized at all — they're all the exact same
+/// shape `Note::from_file` already parses, no new parsing logic per
+/// extension. The match in `list_dir` lowercases the file's actual
+/// extension before comparing, so this list only needs the lowercase
+/// spelling once: R Markdown's real-world convention is `.Rmd` (capital
+/// R, lowercase `md`), not `.rmd` — without case-insensitive matching,
+/// adding `"rmd"` here wouldn't actually recognize the files it's for.
+/// This only affects *reading/listing* — new notes are always created as
+/// `.md` (`create_note_in`); an existing non-`.md` file kept its own
+/// extension (original case included) through rename/move/copy (see
+/// `rename_note_at`), rather than being silently converted to `.md` the
+/// first time it's touched from inside shiki.
+///
+/// This is the *built-in* list, fixed at compile time. A user can extend it
+/// further, per notebook-store instance, via `Notebook::with_extra_extensions`/
+/// `NotebookStore::with_extra_extensions` — e.g. to treat `.py`/`.org`/
+/// arbitrary code or text files as notes too. That path is for genuinely
+/// user-chosen, possibly-arbitrary extensions (configured in the Settings
+/// modal), so it stays separate from this compile-time list rather than
+/// growing this array itself.
+const NOTE_EXTENSIONS: [&str; 6] = ["md", "mdx", "txt", "qmd", "rmd", "markdown"];
 
 /// A notebook is a directory with its own git repo, containing notes with
 /// one of `NOTE_EXTENSIONS`' extensions (in practice, almost always `.md`).
@@ -125,6 +146,13 @@ pub struct Notebook {
     /// `NotebookStore::fs`); nothing outside `shiki-core` needs to touch
     /// this field directly.
     fs: std::sync::Arc<dyn crate::fs::FileStore>,
+    /// User-configured extensions (no leading dot, e.g. `"py"`) that
+    /// `list_dir` also treats as a note, on top of the built-in
+    /// `NOTE_EXTENSIONS`. Empty by default — `shiki-core` has no access to
+    /// `shiki-config`, so it can't read `general.note_extra_extensions`
+    /// itself; `shiki-tui`/`shiki-cli`/etc. resolve that and attach it via
+    /// `with_extra_extensions`, same reasoning as `crypto` above.
+    extra_extensions: Vec<String>,
 }
 
 // Same reasoning as `NotebookStore`'s manual `Debug` impl: `dyn FileStore`
@@ -136,6 +164,7 @@ impl std::fmt::Debug for Notebook {
             .field("path", &self.path)
             .field("crypto", &self.crypto)
             .field("fs", &"<dyn FileStore>")
+            .field("extra_extensions", &self.extra_extensions)
             .finish()
     }
 }
@@ -147,6 +176,7 @@ impl Notebook {
             path,
             crypto: None,
             fs: std::sync::Arc::new(crate::fs::LocalFs),
+            extra_extensions: Vec::new(),
         }
     }
 
@@ -168,6 +198,23 @@ impl Notebook {
         self
     }
 
+    /// Attaches the user's own extra note extensions (`general.
+    /// note_extra_extensions`, resolved by the caller — see the field's own
+    /// doc comment for why `shiki-core` can't read it directly), the same
+    /// propagation seam `with_fs_backend` already establishes. Values are
+    /// matched case-insensitively and without a leading dot, same as the
+    /// built-in `NOTE_EXTENSIONS`; a leading dot a user types by habit
+    /// (`.py` vs `py`) is stripped here rather than silently never
+    /// matching anything.
+    pub fn with_extra_extensions(mut self, extra: Vec<String>) -> Self {
+        self.extra_extensions = extra
+            .into_iter()
+            .map(|e| e.trim().trim_start_matches('.').to_string())
+            .filter(|e| !e.is_empty())
+            .collect();
+        self
+    }
+
     /// Lists the immediate contents of `relative` (a path within this
     /// notebook; `""` for the notebook root itself): subfolder names and
     /// notes, separately — a notebook can be nested arbitrarily deep, same
@@ -176,9 +223,10 @@ impl Notebook {
     ///
     /// A note file (any of `NOTE_EXTENSIONS`) that doesn't parse as a shiki
     /// note (no `---` frontmatter — common in an imported/pre-existing
-    /// repo, one from `nb`, or a plain `.txt`/`.mdx` file from an Obsidian
-    /// vault) still shows up: `Note::from_file` synthesizes metadata for
-    /// those rather than failing, so nothing here needs to skip them.
+    /// repo, one from `nb`, a plain `.txt`/`.mdx` file from an Obsidian
+    /// vault, or a `.qmd`/`.rmd`/`.markdown` file from some other tool)
+    /// still shows up: `Note::from_file` synthesizes metadata for those
+    /// rather than failing, so nothing here needs to skip them.
     pub fn list_dir(&self, relative: &Path) -> Result<(Vec<String>, Vec<Note>)> {
         let dir = self.path.join(relative);
         if !self.fs.exists(&dir) {
@@ -208,7 +256,14 @@ impl Notebook {
             } else if path
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| NOTE_EXTENSIONS.contains(&ext))
+                .is_some_and(|ext| {
+                    let lower = ext.to_ascii_lowercase();
+                    NOTE_EXTENSIONS.contains(&lower.as_str())
+                        || self
+                            .extra_extensions
+                            .iter()
+                            .any(|e| e.eq_ignore_ascii_case(&lower))
+                })
             {
                 notes.push(Note::from_file_in_notebook_with_crypto_and_fs(
                     &path,
@@ -316,8 +371,9 @@ impl Notebook {
     }
 
     /// Renames the note at `path`, keeping it in the same folder and the
-    /// same file extension — a `.txt`/`.mdx` note (see `NOTE_EXTENSIONS`)
-    /// renamed from inside shiki stays a `.txt`/`.mdx` file rather than
+    /// same file extension (original case included, e.g. a `.Rmd` file
+    /// stays `.Rmd`, not `.rmd`) — a non-`.md` note (see `NOTE_EXTENSIONS`)
+    /// renamed from inside shiki stays that same file type rather than
     /// being silently converted to `.md`, the one extension shiki itself
     /// ever creates new notes with.
     pub fn rename_note_at(&self, path: &Path, new_title: &str) -> Result<Note> {
@@ -495,6 +551,14 @@ pub struct NotebookStore {
     /// `vcs` above; a future non-native consumer (no local disk) supplies
     /// its own `FileStore` via `new_with_backends`.
     fs: std::sync::Arc<dyn crate::fs::FileStore>,
+    /// User-configured extra note extensions (see `Notebook::
+    /// with_extra_extensions`), propagated to every `Notebook` this store
+    /// hands out. Empty by default, same shape as `custom_paths`: a plain
+    /// `pub` field a caller can mutate directly in place (`shiki-tui`'s
+    /// Settings modal does exactly this when the setting changes), not
+    /// just a constructor parameter — so an edit takes effect immediately
+    /// without needing to rebuild the whole store.
+    pub extra_extensions: Vec<String>,
 }
 
 // `dyn VcsPort`/`dyn FileStore` don't implement `Debug` on their own (that
@@ -509,6 +573,7 @@ impl std::fmt::Debug for NotebookStore {
             .field("custom_paths", &self.custom_paths)
             .field("vcs", &"<dyn VcsPort>")
             .field("fs", &"<dyn FileStore>")
+            .field("extra_extensions", &self.extra_extensions)
             .finish()
     }
 }
@@ -808,6 +873,7 @@ impl NotebookStore {
             custom_paths,
             vcs,
             fs,
+            extra_extensions: Vec::new(),
         }
     }
 
@@ -829,7 +895,9 @@ impl NotebookStore {
             if path.is_dir() {
                 seen.insert(name.clone());
                 notebooks.push(
-                    Notebook::new(name.clone(), path.clone()).with_fs_backend(self.fs.clone()),
+                    Notebook::new(name.clone(), path.clone())
+                        .with_fs_backend(self.fs.clone())
+                        .with_extra_extensions(self.extra_extensions.clone()),
                 );
             }
         }
@@ -856,7 +924,11 @@ impl NotebookStore {
                     .unwrap_or_default();
                 // Don't add a notebook twice if a custom path uses the same name
                 if seen.insert(name.clone()) {
-                    notebooks.push(Notebook::new(name, path).with_fs_backend(self.fs.clone()));
+                    notebooks.push(
+                        Notebook::new(name, path)
+                            .with_fs_backend(self.fs.clone())
+                            .with_extra_extensions(self.extra_extensions.clone()),
+                    );
                 }
             }
         }
@@ -885,7 +957,9 @@ impl NotebookStore {
         if !self.fs.is_dir(&path) {
             return Err(Error::NotebookNotFound(name.to_string()));
         }
-        Ok(Notebook::new(name, path).with_fs_backend(self.fs.clone()))
+        Ok(Notebook::new(name, path)
+            .with_fs_backend(self.fs.clone())
+            .with_extra_extensions(self.extra_extensions.clone()))
     }
 
     /// Creates a new notebook with its own git repo.
@@ -901,7 +975,9 @@ impl NotebookStore {
         }
         self.fs.create_dir_all(&path)?;
         self.vcs.init_repo(&path)?;
-        Ok(Notebook::new(name, path).with_fs_backend(self.fs.clone()))
+        Ok(Notebook::new(name, path)
+            .with_fs_backend(self.fs.clone())
+            .with_extra_extensions(self.extra_extensions.clone()))
     }
 
     pub fn rename(&self, old_name: &str, new_name: &str) -> Result<Notebook> {
@@ -931,7 +1007,9 @@ impl NotebookStore {
             return Err(Error::NotebookExists(new_name.to_string()));
         }
         self.fs.rename(&old_path, &new_path)?;
-        Ok(Notebook::new(new_name, new_path).with_fs_backend(self.fs.clone()))
+        Ok(Notebook::new(new_name, new_path)
+            .with_fs_backend(self.fs.clone())
+            .with_extra_extensions(self.extra_extensions.clone()))
     }
 
     pub fn delete(&self, name: &str) -> Result<()> {
@@ -1013,12 +1091,18 @@ mod tests {
     }
 
     #[test]
-    fn list_dir_includes_txt_and_mdx_files_alongside_md() {
+    fn list_dir_includes_txt_mdx_qmd_rmd_and_markdown_files_alongside_md() {
         let tmp = tempfile::tempdir().unwrap();
         let nb = test_notebook(tmp.path(), "vault");
         nb.create_note("Shiki note", "body").unwrap();
         std::fs::write(nb.path.join("plain.txt"), "just text").unwrap();
         std::fs::write(nb.path.join("obsidian.mdx"), "# mdx content").unwrap();
+        std::fs::write(nb.path.join("analysis.qmd"), "# quarto content").unwrap();
+        // Real-world R Markdown convention is capital-R `.Rmd`, not `.rmd` —
+        // this exercises the case-insensitive extension match, not just the
+        // lowercase spelling already in `NOTE_EXTENSIONS`.
+        std::fs::write(nb.path.join("report.Rmd"), "# r markdown content").unwrap();
+        std::fs::write(nb.path.join("post.markdown"), "# jekyll post").unwrap();
         std::fs::write(nb.path.join("ignored.png"), []).unwrap();
 
         let (_, notes) = nb.list_dir(Path::new("")).unwrap();
@@ -1027,11 +1111,89 @@ mod tests {
         assert!(stems.contains(&"shiki-note".to_string()));
         assert!(stems.contains(&"plain".to_string()));
         assert!(stems.contains(&"obsidian".to_string()));
+        assert!(stems.contains(&"analysis".to_string()));
+        assert!(stems.contains(&"report".to_string()));
+        assert!(stems.contains(&"post".to_string()));
         assert_eq!(
             notes.len(),
-            3,
+            6,
             "non-note extensions must be excluded: {stems:?}"
         );
+    }
+
+    #[test]
+    fn list_dir_ignores_arbitrary_extensions_without_opt_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = test_notebook(tmp.path(), "vault");
+        std::fs::write(nb.path.join("script.py"), "print('hi')").unwrap();
+
+        let (_, notes) = nb.list_dir(Path::new("")).unwrap();
+
+        assert!(
+            notes.is_empty(),
+            ".py must not show up by default: {notes:?}"
+        );
+    }
+
+    #[test]
+    fn with_extra_extensions_makes_list_dir_pick_up_user_configured_extensions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("vault");
+        std::fs::create_dir_all(&path).unwrap();
+        let nb = Notebook::new("vault", path.clone())
+            .with_extra_extensions(vec!["py".to_string(), "org".to_string()]);
+        std::fs::write(path.join("script.py"), "print('hi')").unwrap();
+        std::fs::write(path.join("notes.org"), "* heading").unwrap();
+        std::fs::write(path.join("ignored.png"), []).unwrap();
+
+        let (_, notes) = nb.list_dir(Path::new("")).unwrap();
+        let stems: Vec<String> = notes.iter().map(|n| n.file_stem()).collect();
+
+        assert!(stems.contains(&"script".to_string()));
+        assert!(stems.contains(&"notes".to_string()));
+        assert_eq!(notes.len(), 2, "only opted-in extensions: {stems:?}");
+    }
+
+    #[test]
+    fn with_extra_extensions_matches_case_insensitively_and_strips_a_leading_dot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("vault");
+        std::fs::create_dir_all(&path).unwrap();
+        // A user might type ".PY" or "PY" or "py" in the settings prompt —
+        // all should behave identically.
+        let nb = Notebook::new("vault", path.clone())
+            .with_extra_extensions(vec![".PY".to_string(), "  ".to_string()]);
+        std::fs::write(path.join("script.py"), "print('hi')").unwrap();
+
+        let (_, notes) = nb.list_dir(Path::new("")).unwrap();
+
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].file_stem(), "script");
+    }
+
+    #[test]
+    fn notebook_store_propagates_extra_extensions_to_every_notebook_it_hands_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut store =
+            NotebookStore::new_with_custom_paths(tmp.path().to_path_buf(), HashMap::new());
+        store.extra_extensions = vec!["py".to_string()];
+        let created = store.create("code").unwrap();
+        std::fs::write(created.path.join("script.py"), "print('hi')").unwrap();
+
+        // Through `create`'s return value...
+        let (_, notes) = created.list_dir(Path::new("")).unwrap();
+        assert_eq!(notes.len(), 1);
+
+        // ...and independently through `get`/`list`, which mint a fresh
+        // `Notebook` from the store rather than reusing `created`.
+        let fetched = store.get("code").unwrap();
+        let (_, notes) = fetched.list_dir(Path::new("")).unwrap();
+        assert_eq!(notes.len(), 1);
+
+        let listed = store.list().unwrap();
+        let code = listed.iter().find(|n| n.name == "code").unwrap();
+        let (_, notes) = code.list_dir(Path::new("")).unwrap();
+        assert_eq!(notes.len(), 1);
     }
 
     #[test]
@@ -1067,6 +1229,38 @@ mod tests {
         let renamed = nb.rename_note_at(&path, "New Name").unwrap();
 
         assert_eq!(renamed.path.extension().unwrap(), "txt");
+        assert!(!path.exists());
+        assert!(renamed.path.exists());
+    }
+
+    #[test]
+    fn rename_note_at_preserves_a_qmd_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = test_notebook(tmp.path(), "vault");
+        let path = nb.path.join("old-analysis.qmd");
+        std::fs::write(&path, "---\ntitle: Old\n---\ncontent").unwrap();
+
+        let renamed = nb.rename_note_at(&path, "New Analysis").unwrap();
+
+        assert_eq!(renamed.path.extension().unwrap(), "qmd");
+        assert!(!path.exists());
+        assert!(renamed.path.exists());
+    }
+
+    #[test]
+    fn rename_note_at_preserves_the_original_case_of_a_capital_r_rmd_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = test_notebook(tmp.path(), "vault");
+        let path = nb.path.join("old-report.Rmd");
+        std::fs::write(&path, "---\ntitle: Old\n---\ncontent").unwrap();
+
+        let renamed = nb.rename_note_at(&path, "New Report").unwrap();
+
+        assert_eq!(
+            renamed.path.extension().unwrap(),
+            "Rmd",
+            "must stay .Rmd, not be lowercased to .rmd"
+        );
         assert!(!path.exists());
         assert!(renamed.path.exists());
     }

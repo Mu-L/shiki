@@ -1013,11 +1013,26 @@ Wikilinks also tolerate Obsidian's sub-address syntax — `[[note#heading]]` and
 resolve to `note` everywhere (the suffix is stripped before matching, never treated as part of the
 target text).
 
-Notebooks also tolerate `.txt` and `.mdx` files alongside `.md` when listing/reading notes — a
-notebook pointed at an existing Obsidian vault or similar commonly has both. New notes are always
-created as `.md`; renaming a `.txt`/`.mdx` note preserves its original extension. Dot-directories
-are never listed or descended into — beyond shiki's own `.git`, that keeps an adopted vault's
-`.obsidian/` (settings), `.trash/`, and friends from showing up as notebook folders.
+Notebooks also tolerate `.txt`, `.mdx`, `.qmd`, `.rmd`, and `.markdown` files alongside `.md` when
+listing/reading notes — a notebook pointed at an existing non-shiki directory shows those too
+instead of silently hiding them: an Obsidian vault commonly has `.txt`/`.mdx`, a Quarto
+scientific-publishing project uses `.qmd`, R Markdown (Quarto's direct predecessor, same
+community) uses `.rmd`, and some static-site generators (e.g. Jekyll) default to the verbose
+`.markdown` spelling. All of these are just Markdown with optional YAML frontmatter under a
+different name — the exact shape shiki already parses, no extra format-specific logic. The
+extension match is case-insensitive (R Markdown's real convention is capital-R `.Rmd`, not
+`.rmd`), but new notes are still always created as `.md`; renaming a non-`.md` note preserves its
+original extension, original case included. Dot-directories are never listed or descended into —
+beyond shiki's own `.git`, that keeps an adopted vault's `.obsidian/` (settings), `.trash/`, and
+friends from showing up as notebook folders.
+
+Beyond that built-in list, `general.note_extra_extensions` (Settings modal → GENERAL →
+`note_extra_extensions`, a comma-separated list, e.g. `py, org`) lets a notebook also treat
+arbitrary extra file types — source code, plain text, anything else already shaped like "content
+with optional YAML frontmatter" — as notes. Matched case-insensitively; a leading dot typed by
+habit (`.py` vs `py`) is tolerated. Empty by default: this is for genuinely user-chosen formats,
+not something shiki opts a notebook into on its own. Editing it in the Settings modal takes effect
+immediately, no restart needed.
 
 ---
 

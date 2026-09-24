@@ -6,6 +6,30 @@ semver yet (pre-1.0), but version bumps are still meaningful and tracked here.
 
 ## [Unreleased]
 
+### Added
+
+- **Document-format compatibility patch**: notebooks now tolerate `.qmd` (Quarto), `.rmd` (R
+  Markdown, Quarto's direct predecessor), and `.markdown` (the verbose spelling some static-site
+  generators default to) files alongside `.md`/`.mdx`/`.txt` when listing/reading notes
+  (`Notebook::list_dir`'s `NOTE_EXTENSIONS`), the same way `.mdx`/`.txt` support for Obsidian
+  vaults landed in 0.9.0 — a notebook pointed at an existing Quarto/R-Markdown/Jekyll project now
+  shows those files instead of silently hiding them. All of these are just Markdown with optional
+  YAML frontmatter under a different name, so no new per-format parsing was needed. The extension
+  match is now case-insensitive, since R Markdown's real-world convention is capital-R `.Rmd`, not
+  `.rmd` — without that, adding `.rmd` to the list wouldn't have actually recognized the files it
+  was for. New notes are still always created as `.md`; renaming a non-`.md` note preserves its
+  original extension, original case included, instead of converting it to `.md`. (#96)
+
+- **`general.note_extra_extensions`** — a new Settings modal (GENERAL tab) option letting a
+  notebook treat arbitrary extra file extensions (source code, plain text, anything else shaped
+  like content with optional YAML frontmatter) as notes too, on top of the built-in
+  `md`/`mdx`/`txt`/`qmd`/`rmd`/`markdown` list — e.g. `py, org` to also pick up Python scripts or
+  Org-mode files. Empty by default (this is for genuinely user-chosen formats, not something shiki
+  opts a notebook into on its own), matched case-insensitively, edited as a comma-separated list
+  the same way every other GENERAL text field already is. `Notebook::with_extra_extensions`/
+  `NotebookStore::extra_extensions` propagate it to every `Notebook` a store hands out, and editing
+  it in the Settings modal takes effect immediately — no restart needed. (#96)
+
 ## [0.10.0] - 2026-09-22
 
 ### Added
